@@ -60,7 +60,7 @@ class Manager:
             return df
 
         # Sort dataframe columns
-        df = df[['id', 'notes', *df.columns.difference(['id', 'notes'])]]
+        df = df[['id', 'notes', 'status', *df.columns.difference(['id', 'notes', 'status'])]]
         return df
 
     def sim(self, arg, sort: str = None, reverse: bool = False) -> Simulation:
@@ -112,12 +112,10 @@ class Manager:
             sim (:class:`~dbmanager.simulation.SimulationWriter`)
         """
         if parameters and not skip_duplicate_check:
-            go_on, _uid = self._check_duplicate(parameters)
+            go_on, uid = self._check_duplicate(parameters, uid)
             if not go_on:
                 print('Aborting by user desire...')
                 return None
-            if _uid:
-                uid = _uid
 
         if self.comm.rank==0:
             if not uid:
@@ -142,20 +140,21 @@ class Manager:
         """Get all simulation names in the database."""
         return [dir for dir in os.listdir(self.path) if os.path.isdir(os.path.join(self.path, dir))]
 
-    def _check_duplicate(self, parameters) -> tuple:
+    def _check_duplicate(self, parameters: dict, uid: str) -> tuple:
         """Checking whether the parameters dictionary exists already.
         May need to be improved...
 
         Args:
             parameters (dict): parameter dictionary to check for
+            uid (str): uid
         Returns:
             Tuple(Bool, uid) wheter to continue and with what uid.
         """
         duplicates = list()
 
-        for uid in self._get_uids():
-            with open_h5file(os.path.join(os.path.join(self.path, uid),
-                                        f'{uid}.h5'), 'r') as f:
+        for _uid in self._get_uids():
+            with open_h5file(os.path.join(os.path.join(self.path, _uid),
+                                        f'{_uid}.h5'), 'r') as f:
                 if 'parameters' not in f.keys():
                     continue
 
@@ -163,27 +162,27 @@ class Manager:
                 tmp_dict.update(f['parameters'].attrs)
 
                 if tmp_dict==parameters:
-                    duplicates.append((uid, 'equal'))
+                    duplicates.append((_uid, 'equal'))
                     continue
 
                 shared_keys = (tmp_dict.keys() & parameters.keys())
                 if ({key: tmp_dict[key] for key in shared_keys}
                     =={key: parameters[key] for key in shared_keys}):
-                    duplicates.append((uid, 'shared_equal'))
+                    duplicates.append((_uid, 'shared_equal'))
                     continue
 
         if not duplicates:
-            return True, None
+            return True, uid
 
         # What should be done?
         print(f"The parameter space may already exist. Here are the duplicates:", flush=True)
-        display(self.df[self.df['id'].isin([i[0] for i in duplicates])])
+        print(self.df[self.df['id'].isin([i[0] for i in duplicates])], flush=True)
         
         prompt = input("Create with altered uid (`c`), Create with new id (`n`), Abort (`a`)")
         if prompt=='a':
-            return False, None
+            return False, uid
         if prompt=='n':
-            return True, None
+            return True, uid
         if prompt=='c':
             return True, self._generate_subuid(duplicates[0][0].split('.')[0])
 

@@ -1,4 +1,5 @@
 from __future__ import annotations
+import traceback
 import os
 import shutil
 import subprocess
@@ -222,6 +223,18 @@ class SimulationReader(Simulation):
                 tmp_dictionary[data] = {'dtype': dtype, 'shape': shape, 'steps': steps}
             return pd.DataFrame.from_dict(tmp_dictionary)
 
+    @property
+    def git(self) -> str:
+        """Get Git information."""
+        with open_h5file(self.h5file, 'r') as file:
+            return file['git'][()].decode('utf8')
+
+    @property
+    def log(self) -> str:
+        """Get exception traceback of failed simulations"""
+        with open_h5file(self.h5file, 'r') as f:
+            return f['log'][()].decode('utf8')
+
     def data(self, name: str, step: int = None) -> SimpleNamespace:
         """Get the entire dataseries.
 
@@ -254,18 +267,6 @@ class SimulationReader(Simulation):
 
         return SimpleNamespace(t=times, arr=data)
 
-    @property
-    def git(self) -> str:
-        """Get Git information."""
-        with open_h5file(self.h5file, 'r') as file:
-            return file['git'][()].decode('utf8')
-
-    @property
-    def log(self) -> str:
-        """Get exception traceback of failed simulations"""
-        with open_h5file(self.h5file, 'r') as f:
-            return f['log'][()].decode('utf8')
-
     def get_data_interpolator(self, name: str, step: int):
         """Get Linear interpolator for data field.
 
@@ -288,15 +289,14 @@ class SimulationWriter(Simulation):
         self.step = 0
 
     def __enter__(self):
-        self.update_metadata({'status': 'Running'})
+        self.change_status('Running')
         return self
 
     def __exit__(self, exc_type, exc_val, exc_tb):
         if exc_type or exc_val:
-            self.update_metadata({'status': 'Failed'})
-            self._write_exception_traceback(exc_tb)           
+            self.change_status('Failed')
         else:
-            self.update_metadata({'status': 'Finished'})
+            self.change_status('Finished')
 
 
     def create(self) -> SimulationWriter:
@@ -307,8 +307,19 @@ class SimulationWriter(Simulation):
             if os.path.exists(self.h5file):
                 os.remove(self.h5file)  # remove existing file if exists
         self.add_metadata()
+        self.change_status('Initiated')
 
         return self
+
+    def change_status(self, status: str) -> None:
+        """Change status of simulation.
+
+        Args:
+            status (str): new status
+        """
+        if self.prank==0:
+            with open_h5file(self.h5file, 'a') as f:
+                f.attrs['status'] = status
 
     def add_metadata(self) -> None:
         """Add metadata to h5 file."""
@@ -317,7 +328,6 @@ class SimulationWriter(Simulation):
             with open_h5file(self.h5file, 'a') as f:
                 f.attrs['time_stamp'] = str(datetime.datetime.now().replace(second=0,
                                                                             microsecond=0))
-                f.attrs['status'] = 'Initiated'
                 f.attrs['id'] = self.uid
                 f.attrs['processors'] = nb_proc
                 f.attrs['notes'] = f.attrs.get('notes', "")
@@ -454,8 +464,7 @@ class SimulationWriter(Simulation):
 
     def finish_sim(self, status: str = 'Finished') -> None:
         if self.prank==0:
-            with open_h5file(self.h5file, 'a') as f:
-                f.attrs.modify('status', status)
+            self.change_status(status)
 
     def register_git_attributes(self) -> None:
         if self.prank==0:
@@ -474,12 +483,5 @@ class SimulationWriter(Simulation):
         shutil.copy(script_path, self.path)
         self.executable = os.path.split(script_path)[1]
 
-    def _write_exception_traceback(self, exc_tb) -> None:
-        if self.prank==0:
-            with open_h5file(self.h5file, 'a') as f:
-                if 'log' in f.keys():
-                    del f['log']
-                f.create_dataset('log', data=exc_tb)
-                
 
 
