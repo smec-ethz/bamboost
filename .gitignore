@@ -5,3 +5,4 @@
 *build*
 make.bat
 Makefile
+out/
