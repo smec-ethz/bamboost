@@ -1,0 +1,7 @@
+*.pdf
+*.py~
+*.*~
+*__pycache*
+*build*
+make.bat
+Makefile
