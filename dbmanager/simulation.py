@@ -260,6 +260,12 @@ class SimulationReader(Simulation):
         with open_h5file(self.h5file, 'r') as file:
             return file['git'][()].decode('utf8')
 
+    @property
+    def log(self) -> str:
+        """Get exception traceback of failed simulations"""
+        with open_h5file(self.h5file, 'r') as f:
+            return f['log'][()].decode('utf8')
+
     def get_data_interpolator(self, name: str, step: int):
         """Get Linear interpolator for data field.
 
@@ -280,6 +286,18 @@ class SimulationWriter(Simulation):
     def __init__(self, uid: str, path: str, comm: MPI.Comm = MPI.COMM_WORLD):
         super().__init__(uid, path, comm)
         self.step = 0
+
+    def __enter__(self):
+        self.update_metadata({'status': 'Running'})
+        return self
+
+    def __exit__(self, exc_type, exc_val, exc_tb):
+        if exc_type or exc_val:
+            self.update_metadata({'status': 'Failed'})
+            
+        else:
+            self.update_metadata({'status': 'Finished'})
+
 
     def create(self) -> SimulationWriter:
         """Create a new file for this simlation."""
@@ -455,6 +473,13 @@ class SimulationWriter(Simulation):
         """
         shutil.copy(script_path, self.path)
         self.executable = os.path.split(script_path)[1]
+
+    def _write_exception_traceback(self, exc_tb) -> None:
+        if self.prank==0:
+            with open_h5file(self.h5file, 'a') as f:
+                if 'log' in f.keys():
+                    del f['log']
+                f.create_dataset('log', data=exc_tb)
                 
 
 

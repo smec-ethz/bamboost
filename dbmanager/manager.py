@@ -106,10 +106,10 @@ class Manager:
                 will be assigned.
             parameters (dict): Parameter dictionary. If provided, the parameters will be 
                 checked against the existing sims for duplication. Otherwise, they may be 
-                specified later with `add_parameters`.
+                specified later with :func:`~dbmanager.simulation.SimulationWriter.add_parameters`.
             skip_duplicate_check (bool): if True, the duplicate check is skipped.
         Returns:
-            sim (SimulationWriter)
+            sim (:class:`~dbmanager.simulation.SimulationWriter`)
         """
         if parameters and not skip_duplicate_check:
             go_on, _uid = self._check_duplicate(parameters)
