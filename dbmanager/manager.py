@@ -48,7 +48,8 @@ class Manager:
             with open_h5file(os.path.join(os.path.join(self.path, uid),
                                         f'{uid}.h5'), 'r') as f:
                 tmp_dict = dict()
-                tmp_dict.update(f['parameters'].attrs)
+                if 'parameters' in f.keys():
+                    tmp_dict.update(f['parameters'].attrs)
                 if 'additionals' in f.keys():
                     tmp_dict.update({'additionals': f['additionals'].attrs})
                 tmp_dict.update(f.attrs)
@@ -94,7 +95,8 @@ class Manager:
         else:
             return sorted(existing_sims, key=lambda s: s.parameters[sort], reverse=reverse)
 
-    def create_simulation(self, uid: str = None, parameters: dict = None) -> SimulationWriter:
+    def create_simulation(self, uid: str = None, parameters: dict = None,
+                          skip_duplicate_check: bool = False) -> SimulationWriter:
         """Get a writer object for a new simulation. This is written for paralell
         as it is likely that this may be used in an executable creating multiple runs
         for a parametric space, which may be run in paralell.
@@ -105,18 +107,28 @@ class Manager:
             parameters (dict): Parameter dictionary. If provided, the parameters will be 
                 checked against the existing sims for duplication. Otherwise, they may be 
                 specified later with `add_parameters`.
+            skip_duplicate_check (bool): if True, the duplicate check is skipped.
         Returns:
             sim (SimulationWriter)
         """
-        if parameters:
-            uid, dup_type = self._check_duplicate(parameters)
+        if parameters and not skip_duplicate_check:
+            go_on, _uid = self._check_duplicate(parameters)
+            if not go_on:
+                print('Aborting by user desire...')
+                return None
+            if _uid:
+                uid = _uid
 
         if self.comm.rank==0:
             if not uid:
                 uid = uuid.uuid4().hex[:8]  # Assign random unique identifier
+
         uid = self.comm.bcast(uid, root=0)
         new_sim = SimulationWriter(uid, self.path, self.comm)            
-        return new_sim.create()
+        new_sim.create()
+        if parameters:
+            new_sim.add_parameters(parameters)
+        return new_sim
 
     def remove(self, uid: str) -> None:
         """CAUTION, DELETING DATA. Remove the data of a simulation.
@@ -127,19 +139,26 @@ class Manager:
         shutil.rmtree(os.path.join(self.path, uid))
 
     def _get_uids(self) -> list:
+        """Get all simulation names in the database."""
         return [dir for dir in os.listdir(self.path) if os.path.isdir(os.path.join(self.path, dir))]
 
     def _check_duplicate(self, parameters) -> tuple:
         """Checking whether the parameters dictionary exists already.
+        May need to be improved...
 
         Args:
             parameters (dict): parameter dictionary to check for
+        Returns:
+            Tuple(Bool, uid) wheter to continue and with what uid.
         """
         duplicates = list()
 
         for uid in self._get_uids():
             with open_h5file(os.path.join(os.path.join(self.path, uid),
                                         f'{uid}.h5'), 'r') as f:
+                if 'parameters' not in f.keys():
+                    continue
+
                 tmp_dict = dict()
                 tmp_dict.update(f['parameters'].attrs)
 
@@ -152,3 +171,37 @@ class Manager:
                     =={key: parameters[key] for key in shared_keys}):
                     duplicates.append((uid, 'shared_equal'))
                     continue
+
+        if not duplicates:
+            return True, None
+
+        # What should be done?
+        print(f"The parameter space may already exist. Here are the duplicates:", flush=True)
+        display(self.df[self.df['id'].isin([i[0] for i in duplicates])])
+        
+        prompt = input("Create with altered uid (`c`), Create with new id (`n`), Abort (`a`)")
+        if prompt=='a':
+            return False, None
+        if prompt=='n':
+            return True, None
+        if prompt=='c':
+            return True, self._generate_subuid(duplicates[0][0].split('.')[0])
+
+        raise ArgumentError('Answer not valid! Aborting')
+
+    def _generate_subuid(self, uid_base: str) -> str:
+        """Return a new sub uid for the base uid.
+        Following the following format: `base_uid.1`
+
+        Args:
+            uid_base (str): base uid for which to find the next subid.
+        Returns:
+            New uid string
+        """
+        uid_list = [uid for uid in self._get_uids() if uid.startswith(uid_base)]
+        subiterator = max([int(id.split('.')[1]) for id in uid_list if len(id.split('.'))>1] + [0])
+        return f'{uid_base}.{subiterator+1}'
+
+
+        
+

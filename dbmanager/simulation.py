@@ -299,7 +299,7 @@ class SimulationWriter(Simulation):
             with open_h5file(self.h5file, 'a') as f:
                 f.attrs['time_stamp'] = str(datetime.datetime.now().replace(second=0,
                                                                             microsecond=0))
-                f.attrs['status'] = 'Running'
+                f.attrs['status'] = 'Initiated'
                 f.attrs['id'] = self.uid
                 f.attrs['processors'] = nb_proc
                 f.attrs['notes'] = f.attrs.get('notes', "")
