@@ -5,12 +5,19 @@
 
 Welcome to dbmanager's documentation!
 =====================================
+**DBManager** is a Python library for managing data generation and storage. **DBManager** uses HDF5
+files for efficient storage and retrieval of data.
+
+.. note::
+   This project is under active development.
 
 .. toctree::
    :maxdepth: 2
    :caption: Contents:
 
-   dbmanager.rst
+   ./manual/getting_started.rst
+   ./manual/user_guide.rst
+   ./manual/developer_guide.rst
 
 
 Indices and tables

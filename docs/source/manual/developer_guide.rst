@@ -1,27 +1,6 @@
+Developer's Guide
+=================
 
-dbmanager.file\_handler module
-------------------------------
-
-.. automodule:: dbmanager.file_handler
-   :members:
-   :undoc-members:
-   :show-inheritance:
-
-dbmanager.git\_utility module
------------------------------
-
-.. automodule:: dbmanager.git_utility
-   :members:
-   :undoc-members:
-   :show-inheritance:
-
-dbmanager.job module
---------------------
-
-.. automodule:: dbmanager.job
-   :members:
-   :undoc-members:
-   :show-inheritance:
 
 dbmanager.manager module
 ------------------------
@@ -55,10 +34,10 @@ dbmanager.xdmf module
    :undoc-members:
    :show-inheritance:
 
-Module contents
----------------
 
-.. automodule:: dbmanager
-   :members:
-   :undoc-members:
-   :show-inheritance:
+dbmanager.common module
+-----------------------
+
+.. toctree::
+
+   common.rst
