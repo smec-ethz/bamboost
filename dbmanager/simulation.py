@@ -294,7 +294,7 @@ class SimulationWriter(Simulation):
     def __exit__(self, exc_type, exc_val, exc_tb):
         if exc_type or exc_val:
             self.update_metadata({'status': 'Failed'})
-            
+            self._write_exception_traceback(exc_tb)           
         else:
             self.update_metadata({'status': 'Finished'})
 
