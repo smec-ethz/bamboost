@@ -1,0 +1,39 @@
+import subprocess
+
+
+class GitStateGetter:
+
+    def __init__(self) -> None:
+        pass
+
+    @staticmethod
+    def _git_command(command: str) -> str:
+        process = subprocess.Popen(command.split(), stdout=subprocess.PIPE,
+                                   stderr=subprocess.PIPE, universal_newlines=True)
+        stdout, stderr = process.communicate()
+        return str(stdout)
+
+    def create_git_string(self) -> str:
+
+        self.string = ""
+
+        self.string += "\n"
+        self.string += "----- REMOTE ------ \n"
+        self.string += self._git_command("git remote -v")
+
+        self.string += "\n"
+        self.string += "----- BRANCH ------ \n"
+        self.string += self._git_command('git branch -v')
+
+        self.string += "\n"
+        self.string += "----- LAST COMMIT ------ \n"
+        self.string += self._git_command('git rev-parse -v')
+
+        self.string += "\n"
+        self.string += "----- STATUS ------ \n"
+        self.string += self._git_command('git status')
+
+        self.string += "----- DIFFERENCE ------ \n"
+        self.string += self._git_command('git diff HEAD')
+
+        return self.string
