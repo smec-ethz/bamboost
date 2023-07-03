@@ -235,14 +235,18 @@ class SimulationReader(Simulation):
         with open_h5file(self.h5file, 'r') as f:
             return f['log'][()].decode('utf8')
 
-    def data(self, name: str, step: int = None) -> SimpleNamespace:
-        """Get the entire dataseries.
+    def data(self, name: str, step: int = None, time: float = None) -> SimpleNamespace:
+        """Get the entire dataseries. Data can be extracted either at the specified
+        step or at the specified time (nearest).
 
         Args:
             name (str): Name of dataset
             step (int): None
+            time (float): Time at which data is desired
         Returns:
-            A tuple where the first array is the time, second the data for it.
+            SimpleNamespace with time `t` and data `arr`.
+            (with step) The data array of specified step.
+            (with time) A tuple where the first entry is data, second entry is the exact time.
         """
         with open_h5file(self.h5file, 'r') as file:
             grp = file[f'data/{name}']
@@ -253,6 +257,16 @@ class SimulationReader(Simulation):
                     last_step = max([int(i) for i in grp.keys()])
                     step = last_step + (step + 1)
                 return grp[str(step)][()]
+
+            # Return only specified time
+            if time!=None:
+                steps, times = [], []
+                for step in grp.keys():
+                    times.append(grp[step].attrs['t'])
+                    steps.append(step)
+                times = np.array(times)
+                closest_step_idx = np.argmin(np.abs(times - time))
+                return (grp[steps[closest_step_idx]][()], times[closest_step_idx])
 
             # Return timeseries if step not specified
             data, times = list(), list()
