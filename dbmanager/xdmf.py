@@ -1,8 +1,21 @@
 import os
 import h5py
 import xml.etree.ElementTree as ET
-from meshio.xdmf.common import numpy_to_xdmf_dtype
-from meshio._common import write_xml
+
+
+# `numpy_to_xdmf_dtype` from `meshio.xdmf.common`
+numpy_to_xdmf_dtype = {
+    "int8": ("Int", "1"),
+    "int16": ("Int", "2"),
+    "int32": ("Int", "4"),
+    "int64": ("Int", "8"),
+    "uint8": ("UInt", "1"),
+    "uint16": ("UInt", "2"),
+    "uint32": ("UInt", "4"),
+    "uint64": ("UInt", "8"),
+    "float32": ("Float", "4"),
+    "float64": ("Float", "8"),
+}
 
 
 class XDMFWriter:
@@ -20,8 +33,15 @@ class XDMFWriter:
         ET.register_namespace('xi', "https://www.w3.org/2001/XInclude/")
         self.mesh_name = 'mesh'
 
+    def _write_xml(filename, root):
+        """Function `write_xml` from `meshio._common`
+        """
+        tree = ET.ElementTree(root)
+        tree.write(filename)
+
     def write_file(self):
-        write_xml(self.filename, self.xdmf_file)
+        tree = ET.ElementTree(self.xdmf_file)
+        tree.write(self.filename)
 
     def write_points_cells(self, points_location: str, cells_location: str):
         """Write the mesh to the xdmf file.
