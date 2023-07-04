@@ -33,12 +33,6 @@ class XDMFWriter:
         ET.register_namespace('xi', "https://www.w3.org/2001/XInclude/")
         self.mesh_name = 'mesh'
 
-    def _write_xml(filename, root):
-        """Function `write_xml` from `meshio._common`
-        """
-        tree = ET.ElementTree(root)
-        tree.write(filename)
-
     def write_file(self):
         tree = ET.ElementTree(self.xdmf_file)
         tree.write(self.filename)
