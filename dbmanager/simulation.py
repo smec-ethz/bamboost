@@ -9,12 +9,13 @@ import pandas as pd
 import h5py
 import datetime
 from mpi4py import MPI
+from functools import wraps
 
 
 from .xdmf import XDMFWriter
 from .common.git_utility import GitStateGetter
 from .common.job import Job
-from .common.file_handler import open_h5file
+from .common.file_handler import open_h5file, memmap_decorator
 
 
 class Simulation:
@@ -32,6 +33,7 @@ class Simulation:
         os.makedirs(self.path, exist_ok=True)
         self.h5file = os.path.join(self.path, f'{self.uid}.h5')
         self.xdmffile = os.path.join(self.path, f'{self.uid}.xdmf')
+        self._file_object = None  # h5py File object, accessible if open
         self.mesh_location = 'Mesh/0/mesh/'
 
         # MPI information
@@ -39,6 +41,22 @@ class Simulation:
         self.psize = self.comm.size
         self.prank = self.comm.rank
         self.ranks = np.array([i for i in range(self.psize)])
+
+    def open(self, mode: str = 'r') -> h5py.File:
+        """Open the HDF5 file.
+
+        Args:
+            mode (`str`): mode to open file (e.g. 'r')
+        Returns:
+            h5py file object
+        """
+        self._file_object = open_h5file(self.h5file, mode=mode)
+        return self._file_object
+
+    def close(self) -> None:
+        """Close the HDF5 file."""
+        if self._file_object:
+            self._file_object.close()
 
     @property
     def parameters(self):
@@ -180,6 +198,8 @@ class SimulationReader(Simulation):
     # Reading methods
     # -------------------------------------------------------------------------
 
+    memmap = False
+
     def print_hdf5_file_structure(self):
         """Print data in file."""
         with open_h5file(self.h5file, 'r') as file:
@@ -235,6 +255,7 @@ class SimulationReader(Simulation):
         with open_h5file(self.h5file, 'r') as f:
             return f['log'][()].decode('utf8')
 
+    @memmap_decorator
     def data(self, name: str, step: int = None, time: float = None) -> SimpleNamespace:
         """Get the entire dataseries. Data can be extracted either at the specified
         step or at the specified time (nearest).
@@ -248,38 +269,60 @@ class SimulationReader(Simulation):
             (with step) The data array of specified step.
             (with time) A tuple where the first entry is data, second entry is the exact time.
         """
-        with open_h5file(self.h5file, 'r') as file:
-            grp = file[f'data/{name}']
+        file = self._file_object
+        grp = file[f'data/{name}']
 
-            # Return only specified step
-            if step!=None:
-                if step<0:
-                    last_step = max([int(i) for i in grp.keys()])
-                    step = last_step + (step + 1)
-                return grp[str(step)][()]
+        # Return only specified step
+        if step!=None:
+            if step<0:
+                last_step = max([int(i) for i in grp.keys()])
+                step = last_step + (step + 1)
+            return grp[str(step)]
 
-            # Return only specified time
-            if time!=None:
-                steps, times = [], []
-                for step in grp.keys():
-                    times.append(grp[step].attrs['t'])
-                    steps.append(step)
-                times = np.array(times)
-                closest_step_idx = np.argmin(np.abs(times - time))
-                return (grp[steps[closest_step_idx]][()], times[closest_step_idx])
+        # Return only specified time
+        if time!=None:
+            steps, times = [], []
+            for step in grp.keys():
+                times.append(grp[step].attrs['t'])
+                steps.append(step)
+            times = np.array(times)
+            closest_step_idx = np.argmin(np.abs(times - time))
+            return (grp[steps[closest_step_idx]], times[closest_step_idx])
 
-            # Return timeseries if step not specified
-            data, times = list(), list()
-            step = 0
-            while True:
-                try:
-                    times.append(grp[str(step)].attrs.get('t', step))
-                    data.append(grp[str(step)][()])
-                    step += 1
-                except KeyError:
-                    break
+        times = list()    
+        step = 0
+        while True:
+            try:
+                times.append(grp[str(step)].attrs.get('t', step))
+                step += 1
+            except KeyError:
+                break
 
-        return SimpleNamespace(t=times, arr=data)
+        # Return full dataset if step not specified
+        if '_VDS' not in file.keys() or name not in file['_VDS'].keys():
+            self._create_vds(name, step)
+
+        return SimpleNamespace(t=times, arr=self._file_object[f'_VDS/{name}'])
+
+    def _create_vds(self, name, length) -> None:
+        """Create virtual dataset of the full timeseries of a field.
+        Requires HDF5 > 1.10 !
+        """
+        self.close()
+        self.open('r+')
+        print('aorijaog')
+        grp = self._file_object[f'data/{name}']
+        shape_i = grp['0'].shape
+        dtype_i = grp['0'].dtype
+        layout = h5py.VirtualLayout(shape=(length, *shape_i), dtype=dtype_i)
+        
+        for step in range(length):
+            vsource = h5py.VirtualSource(grp[str(step)])
+            layout[step] = vsource
+
+        # Add virtual dataset to VDS group
+        self._file_object.require_group('_VDS')
+        self._file_object.create_virtual_dataset(f'_VDS/{name}', layout)
 
     def get_data_interpolator(self, name: str, step: int):
         """Get Linear interpolator for data field.
