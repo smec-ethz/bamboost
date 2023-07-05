@@ -15,6 +15,7 @@ from .xdmf import XDMFWriter
 from .common.git_utility import GitStateGetter
 from .common.job import Job
 from .common.file_handler import open_h5file
+from .common.utilities import flatten_dict, unflatten_dict
 
 
 class Simulation:
@@ -48,6 +49,7 @@ class Simulation:
                 tmp_dict.update(file['parameters'].attrs)
                 for key in file['parameters'].keys():
                     tmp_dict.update({key: file[f'parameters/{key}'][()]})
+        tmp_dict = unflatten_dict(tmp_dict)
 
         tmp_dict = self.comm.bcast(tmp_dict, root=0)
         return tmp_dict
@@ -353,15 +355,15 @@ class SimulationWriter(Simulation):
             parameters (dict): Dictionary with parameters.
         """
         if self.prank==0:
+            # flatten parameters
+            parameters = flatten_dict(parameters)
+
             with open_h5file(self.h5file, 'a') as f:
                 if 'parameters' in f.keys():
                     del f['parameters']
                 grp = f.create_group('/parameters')
                 for key, val in parameters.items():
-                    if isinstance(val, dict):
-                        grp.attrs.update(val)
-                        continue
-                    elif isinstance(val, np.ndarray):
+                    if isinstance(val, np.ndarray):
                         grp.create_dataset(key, data=val)
                     elif val is not None:
                         grp.attrs[key] = val
