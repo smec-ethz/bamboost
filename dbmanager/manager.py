@@ -178,7 +178,11 @@ class Manager:
         print(f"The parameter space may already exist. Here are the duplicates:", flush=True)
         print(self.df[self.df['id'].isin([i[0] for i in duplicates])], flush=True)
         
-        prompt = input("Create with altered uid (`c`), Create with new id (`n`), Abort (`a`)")
+        prompt = input("Replace first duplicate ('r'), Create with altered uid (`c`),"
+                       + "Create new with new id (`n`), Abort (`a`)")
+        if prompt=='r':
+            self.remove(duplicates[0][0])
+            return True, uid
         if prompt=='a':
             return False, uid
         if prompt=='n':
