@@ -12,7 +12,6 @@ setup(
     install_requires=[
         'h5py',
         'pandas',
-        'argparse',
         'mpi4py',
         'numpy',
         ],
