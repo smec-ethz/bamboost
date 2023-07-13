@@ -26,7 +26,11 @@ def temporary_open_file(mode: str = 'r'):
         @wraps(method)
         def wrapper(self, *args, **kwargs):
             if self.opts['dataset.ram']:
-                with self.open(mode):
+                if not self._file:
+                    with self.open(mode):
+                        return method(self, *args, **kwargs)
+                else:
+                    self.open(mode)
                     return method(self, *args, **kwargs)
             else:
                 assert self._file, "If `dataset.ram` is OFF you need to manually open/close the file"
@@ -37,6 +41,11 @@ def temporary_open_file(mode: str = 'r'):
         return wrapper
     return decorator
 
+
+class SimpleNamespaceData(SimpleNamespace):
+    """Implement `__getitem__` to access `arr` attribute directly."""
+    def __getitem__(self, slice):
+        return self.arr[slice]
 
 class Simulation:
     """A single dataset/simulation. Used to write to it, read from it or append.
@@ -50,6 +59,7 @@ class Simulation:
             'dataset.ram': True,
             }
     _file = None
+    _mesh_location = 'Mesh/0/'
 
     def __init__(self, uid: str, path: str, comm: MPI.Comm = MPI.COMM_WORLD):
         self.uid = uid
@@ -58,13 +68,23 @@ class Simulation:
         os.makedirs(self.path, exist_ok=True)
         self.h5file = os.path.join(self.path, f'{self.uid}.h5')
         self.xdmffile = os.path.join(self.path, f'{self.uid}.xdmf')
-        self.mesh_location = 'Mesh/0/mesh/'
 
         # MPI information
         self.comm = comm
         self.psize = self.comm.size
         self.prank = self.comm.rank
         self.ranks = np.array([i for i in range(self.psize)])
+
+    @temporary_open_file('r')
+    def __getitem__(self, path: str) -> h5py._hl.base:
+        """Directly access data in the hdf5 file tree.
+
+        Args:
+            path (`str`): path inside hdf5 file
+        Returns:
+            h5py object at specified path
+        """
+        return self._file[path]
 
     def open(self, mode: str = 'r', driver=None, comm=None) -> h5py.File:
         """Open the HDF5 file.
@@ -109,18 +129,6 @@ class Simulation:
         tmp_dict = self.comm.bcast(tmp_dict, root=0)
         return tmp_dict
 
-    @property
-    def post(self) -> SimpleNamespace:
-        """Return the data stored in the postprocess category.
-
-        Returns:
-            SimpleNamespace with all data.
-        """
-        with self.open('r') as f:
-            data = f['postprocess']
-            d = {key: data[key][()] for key in data.keys()}
-        return SimpleNamespace(**d)
-
     def update_metadata(self, update_dict: dict) -> None:
         """Update the metadata attributes.
 
@@ -162,8 +170,8 @@ class Simulation:
                     fields = list(f['data'].keys())
 
             xdmf_writer = XDMFWriter(self.xdmffile, self.h5file)
-            xdmf_writer.write_points_cells(f'{self.mesh_location}geometry',
-                                           f'{self.mesh_location}topology')
+            xdmf_writer.write_points_cells(f'{self._mesh_location}geometry',
+                                           f'{self._mesh_location}topology')
 
             xdmf_writer.add_timeseries(nb_steps+1, fields)
             xdmf_writer.write_file()
@@ -230,8 +238,6 @@ class SimulationReader(Simulation):
     # Reading methods
     # -------------------------------------------------------------------------
 
-    memmap = False
-
     def print_hdf5_file_structure(self):
         """Print data in file."""
         with open_h5file(self.h5file, 'r') as file:
@@ -248,11 +254,19 @@ class SimulationReader(Simulation):
         return self._dataset(self._file[f'{path}'])
 
     @property
-    @temporary_open_file('r')
     def mesh(self):
-        """Return coordinates and connectivity."""
-        coordinates = self._dataset(self._file[f'{self.mesh_location}/geometry'])
-        cells = self._dataset(self._file[f'{self.mesh_location}/topology'])
+        """Return coordinates and connectivity of default mesh."""
+        return self.get_mesh()
+
+    @temporary_open_file('r')
+    def get_mesh(self, mesh_name: str = 'mesh'):
+        """Return coordinates and connectivity.
+
+        Args:
+            mesh_name (`str`): optional, name of mesh to read (default = mesh)
+        """
+        coordinates = self._dataset(self._file[f'{self._mesh_location}/{mesh_name}/geometry'])
+        cells = self._dataset(self._file[f'{self._mesh_location}/{mesh_name}/topology'])
         return coordinates, cells
 
     @property
@@ -298,7 +312,8 @@ class SimulationReader(Simulation):
             return f['log'][()].decode('utf8')
 
     @temporary_open_file('r')
-    def data(self, name: str, step: int = None, time: float = None) -> SimpleNamespace:
+    def data(self, name: str, step: int = None, time: float = None,
+             read_linked_mesh: bool = False) -> SimpleNamespaceData:
         """Get the entire dataseries. Data can be extracted either at the specified
         step or at the specified time (nearest).
 
@@ -306,18 +321,26 @@ class SimulationReader(Simulation):
             name (str): Name of dataset
             step (int): Step to extract
             time (float): Time to extract (closest available)
+            read_linked_mesh (bool): If True, the mesh is returned too in the Namespace
         Returns:
-            :class:`SimpleNamespace` with time(s) `t` and data `arr`.
+            :class:`SimpleNamespace` with time(s) `t`, data `arr`, and mesh `mesh`.
         """
         grp = self._file[f'data/{name}']
+
+        if read_linked_mesh:
+            # Reads mesh of first step, needs thought if adaptive mesh is gonna be implemented
+            linked_mesh = grp[str(0)].attrs.get('mesh', 'mesh')  # second mesh is default name
+            mesh = self.get_mesh(linked_mesh)
+        else:
+            mesh = None
 
         # Return only specified step
         if step!=None:
             if step<0:
                 last_step = max([int(i) for i in grp.keys()])
                 step = last_step + (step + 1)
-                time = grp[str(step)].attrs.get('t', step)
-            return SimpleNamespace(t=time, arr=self._dataset(grp[str(step)]))
+            time = grp[str(step)].attrs.get('t', step)
+            return SimpleNamespaceData(t=time, arr=self._dataset(grp[str(step)]), mesh=mesh)
 
         # Return only specified time
         if time!=None:
@@ -327,8 +350,9 @@ class SimulationReader(Simulation):
                 steps.append(step)
             times = np.array(times)
             closest_step_idx = np.argmin(np.abs(times - time))
-            return SimpleNamespace(t=times[closest_step_idx],
-                                   arr=self._dataset(grp[steps[closest_step_idx]]))
+            return SimpleNamespaceData(t=times[closest_step_idx],
+                                   arr=self._dataset(grp[steps[closest_step_idx]]),
+                                   mesh=mesh)
 
         times = list()    
         step = 0
@@ -343,8 +367,21 @@ class SimulationReader(Simulation):
         if '_VDS' not in self._file.keys() or name not in self._file['_VDS'].keys():
             self._create_vds(name, step)
 
-        return SimpleNamespace(t=np.array(times),
-                               arr=self._dataset(self._file[f'_VDS/{name}']))
+        return SimpleNamespaceData(t=np.array(times),
+                               arr=self._dataset(self._file[f'_VDS/{name}']),
+                               mesh=mesh)
+
+    @property
+    def post(self) -> SimpleNamespace:
+        """Return the data stored in the postprocess category.
+
+        Returns:
+            SimpleNamespace with all data.
+        """
+        with self.open('r') as f:
+            data = f['postprocess']
+            d = {key: data[key][()] for key in data.keys()}
+        return SimpleNamespace(**d)
 
     def _dataset(self, ds: h5py._hl.dataset) -> h5py._hl.dataset:
         if self.opts['dataset.ram']:
@@ -456,14 +493,16 @@ class SimulationWriter(Simulation):
                     else:
                         pass
 
-    def add_mesh(self, coordinates, connectivity) -> None:
+    def add_mesh(self, coordinates, connectivity, mesh_name: str = 'mesh') -> None:
         """Add the mesh to file. Currently only 2d meshes.
 
         Args:
             coordinates (np.array): Coordinates as array (nb_nodes, dim)
             connectivity (np.array): Connectivity matrix (nb_cells, nb nodes per cell)
+            mesh_name (`str`): name for mesh (default = `base`)
         """
-        self.mesh_location = 'Mesh/0/mesh/'
+        # self._mesh_location = 'Mesh/0/mesh/'
+        mesh_location = f'Mesh/0/{mesh_name}/'
         
         nb_nodes_local = coordinates.shape[0]
         nb_cells_local = connectivity.shape[0]
@@ -472,6 +511,10 @@ class SimulationWriter(Simulation):
         nb_nodes_p = np.array(self.comm.allgather(nb_nodes_local))
         nb_cells_p = np.array(self.comm.allgather(nb_cells_local))
         nb_nodes, nb_cells = np.sum(nb_nodes_p), np.sum(nb_cells_p)
+
+        # shape of datasets
+        coord_shape = (nb_nodes, coordinates.shape[1]) if coordinates.ndim>1 else (nb_nodes,)
+        conn_shape = (nb_cells, connectivity.shape[1]) if connectivity.ndim>1 else (nb_cells,)
 
         # global indices nodes
         idx_start = np.sum(nb_nodes_p[self.ranks<self.prank])
@@ -483,9 +526,9 @@ class SimulationWriter(Simulation):
         connectivity = connectivity + idx_start
 
         with open_h5file(self.h5file, 'a', driver='mpio', comm=self.comm) as f:
-            grp = f.require_group(self.mesh_location)
-            coord = grp.require_dataset('geometry', shape=(nb_nodes, 2), dtype='f')
-            conn  = grp.require_dataset('topology', shape=(nb_cells, 3), dtype='i')
+            grp = f.require_group(mesh_location)
+            coord = grp.require_dataset('geometry', shape=coord_shape, dtype='f')
+            conn  = grp.require_dataset('topology', shape=conn_shape, dtype='i')
 
             coord[idx_start:idx_end] = coordinates
             conn[idx_start_cells:idx_end_cells] = connectivity
@@ -493,13 +536,15 @@ class SimulationWriter(Simulation):
             coord.flush()
             conn.flush()
 
-    def add_field(self, name: str, vector: np.array, time: float = None) -> None:
+    def add_field(self, name: str, vector: np.array,
+                  time: float = None, mesh: str = 'mesh') -> None:
         """Add a dataset to the file. The data is stored at `data/`.
 
         Args:
             name (str): Name for the dataset
             vector (np.array): Dataset
             time (float): time
+            mesh (str): Linked mesh for this data
         """
         # Get dimension of vector
         try:
@@ -526,6 +571,7 @@ class SimulationWriter(Simulation):
             vec[idx_start:idx_end, :] = vector
             if time:
                 vec.attrs['t'] = time  # add time as attribute to dataset
+                vec.attrs['mesh'] = mesh  # add link to mesh as attribute
             vec.flush()
 
     def add_global_field(self, name: str, value: float) -> None:
@@ -611,5 +657,4 @@ class SimulationWriter(Simulation):
             path_to_file (`str`): path to file
         """
         shutil.copy(path_to_file, self.path)
-
 
