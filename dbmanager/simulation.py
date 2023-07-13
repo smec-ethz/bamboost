@@ -30,6 +30,7 @@ def temporary_open_file(mode: str = 'r'):
                     with self.open(mode):
                         return method(self, *args, **kwargs)
                 else:
+                    self.open(mode)
                     return method(self, *args, **kwargs)
             else:
                 assert self._file, "If `dataset.ram` is OFF you need to manually open/close the file"
@@ -338,7 +339,7 @@ class SimulationReader(Simulation):
             if step<0:
                 last_step = max([int(i) for i in grp.keys()])
                 step = last_step + (step + 1)
-                time = grp[str(step)].attrs.get('t', step)
+            time = grp[str(step)].attrs.get('t', step)
             return SimpleNamespaceData(t=time, arr=self._dataset(grp[str(step)]), mesh=mesh)
 
         # Return only specified time
@@ -511,6 +512,10 @@ class SimulationWriter(Simulation):
         nb_cells_p = np.array(self.comm.allgather(nb_cells_local))
         nb_nodes, nb_cells = np.sum(nb_nodes_p), np.sum(nb_cells_p)
 
+        # shape of datasets
+        coord_shape = (nb_nodes, coordinates.shape[1]) if coordinates.ndim>1 else (nb_nodes,)
+        conn_shape = (nb_cells, connectivity.shape[1]) if connectivity.ndim>1 else (nb_cells,)
+
         # global indices nodes
         idx_start = np.sum(nb_nodes_p[self.ranks<self.prank])
         idx_end = idx_start + nb_nodes_local
@@ -522,8 +527,8 @@ class SimulationWriter(Simulation):
 
         with open_h5file(self.h5file, 'a', driver='mpio', comm=self.comm) as f:
             grp = f.require_group(mesh_location)
-            coord = grp.require_dataset('geometry', shape=(nb_nodes, 2), dtype='f')
-            conn  = grp.require_dataset('topology', shape=(nb_cells, 3), dtype='i')
+            coord = grp.require_dataset('geometry', shape=coord_shape, dtype='f')
+            conn  = grp.require_dataset('topology', shape=conn_shape, dtype='i')
 
             coord[idx_start:idx_end] = coordinates
             conn[idx_start_cells:idx_end_cells] = connectivity
