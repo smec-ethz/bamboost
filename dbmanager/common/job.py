@@ -35,7 +35,7 @@ class Job:
         # user defined commands
         script += '\n'
         for cmd in commands:
-            script += cmd.format(MPI=mpicommand)
+            script += cmd.format(MPI=mpicommand)+'\n'
 
         # write to submission file
         with open(os.path.join(os.path.join(path, uid), f'sbatch_{uid}.sh'), 'w') as file:
