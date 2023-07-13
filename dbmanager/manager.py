@@ -96,7 +96,7 @@ class Manager:
             A list of `:class:~dbmanager.simulation.SimulationReader` objects
         """
         exclude = list([exclude]) if isinstance(exclude, str) else exclude
-        id_list = set(self.df['id'].values).difference(exclude)
+        id_list = [id for id in self.df['id'].values if id not in exclude]
         existing_sims = [SimulationReader(uid, self.path, self.comm) for uid in id_list]
 
         if sort is None:
