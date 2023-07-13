@@ -276,10 +276,20 @@ class SimulationReader(Simulation):
         return pd.DataFrame.from_dict(tmp_dictionary)
 
     @property
-    def git(self) -> str:
-        """Get Git information."""
-        with open_h5file(self.h5file, 'r') as file:
-            return file['git'][()].decode('utf8')
+    @temporary_open_file('r')
+    def git(self) -> dict:
+        """Get Git information.
+
+        Returns:
+            Dictionary with different repositories.
+        """
+        if 'git' not in self._file.keys():
+            return "Sorrrry, no git information stored :()"
+        grp = self._file['git']
+        tmp_dict = {}
+        for repo in grp.keys():
+            tmp_dict[repo] = grp[repo][()].decode('utf8')
+        return tmp_dict
 
     @property
     def log(self) -> str:
@@ -558,16 +568,35 @@ class SimulationWriter(Simulation):
         if self.prank==0:
             self.change_status(status)
 
-    def register_git_attributes(self) -> None:
+    def register_git_attributes(self, repo_path: str = './') -> None:
+        """Register git information for given repo.
+
+        Args:
+            repo_path (`str`): path to git repository
+        """
         if self.prank==0:
+            repo_path = os.path.abspath(repo_path)
+            # store current working directory
+            cwd = os.getcwd()
+            
+            # switch directory to git repo
+            os.chdir(repo_path)
             git_string = GitStateGetter().create_git_string()
-            with open_h5file(self.h5file, 'a') as f:
-                if 'git' in f.keys():
-                    del f['git']
-                f.create_dataset('git', data=git_string)
+
+            # switch working directory back
+            os.chdir(cwd)
+
+            with self.open('a') as f:
+                grp = f.require_group('git')
+                repo_name = os.path.split(repo_path)[1]
+                print(f"Adding repo {repo_name}")
+                if repo_name in grp.keys():
+                    del grp[repo_name]
+                grp.create_dataset(repo_name, data=git_string)
 
     def copy_executable(self, script_path: str) -> None:
-        """Copy the executable to directory for reproducability.
+        """WILL BE REMOVED. USE COPY_FILE.
+        Copy an executable to directory for reproducability.
 
         Args:
             script_path: path to script
@@ -575,5 +604,12 @@ class SimulationWriter(Simulation):
         shutil.copy(script_path, self.path)
         self.executable = os.path.split(script_path)[1]
 
+    def copy_file(self, path_to_file: str) -> None:
+        """Copy a file to the datafolder.
+
+        Args:
+            path_to_file (`str`): path to file
+        """
+        shutil.copy(path_to_file, self.path)
 
 
