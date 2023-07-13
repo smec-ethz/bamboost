@@ -1,4 +1,6 @@
+from itertools import cycle
 import time
+import sys
 import h5py
 
 
@@ -11,9 +13,9 @@ def open_h5file(file: str, mode, driver=None, comm=None):
         driver (str): driver for h5.File
         comm: MPI communicator
     """
+    dots = cycle(['.','..','...'])
     while True:
         try:
-
             try:
                 if driver=='mpio' and h5py._MPI_ACTIVE:
                     return h5py.File(file, mode, driver=driver, comm=comm)
@@ -23,5 +25,6 @@ def open_h5file(file: str, mode, driver=None, comm=None):
                 return h5py.File(file, mode)
 
         except OSError:
+            print(f"File {file} not accessible, waiting{next(dots)}", flush=True, end="\r") 
             time.sleep(1)
-            print(f'File {file} not accessible, waiting...', end='\r') 
+            sys.stdout.write("\033[K")
