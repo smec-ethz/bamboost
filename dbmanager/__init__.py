@@ -3,5 +3,5 @@ __copyright__ = ''
 __license__ = 'LGPLv3'
 
 from .manager import Manager
-from .simulation import Simulation
+from .simulation import Simulation, SimulationReader, SimulationWriter
 from .postprocessor import Postprocessor
