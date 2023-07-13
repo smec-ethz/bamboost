@@ -15,7 +15,24 @@ from functools import wraps
 from .xdmf import XDMFWriter
 from .common.git_utility import GitStateGetter
 from .common.job import Job
-from .common.file_handler import open_h5file, memmap_decorator
+from .common.file_handler import open_h5file
+
+
+def temporary_open_file(mode: str = 'r'):
+    """Decorator.
+    If opts['dataset.ram'] = False, the file should be opened and closed at end of function
+    """
+    def decorator(method):
+        @wraps(method)
+        def wrapper(self, *args, **kwargs):
+            if self.opts['dataset.ram']:
+                with self.open(mode) as self._file:
+                    return method(self, *args, **kwargs)
+            else:
+                assert self._file, "If `dataset.ram` is ON you need to manually open/close the file"
+                return method(self, *args, **kwargs)
+        return wrapper
+    return decorator
 
 
 class Simulation:
@@ -26,6 +43,11 @@ class Simulation:
         path (str): path to parent/database folder
         comm (MPI.Comm): MPI communicator (default=MPI.COMM_WORLD)
     """
+    opts = {
+            'dataset.ram': True,
+            }
+    _file = None
+
     def __init__(self, uid: str, path: str, comm: MPI.Comm = MPI.COMM_WORLD):
         self.uid = uid
         self.parent_path = path
@@ -33,7 +55,6 @@ class Simulation:
         os.makedirs(self.path, exist_ok=True)
         self.h5file = os.path.join(self.path, f'{self.uid}.h5')
         self.xdmffile = os.path.join(self.path, f'{self.uid}.xdmf')
-        self._file_object = None  # h5py File object, accessible if open
         self.mesh_location = 'Mesh/0/mesh/'
 
         # MPI information
@@ -50,13 +71,13 @@ class Simulation:
         Returns:
             h5py file object
         """
-        self._file_object = open_h5file(self.h5file, mode=mode)
-        return self._file_object
+        self._file = open_h5file(self.h5file, mode=mode)
+        return self._file
 
     def close(self) -> None:
         """Close the HDF5 file."""
-        if self._file_object:
-            self._file_object.close()
+        if self._file:
+            self._file.close()
 
     @property
     def parameters(self):
@@ -255,29 +276,27 @@ class SimulationReader(Simulation):
         with open_h5file(self.h5file, 'r') as f:
             return f['log'][()].decode('utf8')
 
-    @memmap_decorator
+    @temporary_open_file('r')
     def data(self, name: str, step: int = None, time: float = None) -> SimpleNamespace:
         """Get the entire dataseries. Data can be extracted either at the specified
         step or at the specified time (nearest).
 
         Args:
             name (str): Name of dataset
-            step (int): None
-            time (float): Time at which data is desired
+            step (int): Step to extract
+            time (float): Time to extract (closest available)
         Returns:
-            SimpleNamespace with time `t` and data `arr`.
-            (with step) The data array of specified step.
-            (with time) A tuple where the first entry is data, second entry is the exact time.
+            :class:`SimpleNamespace` with time(s) `t` and data `arr`.
         """
-        file = self._file_object
-        grp = file[f'data/{name}']
+        grp = self._file[f'data/{name}']
 
         # Return only specified step
         if step!=None:
             if step<0:
                 last_step = max([int(i) for i in grp.keys()])
                 step = last_step + (step + 1)
-            return grp[str(step)]
+                time = grp[str(step)].attrs.get('t', step)
+            return SimpleNamespace(t=time, arr=self._dataset(grp[str(step)]))
 
         # Return only specified time
         if time!=None:
@@ -287,7 +306,8 @@ class SimulationReader(Simulation):
                 steps.append(step)
             times = np.array(times)
             closest_step_idx = np.argmin(np.abs(times - time))
-            return (grp[steps[closest_step_idx]], times[closest_step_idx])
+            return SimpleNamespace(t=times[closest_step_idx],
+                                   arr=self._dataset(grp[steps[closest_step_idx]]))
 
         times = list()    
         step = 0
@@ -299,19 +319,26 @@ class SimulationReader(Simulation):
                 break
 
         # Return full dataset if step not specified
-        if '_VDS' not in file.keys() or name not in file['_VDS'].keys():
+        if '_VDS' not in self._file.keys() or name not in self._file['_VDS'].keys():
             self._create_vds(name, step)
 
-        return SimpleNamespace(t=times, arr=self._file_object[f'_VDS/{name}'])
+        return SimpleNamespace(t=np.array(times),
+                               arr=self._dataset(self._file[f'_VDS/{name}']))
+
+    def _dataset(self, ds: h5py._hl.dataset) -> h5py._hl.dataset:
+        if self.opts['dataset.ram']:
+            return ds[()]
+        return ds
 
     def _create_vds(self, name, length) -> None:
         """Create virtual dataset of the full timeseries of a field.
         Requires HDF5 > 1.10 !
         """
+        # Close and reopen with writing rights
         self.close()
         self.open('r+')
-        print('aorijaog')
-        grp = self._file_object[f'data/{name}']
+
+        grp = self._file[f'data/{name}']
         shape_i = grp['0'].shape
         dtype_i = grp['0'].dtype
         layout = h5py.VirtualLayout(shape=(length, *shape_i), dtype=dtype_i)
@@ -321,8 +348,8 @@ class SimulationReader(Simulation):
             layout[step] = vsource
 
         # Add virtual dataset to VDS group
-        self._file_object.require_group('_VDS')
-        self._file_object.create_virtual_dataset(f'_VDS/{name}', layout)
+        self._file.require_group('_VDS')
+        self._file.create_virtual_dataset(f'_VDS/{name}', layout)
 
     def get_data_interpolator(self, name: str, step: int):
         """Get Linear interpolator for data field.
@@ -332,7 +359,7 @@ class SimulationReader(Simulation):
             step: step
         """
         from scipy.interpolate import LinearNDInterpolator
-        return LinearNDInterpolator(self.mesh[0], self.data(name, step))
+        return LinearNDInterpolator(self.mesh[0], self.data(name, step).arr[()])
 
 
 class SimulationWriter(Simulation):
