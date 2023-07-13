@@ -1,4 +1,3 @@
-from functools import wraps
 import time
 import h5py
 
@@ -26,17 +25,3 @@ def open_h5file(file: str, mode, driver=None, comm=None):
         except OSError:
             time.sleep(1)
             print(f'File {file} not accessible, waiting...', end='\r') 
-
-def assert_file_open(method):
-    """Decorator.
-    Open/close file if memmap is False.
-    Assert that file is open if memmap is True.
-    """
-    @wraps(method)
-    def inner(self, *args, **kwargs):
-        if self._file_object:
-            return method(self, *args, **kwargs)
-        else:
-            with self.open('r') as self._file_object:
-                return method(self, *args, **kwargs)
-    return inner
