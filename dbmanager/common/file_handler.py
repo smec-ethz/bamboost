@@ -1,7 +1,6 @@
-import h5py
-import time
 from functools import wraps
-import mpi4py
+import time
+import h5py
 
 
 def open_h5file(file: str, mode, driver=None, comm=None):
@@ -15,10 +14,15 @@ def open_h5file(file: str, mode, driver=None, comm=None):
     """
     while True:
         try:
-            if driver=='mpio' and h5py._MPI_ACTIVE:
-                return h5py.File(file, mode, driver=driver, comm=comm)
-            else:
+
+            try:
+                if driver=='mpio' and h5py._MPI_ACTIVE:
+                    return h5py.File(file, mode, driver=driver, comm=comm)
+                else:
+                    return h5py.File(file, mode)
+            except AttributeError:  # If h5py._MPI_ACTIVE is unavailable
                 return h5py.File(file, mode)
+
         except OSError:
             time.sleep(1)
             print(f'File {file} not accessible, waiting...', end='\r') 

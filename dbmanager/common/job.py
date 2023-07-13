@@ -6,18 +6,25 @@ class Job:
     def __init__(self):
         pass
 
-    def create_sbatch_script(self, file_to_run: str, path: str, uid: str = None, nnodes: int = 1,
+    def create_sbatch_script(self, commands: list, path: str, uid: str = None, nnodes: int = 1,
                              ntasks: int = 4, ncpus: int = 1, time: str = '04:00:00',
                              mem_per_cpu: int = 2048, tmp: int = 8000) -> None:
         """Write sbatch script for new simulation."""
         nb_tasks_per_node = int(ntasks/nnodes)
 
+        # define how mpirun is called
+        mpicommand = ""
+        if ntasks > 1:
+            mpicommand = "mpirun "
+
         script = f"#!/bin/bash\n\n"
 
+        # sbatch commands
         script += f"#SBATCH --ntasks={ntasks}\n"
-        script += f"#SBATCH --nodes={nnodes}\n"
-        script += f"#SBATCH --cpus-per-task={ncpus}\n"
-        script += f"#SBATCH --ntasks-per-node={nb_tasks_per_node}\n"
+        if ntasks > 1:
+            script += f"#SBATCH --nodes={nnodes}\n"
+            script += f"#SBATCH --cpus-per-task={ncpus}\n"
+            script += f"#SBATCH --ntasks-per-node={nb_tasks_per_node}\n"
         script += f"#SBATCH --time={time}\n"
         script += f"#SBATCH --job-name={uid}\n"
         script += f"#SBATCH --mem-per-cpu={mem_per_cpu}\n"
@@ -25,17 +32,29 @@ class Job:
             script += f"#SBATCH --tmp={tmp}\n"
         script += f"#SBATCH --output={os.path.join(path, uid)}/{uid}.out\n"
 
+        # user defined commands
         script += '\n'
-        script += f'mpirun python {file_to_run} --path {path} --uid {uid}\n'
-        
+        for cmd in commands:
+            script += cmd.format(MPI=mpicommand)
+
+        # write to submission file
         with open(os.path.join(os.path.join(path, uid), f'sbatch_{uid}.sh'), 'w') as file:
             file.write(script)
 
-    def create_bash_script_local(self, file_to_execute: str, path: str, uid: str, ntasks: int = 4):
+    def create_bash_script_local(self, commands: list, path: str, uid: str, ntasks: int = 4):
         """Write bash script for local execution."""
 
+        # define how mpirun is called
+        mpicommand = ""
+        if ntasks > 1:
+            mpicommand = f"mpirun -n {ntasks}"
+
         script = f"#!/bin/bash\n\n"
-        script += f"mpirun -n {ntasks} python3 {file_to_execute} --path {path} --uid {uid}\n"
+
+        # user defined commands
+        for cmd in commands:
+            script += cmd.format(MPI=mpicommand)+'\n'
+
         with open(os.path.join(os.path.join(path, uid), f'{uid}.sh'), 'w') as file:
             file.write(script)
 
@@ -54,5 +73,5 @@ if __name__ == "__main__":
     args = parser.parse_args()
 
     job = Job()
-    job.create_sbatch_script(args.file_to_run, args.uid, args.nodes,
+    job.create_sbatch_script([args.file_to_run], args.uid, args.nodes,
                              args.ntasks, args.ncpus, args.time, args.mem_per_cpu)

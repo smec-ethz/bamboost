@@ -71,7 +71,7 @@ class Manager:
             arg (condition): pandas selection (return tuple if more than one match)
             sort (str): parameter to sort the returned list with
         Returns:
-            sim (SimulationReader) or list of sims (list)
+            list of :class:`~dbmanager.simulation.SimulationReader`
         """
         if isinstance(arg, str):
             existing_sim = SimulationReader(arg, self.path, self.comm)
@@ -85,9 +85,18 @@ class Manager:
         sorted_sims = sorted(existing_sims, key=lambda s: s.parameters[sort], reverse=reverse)
         return sorted_sims
             
-    def sims(self, sort: str = None, reverse: bool = False) -> list:
-        """Get all simulations in a list."""
-        id_list = self.df['id'].values
+    def sims(self, sort: str = None, reverse: bool = False, exclude: set = set()) -> list:
+        """Get all simulations in a list.
+
+        Args:
+            sort (str): Optionally sort the list with this keyword
+            reverse (bool): swap sort direction
+            exclude (list[str]): sims to exclude
+        Returns:
+            A list of `:class:~dbmanager.simulation.SimulationReader` objects
+        """
+        exclude = list([exclude]) if isinstance(exclude, str) else exclude
+        id_list = [id for id in self.df['id'].values if id not in exclude]
         existing_sims = [SimulationReader(uid, self.path, self.comm) for uid in id_list]
 
         if sort is None:
@@ -178,7 +187,11 @@ class Manager:
         print(f"The parameter space may already exist. Here are the duplicates:", flush=True)
         print(self.df[self.df['id'].isin([i[0] for i in duplicates])], flush=True)
         
-        prompt = input("Create with altered uid (`c`), Create with new id (`n`), Abort (`a`)")
+        prompt = input("Replace first duplicate ('r'), Create with altered uid (`c`),"
+                       + "Create new with new id (`n`), Abort (`a`)")
+        if prompt=='r':
+            self.remove(duplicates[0][0])
+            return True, uid
         if prompt=='a':
             return False, uid
         if prompt=='n':

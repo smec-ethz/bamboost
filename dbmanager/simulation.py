@@ -16,6 +16,7 @@ from .xdmf import XDMFWriter
 from .common.git_utility import GitStateGetter
 from .common.job import Job
 from .common.file_handler import open_h5file
+from .common.utilities import flatten_dict, unflatten_dict
 
 
 def temporary_open_file(mode: str = 'r'):
@@ -87,6 +88,7 @@ class Simulation:
                 tmp_dict.update(file['parameters'].attrs)
                 for key in file['parameters'].keys():
                     tmp_dict.update({key: file[f'parameters/{key}'][()]})
+        tmp_dict = unflatten_dict(tmp_dict)
 
         tmp_dict = self.comm.bcast(tmp_dict, root=0)
         return tmp_dict
@@ -159,13 +161,12 @@ class Simulation:
             xdmf_writer.add_timeseries(nb_steps+1, fields)
             xdmf_writer.write_file()
 
-    def create_batch_script(self, file_to_execute: str = None, nnodes=1, ntasks=4,
+    def create_batch_script(self, commands: list = None, nnodes=1, ntasks=4,
                          ncpus=1, time='04:00:00', mem_per_cpu=2048, tmp=8000, euler=True) -> None:
         """Create a batch job and put it into the folder.
         
         Args:
-            file_to_execute: Should be an absolute path to executable python3 file
-                if not specified, the copied executable is used.
+            commands: A list of strings being the user defined commands to run
             nnodes: nb of nodes (default=1)
             ntasks: nb of tasks (default=4)
             ncpus: nb of cpus per task (default=1)
@@ -175,18 +176,21 @@ class Simulation:
             euler: If false, a local bash script will be written
         """
         job = Job()
-        if not file_to_execute:
+        if not commands:
             if hasattr(self, 'executable'):
-                file_to_execute = os.path.join(self.path, self.executable)
+                if '.py' in self.executable:
+                    command = (f"{{MPI}} python3 {os.path.join(self.path, self.executable)}"
+                               f"--path {self.path} --uid {self.uid}")
+                    commands = [command]
             else:
                 raise AttributeError("""Either you must specify an executable or have it 
                                      copied before with `copy_executable`!""")
         
         if euler:
-            job.create_sbatch_script(file_to_execute, path=os.path.abspath(self.parent_path), uid=self.uid, nnodes=nnodes,
+            job.create_sbatch_script(commands, path=os.path.abspath(self.parent_path), uid=self.uid, nnodes=nnodes,
                                      ntasks=ntasks, ncpus=ncpus, time=time, mem_per_cpu=mem_per_cpu, tmp=tmp)
         else:
-            job.create_bash_script_local(file_to_execute, path=os.path.abspath(self.parent_path),
+            job.create_bash_script_local(commands, path=os.path.abspath(self.parent_path),
                                          uid=self.uid, ntasks=ntasks)
         with open_h5file(self.h5file, 'a') as file:
             file.attrs.update({'submitted': False})
@@ -423,15 +427,15 @@ class SimulationWriter(Simulation):
             parameters (dict): Dictionary with parameters.
         """
         if self.prank==0:
+            # flatten parameters
+            parameters = flatten_dict(parameters)
+
             with open_h5file(self.h5file, 'a') as f:
                 if 'parameters' in f.keys():
                     del f['parameters']
                 grp = f.create_group('/parameters')
                 for key, val in parameters.items():
-                    if isinstance(val, dict):
-                        grp.attrs.update(val)
-                        continue
-                    elif isinstance(val, np.ndarray):
+                    if isinstance(val, np.ndarray):
                         grp.create_dataset(key, data=val)
                     elif val is not None:
                         grp.attrs[key] = val
