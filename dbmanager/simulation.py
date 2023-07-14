@@ -1,12 +1,13 @@
 from __future__ import annotations
+
 import os
 import shutil
 import subprocess
-from types import SimpleNamespace
 import numpy as np
 import pandas as pd
 import h5py
 import datetime
+from types import SimpleNamespace
 from mpi4py import MPI
 from functools import wraps
 
@@ -65,9 +66,9 @@ class Simulation:
         self.uid = uid
         self.parent_path = path
         self.path = os.path.join(path, uid)
-        os.makedirs(self.path, exist_ok=True)
         self.h5file = os.path.join(self.path, f'{self.uid}.h5')
         self.xdmffile = os.path.join(self.path, f'{self.uid}.xdmf')
+        os.makedirs(self.path, exist_ok=True)
 
         # MPI information
         self.comm = comm
@@ -124,7 +125,7 @@ class Simulation:
     def metadata(self):
         tmp_dict = dict()
         if self.prank==0:
-            with open_h5file(self.h5file, 'r') as file:
+            with self.open('r') as file:
                 tmp_dict.update(file.attrs)
         tmp_dict = self.comm.bcast(tmp_dict, root=0)
         return tmp_dict
@@ -156,22 +157,21 @@ class Simulation:
                 if not specified, all fields in data are written.
             nb_steps (int): number of steps the simulation has
         """
-        if not nb_steps:
-            if self.comm.rank==0:
-                with self.open('r') as f:
+
+        if self.comm.rank==0:
+
+            with self.open('r') as f:
+                if not fields:
+                    fields = list(f['data'].keys())
+
+                if not nb_steps:
                     grp_name = list(f['data'].keys())[0]
                     nb_steps = list(f[f'data/{grp_name}'].keys())
                     nb_steps = max([int(step) for step in nb_steps])
 
-        if self.comm.rank==0:
-
-            if not fields:
-                with self.open('r') as f:
-                    fields = list(f['data'].keys())
-
             xdmf_writer = XDMFWriter(self.xdmffile, self.h5file)
-            xdmf_writer.write_points_cells(f'{self._mesh_location}geometry',
-                                           f'{self._mesh_location}topology')
+            xdmf_writer.write_points_cells(f'{self._mesh_location}mesh/geometry',
+                                           f'{self._mesh_location}mesh/topology')
 
             xdmf_writer.add_timeseries(nb_steps+1, fields)
             xdmf_writer.write_file()
