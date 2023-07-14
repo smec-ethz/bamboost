@@ -371,6 +371,16 @@ class SimulationReader(Simulation):
                                arr=self._dataset(self._file[f'_VDS/{name}']),
                                mesh=mesh)
 
+    @temporary_open_file('r')
+    def _das(self, name: str, step: int) -> np.ndarray:
+        """Convenience shortcut for data at step."""
+        grp = self._file[f'data/{name}']
+        if step<0:
+            last_step = max([int(i) for i in grp.keys()])
+            step = last_step + (step + 1)
+        return self._dataset(grp[str(step)])
+        
+
     @property
     def post(self) -> SimpleNamespace:
         """Return the data stored in the postprocess category.

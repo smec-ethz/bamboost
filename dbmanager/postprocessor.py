@@ -48,7 +48,7 @@ class Postprocessor:
             arg: field name OR array (N, 4) or (N, 3)
         """
         if isinstance(arg, str):
-            arr = self.sim.data(arg, -1)
+            arr = self.sim._das(arg, -1)
         else:
             arr = arg
 
