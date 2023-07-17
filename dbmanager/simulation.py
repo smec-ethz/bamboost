@@ -194,8 +194,8 @@ class Simulation:
         if not commands:
             if hasattr(self, 'executable'):
                 if '.py' in self.executable:
-                    command = (f"{{MPI}} python3 {os.path.join(self.path, self.executable)}"
-                               f"--path {self.path} --uid {self.uid}")
+                    command = (f"{{MPI}} python3 {os.path.join(self.path, self.executable)} "
+                               f"--path {self.parent_path} --uid {self.uid}")
                     commands = [command]
             else:
                 raise AttributeError("""Either you must specify an executable or have it 
