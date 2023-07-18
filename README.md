@@ -7,6 +7,17 @@ pip install -e .
 ```
 The option `-e` installs a project in editable mode from a local path. This way, you won't need to reinstall when pulling a new version or changing something in the package.
 
+### h5py with parallel support
+For mpi support, `h5py` must be installed with parallel support. Otherwise, each process writes one
+after the other which takes forever. The default installation on Euler is not enough.
+
+It's simple, do the following:
+```
+export CC=mpicc
+export HDF5_MPI="ON"
+pip install --force-reinstall --no-deps --no-binary=h5py h5py
+```
+
 ## Requirements
 
 > `python 3.x` (if you're version is too low, it's very likely only because of typehints.

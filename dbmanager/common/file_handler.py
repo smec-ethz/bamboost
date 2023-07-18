@@ -16,12 +16,9 @@ def open_h5file(file: str, mode, driver=None, comm=None):
     dots = cycle(['.','..','...'])
     while True:
         try:
-            try:
-                if driver=='mpio' and h5py._MPI_ACTIVE:
-                    return h5py.File(file, mode, driver=driver, comm=comm)
-                else:
-                    return h5py.File(file, mode)
-            except AttributeError:  # If h5py._MPI_ACTIVE is unavailable
+            if driver=='mpio' and ('mpio' in h5py.registered_drivers()):
+                return h5py.File(file, mode, driver=driver, comm=comm)
+            else:
                 return h5py.File(file, mode)
 
         except OSError:
