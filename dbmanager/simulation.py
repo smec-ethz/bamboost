@@ -339,7 +339,7 @@ class SimulationReader(Simulation):
 
         # Return full dataset if step not specified
         # Get times and number of steps
-        times = list()    
+        times = list()
         step = 0
         while True:
             try:
@@ -348,8 +348,20 @@ class SimulationReader(Simulation):
             except KeyError:
                 break
 
-        vds = self._create_vds(name, length=step)
+        try:
+            vds = self._get_vds(name)
+        except (KeyError, OSError):
+            vds = self._create_vds(name, length=step)
         return SimpleNamespace(t=np.array(times), arr=vds, mesh=mesh)
+
+    def _get_vds(self, name):
+        """Access the virtual dataset."""
+        vds_file = os.path.join(self.parent_path, '.database', '.virtual_datasets.h5')
+        if not os.path.isfile(vds_file):
+            raise OSError
+        with open_h5file(vds_file, 'r') as f:
+            vds = self._dataset(f[f'{self.uid}/{name}'], file=vds_file)
+        return vds
 
     def _create_vds(self, name, length) -> None:
         """Create virtual dataset of the full timeseries of a field.
@@ -384,6 +396,11 @@ class SimulationReader(Simulation):
             step = last_step + (step + 1)
         return self._dataset(grp[str(step)])
         
+    def delete_virtuals(self) -> None:
+        vds_file = os.path.join(self.parent_path, '.database', '.virtual_datasets.h5')
+        with open_h5file(vds_file, 'a') as f:
+            if self.uid in f.keys():
+                del f[self.uid]
 
     @property
     def post(self) -> SimpleNamespace:
