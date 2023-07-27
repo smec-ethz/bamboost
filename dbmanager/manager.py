@@ -1,3 +1,12 @@
+# This file is part of dbmanager, a Python library built for datamanagement
+# using the HDF5 file format.
+#
+# https://gitlab.ethz.ch/compmechmat/research/libs/dbmanager
+#
+# Copyright 2023 Flavio Lorez and contributors
+#
+# There is no warranty for this code
+
 import os
 import shutil
 import uuid
@@ -8,6 +17,15 @@ from mpi4py import MPI
 
 from .simulation import Simulation, SimulationReader, SimulationWriter
 from .common.file_handler import open_h5file
+
+
+META_INFO = """
+This database has been created using `dbmanager`, a python package developed at
+the CMBM group of ETH zurich. It has been built for data management using the
+HDF5 file format.
+
+https://gitlab.ethz.ch/compmechmat/research/libs/dbmanager
+"""
 
 
 class Manager:
@@ -24,6 +42,10 @@ class Manager:
         self.comm = comm
         os.makedirs(self.path, exist_ok=True)
 
+        self._meta_folder = os.path.join(path, '.database')
+        if not os.path.isdir(self._meta_folder):
+            self._init_meta_folder()
+
     def __getitem__(self, row: int):
         """Returns the simulation in the specified row of the dataframe.
 
@@ -35,8 +57,12 @@ class Manager:
         return self.sim(self.df.loc[row, 'id'])
 
     def __repr__(self):
-        display(self.df)
-        return f'Database {self.path}'
+        return self.df.__repr__()
+
+    def _init_meta_folder(self) -> None:
+        os.makedirs(self._meta_folder, exist_ok=True)
+        with open(os.path.join(self._meta_folder, 'README.txt'), 'w') as f:
+            f.write(META_INFO)
 
     @property
     def df(self) -> pd.DataFrame:
@@ -147,7 +173,11 @@ class Manager:
 
     def _get_uids(self) -> list:
         """Get all simulation names in the database."""
-        return [dir for dir in os.listdir(self.path) if os.path.isdir(os.path.join(self.path, dir))]
+        all_uids = list()
+        for dir in [i for i in os.listdir(self.path) if not i.startswith('.')]:
+            if any([i.endswith('.h5') for i in os.listdir(os.path.join(self.path, dir))]):
+                all_uids.append(dir)
+        return all_uids
 
     def _check_duplicate(self, parameters: dict, uid: str) -> tuple:
         """Checking whether the parameters dictionary exists already.

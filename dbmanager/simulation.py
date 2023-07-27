@@ -1,3 +1,12 @@
+# This file is part of dbmanager, a Python library built for datamanagement
+# using the HDF5 file format.
+#
+# https://gitlab.ethz.ch/compmechmat/research/libs/dbmanager
+#
+# Copyright 2023 Flavio Lorez and contributors
+#
+# There is no warranty for this code
+
 from __future__ import annotations
 
 import os
@@ -7,46 +16,19 @@ import numpy as np
 import pandas as pd
 import h5py
 import datetime
+import logging
 from types import SimpleNamespace
 from mpi4py import MPI
-from functools import wraps
-
 
 from .xdmf import XDMFWriter
 from .common.git_utility import GitStateGetter
 from .common.job import Job
-from .common.file_handler import open_h5file
+from .common.file_handler import open_h5file, with_file_open, H5Dataset
 from .common.utilities import flatten_dict, unflatten_dict
 
-
-def temporary_open_file(mode: str = 'r'):
-    """Decorator.
-    If opts['dataset.ram'] = False, the file should be opened and closed at end of function
-    """
-    def decorator(method):
-        @wraps(method)
-        def wrapper(self, *args, **kwargs):
-            if self.opts['dataset.ram']:
-                if not self._file:
-                    with self.open(mode):
-                        return method(self, *args, **kwargs)
-                else:
-                    self.open(mode)
-                    return method(self, *args, **kwargs)
-            else:
-                assert self._file, "If `dataset.ram` is OFF you need to manually open/close the file"
-                if self._file.mode!=mode:
-                    self.close()
-                    self.open(mode)
-                return method(self, *args, **kwargs)
-        return wrapper
-    return decorator
+log = logging.getLogger(__name__)
 
 
-class SimpleNamespaceData(SimpleNamespace):
-    """Implement `__getitem__` to access `arr` attribute directly."""
-    def __getitem__(self, slice):
-        return self.arr[slice]
 
 class Simulation:
     """A single dataset/simulation. Used to write to it, read from it or append.
@@ -57,7 +39,8 @@ class Simulation:
         comm (MPI.Comm): MPI communicator (default=MPI.COMM_WORLD)
     """
     opts = {
-            'dataset.ram': True,
+            'dataset.numpy': False,
+            'dataset.h5py': False,
             }
     _file = None
     _mesh_location = 'Mesh/0/'
@@ -76,7 +59,7 @@ class Simulation:
         self.prank = self.comm.rank
         self.ranks = np.array([i for i in range(self.psize)])
 
-    @temporary_open_file('r')
+    @with_file_open('r')
     def __getitem__(self, path: str) -> h5py._hl.base:
         """Directly access data in the hdf5 file tree.
 
@@ -219,11 +202,11 @@ class Simulation:
         with self.open('a') as file:
             file.attrs.update({'submitted': True})
 
-    @temporary_open_file('a')
+    @with_file_open('a')
     def change_note(self, note) -> None:
         self._file.attrs['notes'] = note
 
-    @temporary_open_file('a')
+    @with_file_open('a')
     def add_postprocess_field(self, name: str, vector: np.array) -> None:
         """Add a custom field in postprocessing."""
         data = self._file.require_group('postprocess')  # Require group data to store all point data in
@@ -248,7 +231,7 @@ class SimulationReader(Simulation):
                     print(f"Dataset: {name}")
             file.visititems(print_hdf5_item)
 
-    @temporary_open_file('r')
+    @with_file_open('r')
     def access(self, path: str):
         """Simply access data in hdf5 file tree"""
         return self._dataset(self._file[f'{path}'])
@@ -258,7 +241,7 @@ class SimulationReader(Simulation):
         """Return coordinates and connectivity of default mesh."""
         return self.get_mesh()
 
-    @temporary_open_file('r')
+    @with_file_open('r')
     def get_mesh(self, mesh_name: str = 'mesh'):
         """Return coordinates and connectivity.
 
@@ -270,7 +253,7 @@ class SimulationReader(Simulation):
         return coordinates, cells
 
     @property
-    @temporary_open_file('r')
+    @with_file_open('r')
     def globals(self):
         """Return globals."""
         grp = self._file['globals']
@@ -278,7 +261,7 @@ class SimulationReader(Simulation):
         return pd.DataFrame.from_dict(d)
 
     @property
-    @temporary_open_file('r')
+    @with_file_open('r')
     def data_info(self) -> pd.Dataframe:
         """View the data stored."""
         tmp_dictionary = dict()
@@ -290,7 +273,7 @@ class SimulationReader(Simulation):
         return pd.DataFrame.from_dict(tmp_dictionary)
 
     @property
-    @temporary_open_file('r')
+    @with_file_open('r')
     def git(self) -> dict:
         """Get Git information.
 
@@ -311,9 +294,9 @@ class SimulationReader(Simulation):
         with open_h5file(self.h5file, 'r') as f:
             return f['log'][()].decode('utf8')
 
-    @temporary_open_file('r')
+    @with_file_open('r')
     def data(self, name: str, step: int = None, time: float = None,
-             read_linked_mesh: bool = False) -> SimpleNamespaceData:
+             read_linked_mesh: bool = False) -> SimpleNamespace:
         """Get the entire dataseries. Data can be extracted either at the specified
         step or at the specified time (nearest).
 
@@ -340,7 +323,7 @@ class SimulationReader(Simulation):
                 last_step = max([int(i) for i in grp.keys()])
                 step = last_step + (step + 1)
             time = grp[str(step)].attrs.get('t', step)
-            return SimpleNamespaceData(t=time, arr=self._dataset(grp[str(step)]), mesh=mesh)
+            return SimpleNamespace(t=time, arr=self._dataset(grp[str(step)]), mesh=mesh)
 
         # Return only specified time
         if time!=None:
@@ -350,10 +333,12 @@ class SimulationReader(Simulation):
                 steps.append(step)
             times = np.array(times)
             closest_step_idx = np.argmin(np.abs(times - time))
-            return SimpleNamespaceData(t=times[closest_step_idx],
+            return SimpleNamespace(t=times[closest_step_idx],
                                    arr=self._dataset(grp[steps[closest_step_idx]]),
                                    mesh=mesh)
 
+        # Return full dataset if step not specified
+        # Get times and number of steps
         times = list()    
         step = 0
         while True:
@@ -363,15 +348,34 @@ class SimulationReader(Simulation):
             except KeyError:
                 break
 
-        # Return full dataset if step not specified
-        if '_VDS' not in self._file.keys() or name not in self._file['_VDS'].keys():
-            self._create_vds(name, step)
+        vds = self._create_vds(name, length=step)
+        return SimpleNamespace(t=np.array(times), arr=vds, mesh=mesh)
 
-        return SimpleNamespaceData(t=np.array(times),
-                               arr=self._dataset(self._file[f'_VDS/{name}']),
-                               mesh=mesh)
+    def _create_vds(self, name, length) -> None:
+        """Create virtual dataset of the full timeseries of a field.
+        Requires HDF5 > 1.10 !
+        """
+        vds_file = os.path.join(self.parent_path, '.database', '.virtual_datasets.h5')
+        grp = self._file[f'data/{name}']
+        shape_i = grp['0'].shape
+        dtype_i = grp['0'].dtype
+        layout = h5py.VirtualLayout(shape=(length, *shape_i), dtype=dtype_i)
+        
+        for step in range(length):
+            vsource = h5py.VirtualSource(grp[str(step)])
+            layout[step] = vsource
 
-    @temporary_open_file('r')
+        # Add virtual dataset to VDS file
+        with open_h5file(vds_file, 'a') as f:
+            grp = f.require_group(self.uid)
+            if name in grp.keys():
+                del grp[name]
+            vds = grp.create_virtual_dataset(name, layout)
+            vds = self._dataset(vds, file=vds_file)
+
+        return vds
+
+    @with_file_open('r')
     def _das(self, name: str, step: int) -> np.ndarray:
         """Convenience shortcut for data at step."""
         grp = self._file[f'data/{name}']
@@ -393,28 +397,14 @@ class SimulationReader(Simulation):
             d = {key: data[key][()] for key in data.keys()}
         return SimpleNamespace(**d)
 
-    def _dataset(self, ds: h5py._hl.dataset) -> h5py._hl.dataset:
-        if self.opts['dataset.ram']:
+    def _dataset(self, ds: h5py._hl.dataset, file: str = None) -> h5py._hl.dataset:
+        if file==None: file = self.h5file
+        if self.opts['dataset.h5py']:
+            return ds
+        ds = H5Dataset(file, ds.name)
+        if self.opts['dataset.numpy']:
             return ds[()]
         return ds
-
-    @temporary_open_file('r+')
-    def _create_vds(self, name, length) -> None:
-        """Create virtual dataset of the full timeseries of a field.
-        Requires HDF5 > 1.10 !
-        """
-        grp = self._file[f'data/{name}']
-        shape_i = grp['0'].shape
-        dtype_i = grp['0'].dtype
-        layout = h5py.VirtualLayout(shape=(length, *shape_i), dtype=dtype_i)
-        
-        for step in range(length):
-            vsource = h5py.VirtualSource(grp[str(step)])
-            layout[step] = vsource
-
-        # Add virtual dataset to VDS group
-        self._file.require_group('_VDS')
-        self._file.create_virtual_dataset(f'_VDS/{name}', layout)
 
     def get_data_interpolator(self, name: str, step: int):
         """Get Linear interpolator for data field.

@@ -1,3 +1,12 @@
+# This file is part of dbmanager, a Python library built for datamanagement
+# using the HDF5 file format.
+#
+# https://gitlab.ethz.ch/compmechmat/research/libs/dbmanager
+#
+# Copyright 2023 Flavio Lorez and contributors
+#
+# There is no warranty for this code
+
 import subprocess
 
 
