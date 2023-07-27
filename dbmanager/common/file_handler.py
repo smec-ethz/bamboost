@@ -1,7 +1,10 @@
-from itertools import cycle
 import time
-import sys
 import h5py
+import logging
+
+log = logging.getLogger(__name__)
+
+HAS_MPIO = 'mpio' in h5py.registered_drivers()
 
 
 def open_h5file(file: str, mode, driver=None, comm=None):
@@ -13,15 +16,13 @@ def open_h5file(file: str, mode, driver=None, comm=None):
         driver (str): driver for h5.File
         comm: MPI communicator
     """
-    dots = cycle(['.','..','...'])
     while True:
         try:
-            if driver=='mpio' and ('mpio' in h5py.registered_drivers()):
+            if driver=='mpio' and HAS_MPIO:
                 return h5py.File(file, mode, driver=driver, comm=comm)
             else:
                 return h5py.File(file, mode)
 
         except OSError:
-            print(f"File {file} not accessible, waiting{next(dots)}", flush=True, end="\r") 
+            log.info(f"File {file} not accessible, waiting") 
             time.sleep(1)
-            sys.stdout.write("\033[K")
