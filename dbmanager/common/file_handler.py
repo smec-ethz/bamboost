@@ -10,10 +10,9 @@
 from functools import wraps
 from abc import ABC, abstractmethod
 import time
-from typing import Any
+from typing import Any, Union
 import h5py
 import logging
-from dataclasses import dataclass
 
 log = logging.getLogger(__name__)
 
@@ -48,22 +47,18 @@ def open_h5file(file: str, mode, driver=None, comm=None):
 def with_file_open(mode: str = 'r'):
     """Open the file (`self._file`) before function
     Close the file after the function call
+
+    Works on classes containing the member `_file` of type :class:`~dbmanager.common.file_handler.FileHandler`
     """
     def decorator(method):
         @wraps(method)
         def wrapper(self, *args, **kwargs):
-            if self._file:
-                log.debug(f"Closing {self._file.filename}")
+            if self._file.file_object:
                 self._file.close()
 
-            self.open(mode)
-            log.debug(f"Opened {self._file.filename}")
-
+            self._file.open(mode)
             res = method(self, *args, **kwargs)
-
-            log.debug(f"Closing {self._file.filename}")
-            self.close()
-
+            self._file.close()
             return res
 
         return wrapper
@@ -71,21 +66,32 @@ def with_file_open(mode: str = 'r'):
     return decorator
 
 
-class FileHandler(ABC):
-
+class FileHandler:
+    """File handler for an hdf5 file with the purpose of handling opening and closing
+    of the file. We use the concept of composition to include an object of this type
+    in classes which need access to an hdf5 file (such as the hdf5pointer and Simulation.)
+    """
     def __init__(self, file_name: str) -> None:
-        self._file = None
+        self.file_object: h5py.File = None
         self.file_name = file_name
 
+    def __getitem__(self, key) -> Any:
+        return self.file_object[key]
+
+    def __getattr__(self, __name: str) -> Any:
+        return self.file_object.__getattribute__(__name)
+
     def open(self, mode: str = 'r'):
-        self._file = open_h5file(self.file_name, mode)
-        return self._file
+        log.debug(f"Opened {self.file_name}")
+        self.file_object = open_h5file(self.file_name, mode)
+        return self.file_object
 
     def close(self):
-        self._file.close()
+        log.debug(f"Closing {self.file_name}")
+        self.file_object.close()
         
 
-class H5Dataset(FileHandler):
+class HDF5Pointer:
     """Wrapper of a h5py dataset. Storing the file and the infile path. Thus, each call
     opens the file, does operation and closes the file again.
 
@@ -93,16 +99,31 @@ class H5Dataset(FileHandler):
         file (`str`): path to h5 file
         path_to_data (`str`): infile path to dataset
     """
-    def __init__(self, file_name: str, path_to_data: str) -> None:
-        super().__init__(file_name)
-        self.path_to_data = path_to_data
 
-    def __getattribute__(self, __name: str) -> Any:
-        try:
-            return super().__getattribute__(__name)
-        except AttributeError:
-            with self.open('r'):
-                return self._file[self.path_to_data].__getattribute__(__name)
+    @property
+    def obj(self):
+        if self._attribute:
+            return self._file[self.path_to_data].__getattribute__(self._attribute)
+        else:
+            return self._file[self.path_to_data]
+
+    def __init__(self, file_handler: FileHandler, path_to_data: str, *, _attribute: str = None) -> None:
+        self._file = file_handler
+        self.path_to_data = path_to_data
+        self._attribute = _attribute
+
+    @with_file_open('r')
+    def __call__(self, *args: Any, **kwargs: Any) -> Any:
+        return self.obj.__call__(*args, **kwargs)
+
+    @with_file_open('r')
+    def __getattr__(self, __name: str) -> Any:
+        if hasattr(self.obj, __name):
+            attr = self.obj.__getattribute__(__name)
+            if isinstance(attr, h5py._hl.base.CommonStateObject):
+                return self.__class__(self._file, self.path_to_data, _attribute=__name)
+            return attr
+        return self.__getattribute__(__name)
 
     @with_file_open()
     def __repr__(self) -> str:
@@ -110,26 +131,26 @@ class H5Dataset(FileHandler):
 
     @with_file_open()
     def __str__(self) -> str:
-        return self._file[self.path_to_data].__str__()
+        return f'{self.__class__} pointing to: ' + self._file[self.path_to_data].__repr__()
 
     @with_file_open('r')
     def __getitem__(self, key):
-        value = self._file[self.path_to_data].__getitem__(key)
+        value = self.obj.__getitem__(key)
         if isinstance(value, h5py._hl.base.HLObject):
-            return self.__class__(self.file_name, f'{self.path_to_data}/{key}')
+            return self.__class__(self._file, f'{self.path_to_data}/{key}')
         else:
             return value
 
     @with_file_open('a')
     def __setitem__(self, slice, newvalue):
-        self._file[self.path_to_data].__setitem__(slice, newvalue)
+        self.obj.__setitem__(slice, newvalue)
 
     @property
     @with_file_open()
     def shape(self):
-        return self._file[self.path_to_data].shape 
+        return self.obj.shape 
 
     @property
     @with_file_open()
     def dtype(self):
-        return self._file[self.path_to_data].dtype
+        return self.obj.dtype

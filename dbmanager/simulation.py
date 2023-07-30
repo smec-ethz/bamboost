@@ -12,7 +12,7 @@ from __future__ import annotations
 import os
 import shutil
 import subprocess
-from typing import Any
+from typing import Any, Union
 import numpy as np
 import pandas as pd
 import h5py
@@ -24,7 +24,7 @@ from mpi4py import MPI
 from .xdmf import XDMFWriter
 from .common.git_utility import GitStateGetter
 from .common.job import Job
-from .common.file_handler import FileHandler, open_h5file, with_file_open, H5Dataset
+from .common.file_handler import FileHandler, open_h5file, with_file_open, HDF5Pointer
 from .common.utilities import flatten_dict, unflatten_dict
 
 log = logging.getLogger(__name__)
@@ -48,11 +48,12 @@ class Simulation:
 
     def __init__(self, uid: str, path: str, comm: MPI.Comm = MPI.COMM_WORLD):
         self.uid = uid
-        self.parent_path = path
-        self.path = os.path.join(path, uid)
+        self.parent_path = os.path.abspath(path)
+        self.path = os.path.abspath(os.path.join(path, uid))
         self.h5file = os.path.join(self.path, f'{self.uid}.h5')
         self.xdmffile = os.path.join(self.path, f'{self.uid}.xdmf')
         os.makedirs(self.path, exist_ok=True)
+        self._file = FileHandler(self.h5file)
 
         # MPI information
         self.comm = comm
@@ -216,12 +217,11 @@ class Simulation:
         data.create_dataset(name, data=vector)
 
 
-class Data(FileHandler):
+class Data:
 
-    def __init__(self, file_name, _file) -> None:
-        super().__init__(file_name)
+    def __init__(self, _file: FileHandler) -> None:
         self._file = _file
-        with self.open('r'):
+        with self._file.open('r'):
             self._fields = list(self._file['data'].keys())
 
     @with_file_open('r')
@@ -232,20 +232,14 @@ class Data(FileHandler):
         return self._fields
 
     def _dataset(self, ds: h5py._hl.dataset, file: str = None) -> h5py._hl.dataset:
-        if file==None: file = self.file_name
-        if Simulation.opts['dataset.h5py']:
-            return ds
-        ds = H5Dataset(file, ds.name)
-        if Simulation.opts['dataset.numpy']:
-            return ds[()]
-        return ds
+        return HDF5Pointer(FileHandler(ds.file.filename), ds.name)
         
 
 class SimulationReader(Simulation):
 
     def __init__(self, uid: str, path: str, comm: MPI.Comm = MPI.COMM_WORLD):
         super().__init__(uid, path, comm)
-        self._data: Data = Data(self.h5file, self._file)
+        self._data: Data = Data(self._file)
 
     # -------------------------------------------------------------------------
     # Reading methods
@@ -445,12 +439,13 @@ class SimulationReader(Simulation):
         return SimpleNamespace(**d)
 
     def _dataset(self, ds: h5py._hl.dataset, file: str = None) -> h5py._hl.dataset:
-        if file==None: file = self.h5file
         if self.opts['dataset.h5py']:
             return ds
-        ds = H5Dataset(file, ds.name)
+
+        ds = HDF5Pointer(FileHandler(ds.file.filename), ds.name)
         if self.opts['dataset.numpy']:
             return ds[()]
+
         return ds
 
     def get_data_interpolator(self, name: str, step: int):
@@ -616,8 +611,8 @@ class SimulationWriter(Simulation):
             grp = data.require_group(name)
             vec = grp.require_dataset(str(self.step), shape=(length, dim), dtype='f')
             vec[idx_start:idx_end, :] = vector
-            if time:
-                vec.attrs['t'] = time  # add time as attribute to dataset
+            
+            vec.attrs['t'] = time  # add time as attribute to dataset
             vec.attrs['mesh'] = mesh  # add link to mesh as attribute
             vec.flush()
 
