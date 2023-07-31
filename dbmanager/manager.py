@@ -11,7 +11,6 @@ import os
 import shutil
 from typing import Union
 import uuid
-import h5py
 import pandas as pd
 from ctypes import ArgumentError
 from mpi4py import MPI
@@ -31,12 +30,12 @@ https://gitlab.ethz.ch/compmechmat/research/libs/dbmanager
 
 
 class Manager:
-    """Data Manager.
+    """View of database.
 
     Args:
-        path (str): path to the directory of the database. If doesn't exist,
+        path (`str`): path to the directory of the database. If doesn't exist,
             a new database will be created.
-        comm: MPI communicator
+        comm (`MPI.Comm`): MPI communicator
     """
 
     def __init__(self, path: str, comm: MPI.Comm = MPI.COMM_WORLD):
@@ -54,14 +53,18 @@ class Manager:
         """Returns the simulation in the specified row of the dataframe.
 
         Args:
+            row (`str`): return the simulation with the specified uid
             row (int): return the simulation with index specified by row
         Returns:
-            sim (SimulationReader)
+            :class:`~dbmanager.reader.SimulationReader`
         """
         if isinstance(key, str):
             return self.sim(key)
         else:
             return self.sim(self.df.loc[key, 'id'])
+
+    def __len__(self) -> int:
+        return len(self.all_uids)
 
     def _ipython_key_completions_(self):
         return self.all_uids
@@ -73,13 +76,17 @@ class Manager:
 
     @property
     def df(self) -> pd.DataFrame:
-        """Return pandas dataframe of the database."""
+        """View of the database and its parametric space.
+
+        Returns:
+            :class:`pd.DataFrame`
+        """
         all_uids = self._get_uids()
         data = list()
 
         for uid in all_uids:
-            with open_h5file(os.path.join(os.path.join(self.path, uid),
-                                        f'{uid}.h5'), 'r') as f:
+            h5file_for_uid = os.path.join(self.path, uid, f'{uid}.h5')
+            with open_h5file(h5file_for_uid, 'r') as f:
                 tmp_dict = dict()
                 if 'parameters' in f.keys():
                     tmp_dict.update(f['parameters'].attrs)
@@ -98,50 +105,54 @@ class Manager:
 
     @property
     def data_info(self) -> pd.DataFrame:
-        """Return view of stored data for all simulations"""
+        """Return view of stored data for all simulations
+
+        Returns:
+            :class:`pd.DataFrame`
+        """
         data = list()
         for uid in self._get_uids():
-            with open_h5file(os.path.join(self.path, uid, f'{uid}.h5'), 'r') as f:
+            h5file_for_uid = os.path.join(self.path, uid, f'{uid}.h5')
+            with open_h5file(h5file_for_uid, 'r') as file:
                 tmp_dict = dict()
-                tmp_dict = {key: len(f[f'data/{key}']) for key in f['data'].keys()}
+                tmp_dict = {key: (len(file[f'data/{key}']), file[f'data/{key}/0'].shape,
+                                  file[f'data/{key}/0'].dtype) for key in file['data'].keys()}
                 data.append(tmp_dict)
         return pd.DataFrame.from_records(data)
 
-    def sim(self, arg, sort: str = None, reverse: bool = False) -> SimulationReader:
-        """Get an existing simulation with uid.
+    def sim(self, uid) -> SimulationReader:
+        """Get an existing simulation with uid. Same as accessing with `db[uid]` directly.
 
         Args:
-            arg (str): unique identifier
-            arg (condition): pandas selection (return tuple if more than one match)
-            sort (str): parameter to sort the returned list with
+            uid (`str`): unique identifier
         Returns:
-            list of :class:`~dbmanager.simulation.SimulationReader`
+            :class:`~dbmanager.simulation.SimulationReader`
         """
-        if isinstance(arg, str):
-            existing_sim = SimulationReader(arg, self.path, self.comm)
-            return existing_sim
-
-        id_list = self.df[arg]['id'].values
-        existing_sims = [SimulationReader(uid, self.path, self.comm) for uid in id_list]
-        if sort is None:
-            return existing_sims
-
-        sorted_sims = sorted(existing_sims, key=lambda s: s.parameters[sort], reverse=reverse)
-        return sorted_sims
+        sim = SimulationReader(uid, self.path, self.comm)
+        return sim
             
-    def sims(self, sort: str = None, reverse: bool = False, exclude: set = set()) -> list:
-        """Get all simulations in a list.
+    def sims(self, select: pd.Series = None, sort: str = None, reverse: bool = False,
+             exclude: set = None) -> list:
+        """Get all simulations in a list. Optionally, get all simulations matching the
+        given selection using pandas.
 
         Args:
-            sort (str): Optionally sort the list with this keyword
-            reverse (bool): swap sort direction
-            exclude (list[str]): sims to exclude
+            select (`pd.Series`): pandas boolean series
+            sort (`str`): Optionally sort the list with this keyword
+            reverse (`bool`): swap sort direction
+            exclude (`list[str]`): sims to exclude
         Returns:
             A list of `:class:~dbmanager.simulation.SimulationReader` objects
         """
-        exclude = list([exclude]) if isinstance(exclude, str) else exclude
-        id_list = [id for id in self.df['id'].values if id not in exclude]
-        existing_sims = [SimulationReader(uid, self.path, self.comm) for uid in id_list]
+        if select:
+            id_list = self.df[select]['id'].values
+        else:
+            id_list = self.all_uids
+        if exclude:
+            exclude = list([exclude]) if isinstance(exclude, str) else exclude
+            id_list = [id for id in id_list if id not in exclude]
+
+        existing_sims = [self[uid] for uid in id_list]
 
         if sort is None:
             return existing_sims
@@ -150,17 +161,17 @@ class Manager:
 
     def create_simulation(self, uid: str = None, parameters: dict = None,
                           skip_duplicate_check: bool = False) -> SimulationWriter:
-        """Get a writer object for a new simulation. This is written for paralell
-        as it is likely that this may be used in an executable creating multiple runs
+        """Get a writer object for a new simulation. This is written for paralell use
+        as it is likely that this may be used in an executable, creating multiple runs
         for a parametric space, which may be run in paralell.
 
         Args:
-            uid (str): The name/uid for the simulation. If not specified, a random id
+            uid (`str`): The name/uid for the simulation. If not specified, a random id
                 will be assigned.
-            parameters (dict): Parameter dictionary. If provided, the parameters will be 
+            parameters (`dict`): Parameter dictionary. If provided, the parameters will be 
                 checked against the existing sims for duplication. Otherwise, they may be 
                 specified later with :func:`~dbmanager.simulation.SimulationWriter.add_parameters`.
-            skip_duplicate_check (bool): if True, the duplicate check is skipped.
+            skip_duplicate_check (`bool`): if True, the duplicate check is skipped.
         Returns:
             sim (:class:`~dbmanager.simulation.SimulationWriter`)
         """
@@ -185,7 +196,7 @@ class Manager:
         """CAUTION, DELETING DATA. Remove the data of a simulation.
 
         Args:
-            uid (str): id
+            uid (`str`): uid
         """
         shutil.rmtree(os.path.join(self.path, uid))
 
@@ -202,8 +213,8 @@ class Manager:
         May need to be improved...
 
         Args:
-            parameters (dict): parameter dictionary to check for
-            uid (str): uid
+            parameters (`dict`): parameter dictionary to check for
+            uid (`str`): uid
         Returns:
             Tuple(Bool, uid) wheter to continue and with what uid.
         """
@@ -254,7 +265,7 @@ class Manager:
         Following the following format: `base_uid.1`
 
         Args:
-            uid_base (str): base uid for which to find the next subid.
+            uid_base (`str`): base uid for which to find the next subid.
         Returns:
             New uid string
         """

@@ -8,24 +8,20 @@
 # There is no warranty for this code
 
 from __future__ import annotations
-from collections.abc import Iterable
 
 import os
 import shutil
 import subprocess
 from typing import Any, Tuple, Union
 import numpy as np
-import pandas as pd
-import h5py
 import datetime
 import logging
-from types import SimpleNamespace
 from mpi4py import MPI
 
 from .xdmf import XDMFWriter
 from .common.git_utility import GitStateGetter
 from .common.job import Job
-from .common.file_handler import FileHandler, open_h5file, with_file_open, HDF5Pointer
+from .common.file_handler import FileHandler, with_file_open, HDF5Pointer
 from .common.utilities import flatten_dict, unflatten_dict
 
 log = logging.getLogger(__name__)
@@ -51,7 +47,7 @@ class Simulation:
 
     def __init__(self, uid: str, path: str, comm: MPI.Comm = MPI.COMM_WORLD):
         self.uid = uid
-        self.parent_path = os.path.abspath(path)
+        self.path_database = os.path.abspath(path)
         self.path = os.path.abspath(os.path.join(path, uid))
         self.h5file = os.path.join(self.path, f'{self.uid}.h5')
         self.xdmffile = os.path.join(self.path, f'{self.uid}.xdmf')
@@ -60,10 +56,10 @@ class Simulation:
         self._file = FileHandler(self.h5file)
 
         # MPI information
-        self.comm = comm
-        self.psize = self.comm.size
-        self.prank = self.comm.rank
-        self.ranks = np.array([i for i in range(self.psize)])
+        self._comm = comm
+        self._psize = self._comm.size
+        self._prank = self._comm.rank
+        self._ranks = np.array([i for i in range(self._psize)])
 
     @with_file_open()
     def __getitem__(self, key) -> HDF5Pointer:
@@ -78,22 +74,22 @@ class Simulation:
     @with_file_open()
     def parameters(self):
         tmp_dict = dict()
-        if self.prank==0:
+        if self._prank==0:
             tmp_dict.update(self._file['parameters'].attrs)
             for key in self._file['parameters'].keys():
                 tmp_dict.update({key: self._file[f'parameters/{key}'][()]})
         tmp_dict = unflatten_dict(tmp_dict)
 
-        tmp_dict = self.comm.bcast(tmp_dict, root=0)
+        tmp_dict = self._comm.bcast(tmp_dict, root=0)
         return tmp_dict
 
     @property
     def metadata(self):
         tmp_dict = dict()
-        if self.prank==0:
+        if self._prank==0:
             with self._file('r') as file:
                 tmp_dict.update(file.attrs)
-        tmp_dict = self.comm.bcast(tmp_dict, root=0)
+        tmp_dict = self._comm.bcast(tmp_dict, root=0)
         return tmp_dict
 
     @with_file_open('a')
@@ -103,40 +99,8 @@ class Simulation:
         Args:
             status (str): new status
         """
-        if self.prank==0:
+        if self._prank==0:
             self._file.attrs['status'] = status
-
-    @with_file_open('a')
-    def add_metadata(self) -> None:
-        """Add metadata to h5 file."""
-        nb_proc = self.comm.Get_size()
-        if self.prank==0:
-            self._file.attrs['time_stamp'] = str(datetime.datetime.now().replace(microsecond=0))
-            self._file.attrs['id'] = self.uid
-            self._file.attrs['processors'] = nb_proc
-            self._file.attrs['notes'] = self._file.attrs.get('notes', "")
-
-    @with_file_open('a')
-    def add_parameters(self, parameters: dict) -> None:
-        """Add parameters to simulation.
-
-        Args:
-            parameters (dict): Dictionary with parameters.
-        """
-        if self.prank==0:
-            # flatten parameters
-            parameters = flatten_dict(parameters)
-
-            if 'parameters' in self._file.keys():
-                del self._file['parameters']
-            grp = self._file.create_group('/parameters')
-            for key, val in parameters.items():
-                if isinstance(val, np.ndarray):
-                    grp.create_dataset(key, data=val)
-                elif val is not None:
-                    grp.attrs[key] = val
-                else:
-                    pass
 
     def update_metadata(self, update_dict: dict) -> None:
         """Update the metadata attributes.
@@ -153,7 +117,7 @@ class Simulation:
         Args:
             update_dict: dictionary to push
         """
-        if self.prank==0:
+        if self._prank==0:
             with self._file('a') as file:
                 file['parameters'].attrs.update(update_dict)
 
@@ -166,7 +130,7 @@ class Simulation:
             nb_steps (int): number of steps the simulation has
         """
 
-        if self.comm.rank==0:
+        if self._comm.rank==0:
 
             with self._file('r') as f:
                 if not fields:
@@ -203,17 +167,17 @@ class Simulation:
             if hasattr(self, 'executable'):
                 if '.py' in self.executable:
                     command = (f"{{MPI}} python3 {os.path.join(self.path, self.executable)} "
-                               f"--path {self.parent_path} --uid {self.uid}")
+                               f"--path {self.path_database} --uid {self.uid}")
                     commands = [command]
             else:
                 raise AttributeError("""Either you must specify an executable or have it 
                                      copied before with `copy_executable`!""")
         
         if euler:
-            job.create_sbatch_script(commands, path=os.path.abspath(self.parent_path), uid=self.uid, nnodes=nnodes,
+            job.create_sbatch_script(commands, path=os.path.abspath(self.path_database), uid=self.uid, nnodes=nnodes,
                                      ntasks=ntasks, ncpus=ncpus, time=time, mem_per_cpu=mem_per_cpu, tmp=tmp)
         else:
-            job.create_bash_script_local(commands, path=os.path.abspath(self.parent_path),
+            job.create_bash_script_local(commands, path=os.path.abspath(self.path_database),
                                          uid=self.uid, ntasks=ntasks)
         with self._file('a') as file:
             file.attrs.update({'submitted': False})
@@ -267,13 +231,45 @@ class SimulationWriter(Simulation):
         """Create a new file for this simlation."""
         self.step = 0
         self.global_fields = dict()
-        if self.prank==0:
+        if self._prank==0:
             if os.path.exists(self.h5file):
                 os.remove(self.h5file)  # remove existing file if exists
         self.add_metadata()
         self.change_status('Initiated')
 
         return self
+
+    @with_file_open('a')
+    def add_metadata(self) -> None:
+        """Add metadata to h5 file."""
+        nb_proc = self._comm.Get_size()
+        if self._prank==0:
+            self._file.attrs['time_stamp'] = str(datetime.datetime.now().replace(microsecond=0))
+            self._file.attrs['id'] = self.uid
+            self._file.attrs['processors'] = nb_proc
+            self._file.attrs['notes'] = self._file.attrs.get('notes', "")
+
+    @with_file_open('a')
+    def add_parameters(self, parameters: dict) -> None:
+        """Add parameters to simulation.
+
+        Args:
+            parameters (dict): Dictionary with parameters.
+        """
+        if self._prank==0:
+            # flatten parameters
+            parameters = flatten_dict(parameters)
+
+            if 'parameters' in self._file.keys():
+                del self._file['parameters']
+            grp = self._file.create_group('/parameters')
+            for key, val in parameters.items():
+                if isinstance(val, np.ndarray):
+                    grp.create_dataset(key, data=val)
+                elif val is not None:
+                    grp.attrs[key] = val
+                else:
+                    pass
 
     def add_mesh(self, coordinates, connectivity, mesh_name: str = None) -> None:
         """Add the mesh to file. Currently only 2d meshes.
@@ -292,8 +288,8 @@ class SimulationWriter(Simulation):
         nb_cells_local = connectivity.shape[0]
 
         # gather total mesh
-        nb_nodes_p = np.array(self.comm.allgather(nb_nodes_local))
-        nb_cells_p = np.array(self.comm.allgather(nb_cells_local))
+        nb_nodes_p = np.array(self._comm.allgather(nb_nodes_local))
+        nb_cells_p = np.array(self._comm.allgather(nb_cells_local))
         nb_nodes, nb_cells = np.sum(nb_nodes_p), np.sum(nb_cells_p)
 
         # shape of datasets
@@ -301,15 +297,15 @@ class SimulationWriter(Simulation):
         conn_shape = (nb_cells, connectivity.shape[1]) if connectivity.ndim>1 else (nb_cells,)
 
         # global indices nodes
-        idx_start = np.sum(nb_nodes_p[self.ranks<self.prank])
+        idx_start = np.sum(nb_nodes_p[self._ranks<self._prank])
         idx_end = idx_start + nb_nodes_local
 
         # global indices cells
-        idx_start_cells = np.sum(nb_cells_p[self.ranks<self.prank])
+        idx_start_cells = np.sum(nb_cells_p[self._ranks<self._prank])
         idx_end_cells = idx_start_cells + nb_cells_local
         connectivity = connectivity + idx_start
 
-        with self._file('a', driver='mpio', comm=self.comm) as f:
+        with self._file('a', driver='mpio', comm=self._comm) as f:
             grp = f.require_group(mesh_location)
             coord = grp.require_dataset('geometry', shape=coord_shape, dtype='f')
             conn  = grp.require_dataset('topology', shape=conn_shape, dtype='i')
@@ -341,15 +337,15 @@ class SimulationWriter(Simulation):
         if time is None: time = self.step
 
         length_local = vector.shape[0]
-        length_p = np.array(self.comm.allgather(length_local))
+        length_p = np.array(self._comm.allgather(length_local))
         length = np.sum(length_p)
 
         # global indices
-        idx_start = np.sum(length_p[self.ranks<self.prank])
+        idx_start = np.sum(length_p[self._ranks<self._prank])
         idx_end = idx_start + length_local
 
         # open file
-        with self._file('a', driver='mpio', comm=self.comm) as f:
+        with self._file('a', driver='mpio', comm=self._comm) as f:
             data = f.require_group('data')  # Require group data to store all point data in
             grp = data.require_group(name)
             vec = grp.require_dataset(str(self.step), shape=(length, dim), dtype='f')
@@ -366,7 +362,7 @@ class SimulationWriter(Simulation):
             name (str): Name for the data
             value (float): Data
         """
-        if self.prank==0:
+        if self._prank==0:
             with self._file('a') as f:
                 grp = f.require_group('globals')
                 if name not in grp.keys():
@@ -386,7 +382,7 @@ class SimulationWriter(Simulation):
             name: Name of data
             file: filename of file
         """
-        if self.prank==0:
+        if self._prank==0:
             with self._file('a') as f:
                 grp = f.require_group('additionals')
                 grp.attrs.update({name: file})
@@ -396,7 +392,7 @@ class SimulationWriter(Simulation):
         self.step += 1
 
     def finish_sim(self, status: str = 'Finished') -> None:
-        if self.prank==0:
+        if self._prank==0:
             self.change_status(status)
 
     def register_git_attributes(self, repo_path: str = './') -> None:
@@ -405,7 +401,7 @@ class SimulationWriter(Simulation):
         Args:
             repo_path (`str`): path to git repository
         """
-        if self.prank==0:
+        if self._prank==0:
             repo_path = os.path.abspath(repo_path)
             # store current working directory
             cwd = os.getcwd()
