@@ -7,6 +7,8 @@
 #
 # There is no warranty for this code
 from __future__ import annotations
+import abc
+from collections import deque
 
 from functools import wraps
 from abc import ABC, abstractmethod
@@ -22,6 +24,13 @@ if HAS_MPIO:
     MPI_ACTIVE = h5py._MPI_ACTIVE
 else:
     MPI_ACTIVE = False
+
+FILE_MODE_HIRARCHY = {
+        'r': 1,
+        'r+': 2,
+        'a': 2,
+        'w': 3,
+        }
 
 
 def open_h5file(file: str, mode, driver=None, comm=None):
@@ -45,7 +54,7 @@ def open_h5file(file: str, mode, driver=None, comm=None):
             time.sleep(1)
 
 
-def with_file_open(mode: str = 'r'):
+def with_file_open(mode: str = 'r', driver=None, comm=None):
     """Open the file (`self._file`) before function
     Close the file after the function call
 
@@ -54,7 +63,7 @@ def with_file_open(mode: str = 'r'):
     def decorator(method):
         @wraps(method)
         def wrapper(self, *args, **kwargs):
-            with self._file(mode):
+            with self._file(mode, driver, comm):
                 return method(self, *args, **kwargs)
         return wrapper
     return decorator
@@ -70,17 +79,17 @@ class FileHandler:
         self.file_name = file_name
         self._lock = 0
         self._mode = 'r'
+        self._driver = None
+        self._comm = None
 
-    def __call__(self, mode: str = 'r') -> FileHandler:
+    def __call__(self, mode: str = 'r', driver=None, comm=None) -> FileHandler:
+        """Used to set the options for file opening.
+        Example: `with sim._file('a', driver='mpio') as file:`
+        """
         self._mode = mode
+        self._driver = driver
+        self._comm = comm
         return self
-
-    def __enter__(self):
-        self.open(self._mode)
-        return self
-
-    def __exit__(self, *args):
-        self.close()
 
     def __getitem__(self, key) -> Any:
         return self.file_object[key]
@@ -88,13 +97,23 @@ class FileHandler:
     def __getattr__(self, __name: str) -> Any:
         return self.file_object.__getattribute__(__name)
 
-    def open(self, mode: str = 'r'):
+    def __enter__(self):
+        self.open(self._mode, self._driver, self._comm)
+        return self
+
+    def __exit__(self, *args):
+        self.close()
+
+    def open(self, mode: str = 'r', driver=None, comm=None):
         if self._lock==0:
             log.debug(f"[{id(self)}] Open {self.file_name}")
-            self.file_object = open_h5file(self.file_name, mode)
+            self.file_object = open_h5file(self.file_name, mode, driver, comm)
+
+        if FILE_MODE_HIRARCHY[self.file_object.mode] < FILE_MODE_HIRARCHY[mode]:
+            self.change_file_mode(mode, driver, comm)
+
+        log.debug(f"[{id(self)}] Lock stack {self._lock}")
         self._lock += 1
-        log.debug(f"[{id(self)}] Lock count {self._lock}")
-        log.debug(f"h5py id = {self.file_object.id}")
         return self.file_object
 
     def close(self):
@@ -102,12 +121,12 @@ class FileHandler:
         if self._lock==0:
             log.debug(f"[{id(self)}] Close {self.file_name}")
             self.file_object.close()
-        log.debug(f"[{id(self)}] Lock count {self._lock}")
+        log.debug(f"[{id(self)}] Lock stack {self._lock}")
 
-    def change_file_mode(self, mode: str):
-        log.debug(f"Forced closing and reopening to change file mode [{self.file_name}]")
+    def change_file_mode(self, mode: str, driver=None, comm=None):
+        log.info(f"Forced closing and reopening to change file mode [{self.file_name}].")
         self.file_object.close()
-        self.file_object = open_h5file(self.file_name, mode)
+        self.file_object = open_h5file(self.file_name, mode, driver, comm)
         
 
 class HDF5Pointer:
@@ -131,6 +150,13 @@ class HDF5Pointer:
         self.path_to_data = path_to_data
         self._attribute = _attribute
 
+        # Test if pointer is valid
+        try:
+            with self._file():
+                self.obj
+        except KeyError:
+            raise KeyError(f"{self.path_to_data} is not a valid location.")
+
     @with_file_open('r')
     def __call__(self, *args: Any, **kwargs: Any) -> Any:
         return self.obj.__call__(*args, **kwargs)
@@ -142,12 +168,10 @@ class HDF5Pointer:
         return self.__getattribute__(__name)
 
     @with_file_open()
-    def __repr__(self) -> str:
-        return f'{self.__class__} pointing to: ' + self._file[self.path_to_data].__repr__()
-
-    @with_file_open()
     def __str__(self) -> str:
         return f'{self.__class__} pointing to: ' + self._file[self.path_to_data].__repr__()
+
+    __repr__ = __str__
 
     @with_file_open('r')
     def __getitem__(self, key):
