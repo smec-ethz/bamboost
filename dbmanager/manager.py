@@ -9,6 +9,7 @@
 
 import os
 import shutil
+from typing import Union
 import uuid
 import h5py
 import pandas as pd
@@ -46,7 +47,9 @@ class Manager:
         if not os.path.isdir(self._meta_folder):
             self._init_meta_folder()
 
-    def __getitem__(self, row: int):
+        self.all_uids = self._get_uids()
+
+    def __getitem__(self, key: Union[str, int]):
         """Returns the simulation in the specified row of the dataframe.
 
         Args:
@@ -54,10 +57,13 @@ class Manager:
         Returns:
             sim (SimulationReader)
         """
-        return self.sim(self.df.loc[row, 'id'])
+        if isinstance(key, str):
+            return self.sim(key)
+        else:
+            return self.sim(self.df.loc[key, 'id'])
 
-    def __repr__(self):
-        return self.df.__repr__()
+    def _ipython_key_completions_(self):
+        return self.all_uids
 
     def _init_meta_folder(self) -> None:
         os.makedirs(self._meta_folder, exist_ok=True)
@@ -89,7 +95,18 @@ class Manager:
         df = df[['id', 'notes', 'status', *df.columns.difference(['id', 'notes', 'status'])]]
         return df
 
-    def sim(self, arg, sort: str = None, reverse: bool = False) -> Simulation:
+    @property
+    def data_info(self) -> pd.DataFrame:
+        """Return view of stored data for all simulations"""
+        data = list()
+        for uid in self._get_uids():
+            with open_h5file(os.path.join(self.path, uid, f'{uid}.h5'), 'r') as f:
+                tmp_dict = dict()
+                tmp_dict = {key: len(f[f'data/{key}']) for key in f['data'].keys()}
+                data.append(tmp_dict)
+        return pd.DataFrame.from_records(data)
+
+    def sim(self, arg, sort: str = None, reverse: bool = False) -> SimulationReader:
         """Get an existing simulation with uid.
 
         Args:

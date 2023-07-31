@@ -6,6 +6,7 @@
 # Copyright 2023 Flavio Lorez and contributors
 #
 # There is no warranty for this code
+from __future__ import annotations
 
 from functools import wraps
 from abc import ABC, abstractmethod
@@ -53,16 +54,9 @@ def with_file_open(mode: str = 'r'):
     def decorator(method):
         @wraps(method)
         def wrapper(self, *args, **kwargs):
-            if self._file.file_object:
-                self._file.close()
-
-            self._file.open(mode)
-            res = method(self, *args, **kwargs)
-            self._file.close()
-            return res
-
+            with self._file(mode):
+                return method(self, *args, **kwargs)
         return wrapper
-
     return decorator
 
 
@@ -74,6 +68,19 @@ class FileHandler:
     def __init__(self, file_name: str) -> None:
         self.file_object: h5py.File = None
         self.file_name = file_name
+        self._lock = 0
+        self._mode = 'r'
+
+    def __call__(self, mode: str = 'r') -> FileHandler:
+        self._mode = mode
+        return self
+
+    def __enter__(self):
+        self.open(self._mode)
+        return self
+
+    def __exit__(self, *args):
+        self.close()
 
     def __getitem__(self, key) -> Any:
         return self.file_object[key]
@@ -82,13 +89,25 @@ class FileHandler:
         return self.file_object.__getattribute__(__name)
 
     def open(self, mode: str = 'r'):
-        log.debug(f"Opened {self.file_name}")
-        self.file_object = open_h5file(self.file_name, mode)
+        if self._lock==0:
+            log.debug(f"[{id(self)}] Open {self.file_name}")
+            self.file_object = open_h5file(self.file_name, mode)
+        self._lock += 1
+        log.debug(f"[{id(self)}] Lock count {self._lock}")
+        log.debug(f"h5py id = {self.file_object.id}")
         return self.file_object
 
     def close(self):
-        log.debug(f"Closing {self.file_name}")
+        self._lock -= 1
+        if self._lock==0:
+            log.debug(f"[{id(self)}] Close {self.file_name}")
+            self.file_object.close()
+        log.debug(f"[{id(self)}] Lock count {self._lock}")
+
+    def change_file_mode(self, mode: str):
+        log.debug(f"Forced closing and reopening to change file mode [{self.file_name}]")
         self.file_object.close()
+        self.file_object = open_h5file(self.file_name, mode)
         
 
 class HDF5Pointer:
@@ -119,10 +138,7 @@ class HDF5Pointer:
     @with_file_open('r')
     def __getattr__(self, __name: str) -> Any:
         if hasattr(self.obj, __name):
-            attr = self.obj.__getattribute__(__name)
-            if isinstance(attr, h5py._hl.base.CommonStateObject):
-                return self.__class__(self._file, self.path_to_data, _attribute=__name)
-            return attr
+            return self.obj.__getattribute__(__name)
         return self.__getattribute__(__name)
 
     @with_file_open()
@@ -144,6 +160,10 @@ class HDF5Pointer:
     @with_file_open('a')
     def __setitem__(self, slice, newvalue):
         self.obj.__setitem__(slice, newvalue)
+
+    @with_file_open()
+    def keys(self):
+        return set(self.obj.keys())
 
     @property
     @with_file_open()

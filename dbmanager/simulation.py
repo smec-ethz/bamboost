@@ -8,6 +8,7 @@
 # There is no warranty for this code
 
 from __future__ import annotations
+from collections.abc import Iterable
 
 import os
 import shutil
@@ -97,7 +98,7 @@ class Simulation:
     def parameters(self):
         tmp_dict = dict()
         if self.prank==0:
-            with self.open('r') as file:
+            with self._file.open('r') as file:
                 tmp_dict.update(file['parameters'].attrs)
                 for key in file['parameters'].keys():
                     tmp_dict.update({key: file[f'parameters/{key}'][()]})
@@ -110,7 +111,7 @@ class Simulation:
     def metadata(self):
         tmp_dict = dict()
         if self.prank==0:
-            with self.open('r') as file:
+            with self._file.open('r') as file:
                 tmp_dict.update(file.attrs)
         tmp_dict = self.comm.bcast(tmp_dict, root=0)
         return tmp_dict
@@ -121,7 +122,7 @@ class Simulation:
         Args:
             update_dict: dictionary to push
         """
-        with self.open('a') as file:
+        with self._file.open('a') as file:
             file.attrs.update(update_dict)
 
     def update_parameters(self, update_dict: dict) -> None:
@@ -131,7 +132,7 @@ class Simulation:
             update_dict: dictionary to push
         """
         if self.prank==0:
-            with self.open('a') as file:
+            with self._file.open('a') as file:
                 file['parameters'].attrs.update(update_dict)
 
     def create_xdmf_file(self, fields: list = None, nb_steps: int = None) -> None:
@@ -145,7 +146,7 @@ class Simulation:
 
         if self.comm.rank==0:
 
-            with self.open('r') as f:
+            with self._file.open('r') as f:
                 if not fields:
                     fields = list(f['data'].keys())
 
@@ -192,7 +193,7 @@ class Simulation:
         else:
             job.create_bash_script_local(commands, path=os.path.abspath(self.parent_path),
                                          uid=self.uid, ntasks=ntasks)
-        with self.open('a') as file:
+        with self._file.open('a') as file:
             file.attrs.update({'submitted': False})
 
     def submit(self) -> None:
@@ -201,7 +202,7 @@ class Simulation:
         subprocess.Popen(["sbatch", f"{batch_script}"])
         print(f'Simulation {self.uid} submitted!')
 
-        with self.open('a') as file:
+        with self._file.open('a') as file:
             file.attrs.update({'submitted': True})
 
     @with_file_open('a')
@@ -217,29 +218,142 @@ class Simulation:
         data.create_dataset(name, data=vector)
 
 
-class Data:
+class Field:
 
-    def __init__(self, _file: FileHandler) -> None:
-        self._file = _file
-        with self._file.open('r'):
-            self._fields = list(self._file['data'].keys())
+    _vds_key = '__vds'
+    _times_key = '__times'
+
+    def __init__(self, _group: HDF5Pointer, _name: str, _uid: str) -> None:
+        self._group = _group
+        self._file = self._group._file
+        self.name = _name
+        self.uid = _uid
+
+    def __str__(self) -> str:
+        return f"{self.__class__} {self.name} in {self.uid}"
+
+    __repr__ = __str__
 
     @with_file_open('r')
     def __getitem__(self, key) -> Any:
-        return self._dataset(self._file['data'][key])
+        return self._get_full_data()[key]
+
+    def __len__(self) -> int:
+        count = 0
+        reduntants = (self._vds_key, self._times_key)
+        with self._file:
+            for key in reduntants:
+                count += 1 if key in self._group.obj.keys() else 0
+            return len(self._group.obj.keys()) - count
+
+    @property
+    def times(self):
+        """Return the array of timestamps.
+
+        Returns:
+            :class:`~dbmanager.common.file_handler.HDF5Pointer`
+        """
+        try:
+            return self._group[self._times_key]
+        except KeyError:
+            self._create_times()
+            return self._group[self._times_key]
+
+    @with_file_open()
+    def at_step(self, *steps: int) -> np.ndarray:
+        """Direct access to data at step. Does not require the virtual dataset.
+
+        Args:
+            step (`int`): step to extract
+        Returns:
+            :class:`np.ndarray`
+        """
+        data = list()
+        for step in steps:
+            if step<0:
+                step = len(self) + step
+            data.append(self._group[str(step)][()])
+        if len(data)<=1:
+            return data[0]
+        else:
+            return data
+
+    def regenerate_virtual_datasets(self):
+        """Regenerate virtual dataset. Call this if the data has changed, thus the
+        virtual datasets need to be updated to cover the actual data.
+        """
+        self._create_times()
+        self._create_vds()
+
+    def _get_full_data(self):
+        try:
+            return self._group['__vds']
+        except KeyError:
+            self._create_vds()
+            return self._group['__vds']
+
+    @with_file_open()
+    def _create_times(self) -> None:
+        if self._times_key not in self._group.obj.keys():
+            times = list()
+            for step in range(len(self)):
+                times.append(self._group.obj[str(step)].attrs.get('t', step))
+
+            self._file.change_file_mode('a')
+            if self._times_key in self._group.obj.keys():
+                del self._group.obj[self._times_key]
+            self._group.obj.create_dataset(self._times_key, data=np.array(times))
+            self._file.change_file_mode('r')
+
+
+    def _create_vds(self) -> None:
+        """Create virtual dataset of the full timeseries of a field.
+        Requires HDF5 > 1.10 !
+        """
+
+        with self._file:
+
+            grp = self._group.obj
+            length = len(self)
+            ds_shape = grp['0'].shape
+            ds_dtype = grp['0'].dtype
+
+            layout = h5py.VirtualLayout(shape=(length, *ds_shape), dtype=ds_dtype)
+            
+            for step in range(length):
+                vsource = h5py.VirtualSource(grp[str(step)])
+                layout[step] = vsource
+
+        with self._file:
+            self._file.change_file_mode('a')
+            if self._vds_key in self._group.obj.keys():
+                del self._group.obj[self._vds_key]
+
+            self._group.obj.create_virtual_dataset(self._vds_key, layout)
+            self._file.change_file_mode('r')
+
+
+class Data:
+
+    def __init__(self, _file: FileHandler, _uid: str) -> None:
+        self._file = _file
+        self.uid = _uid
+        with self._file:
+            self._fields = list(self._file['data'].keys())
+
+    @with_file_open('r')
+    def __getitem__(self, key) -> Field:
+        return Field(HDF5Pointer(self._file, f'data/{key}'), key, self.uid)
     
     def _ipython_key_completions_(self):
         return self._fields
 
-    def _dataset(self, ds: h5py._hl.dataset, file: str = None) -> h5py._hl.dataset:
-        return HDF5Pointer(FileHandler(ds.file.filename), ds.name)
-        
 
 class SimulationReader(Simulation):
 
     def __init__(self, uid: str, path: str, comm: MPI.Comm = MPI.COMM_WORLD):
         super().__init__(uid, path, comm)
-        self._data: Data = Data(self._file)
+        self._data: Data = Data(self._file, uid)
 
     # -------------------------------------------------------------------------
     # Reading methods
@@ -267,13 +381,13 @@ class SimulationReader(Simulation):
 
     @with_file_open('r')
     def get_mesh(self, mesh_name: str = 'mesh'):
-        """Return coordinates and connectivity.
+        """Return coordinates and connectivity. Currently returns numpy arrays.
 
         Args:
             mesh_name (`str`): optional, name of mesh to read (default = mesh)
         """
-        coordinates = self._dataset(self._file[f'{self._mesh_location}/{mesh_name}/geometry'])
-        cells = self._dataset(self._file[f'{self._mesh_location}/{mesh_name}/topology'])
+        coordinates = self._file[f'{self._mesh_location}/{mesh_name}/geometry'][()]
+        cells = self._file[f'{self._mesh_location}/{mesh_name}/topology'][()]
         return coordinates, cells
 
     @property
@@ -427,15 +541,15 @@ class SimulationReader(Simulation):
                 del f[self.uid]
 
     @property
+    @with_file_open('r')
     def post(self) -> SimpleNamespace:
         """Return the data stored in the postprocess category.
 
         Returns:
             SimpleNamespace with all data.
         """
-        with self.open('r') as f:
-            data = f['postprocess']
-            d = {key: data[key][()] for key in data.keys()}
+        data = self._file['postprocess']
+        d = {key: data[key][()] for key in data.keys()}
         return SimpleNamespace(**d)
 
     def _dataset(self, ds: h5py._hl.dataset, file: str = None) -> h5py._hl.dataset:
@@ -456,7 +570,7 @@ class SimulationReader(Simulation):
             step: step
         """
         from scipy.interpolate import LinearNDInterpolator
-        return LinearNDInterpolator(self.mesh[0], self.data(name, step).arr[()])
+        return LinearNDInterpolator(self.mesh[0], self.data(name, step).arr[:])
 
 
 class SimulationWriter(Simulation):
@@ -674,7 +788,7 @@ class SimulationWriter(Simulation):
             # switch working directory back
             os.chdir(cwd)
 
-            with self.open('a') as f:
+            with self._file.open('a') as f:
                 grp = f.require_group('git')
                 repo_name = os.path.split(repo_path)[1]
                 print(f"Adding repo {repo_name}")

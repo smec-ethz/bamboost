@@ -8,4 +8,5 @@ from .postprocessor import Postprocessor
 
 import logging
 import os
-logging.basicConfig(level=os.environ.get("LOGLEVEL", "INFO"))
+def log(mode: str = "INFO"):
+    logging.basicConfig(level=os.environ.get("LOGLEVEL", mode))
