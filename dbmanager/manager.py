@@ -144,11 +144,11 @@ class Manager:
         Returns:
             A list of `:class:~dbmanager.simulation.SimulationReader` objects
         """
-        if select:
+        if select is not None:
             id_list = self.df[select]['id'].values
         else:
             id_list = self.all_uids
-        if exclude:
+        if exclude is not None:
             exclude = list([exclude]) if isinstance(exclude, str) else exclude
             id_list = [id for id in id_list if id not in exclude]
 
