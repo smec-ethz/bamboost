@@ -21,7 +21,7 @@ log = logging.getLogger(__name__)
 
 HAS_MPIO = 'mpio' in h5py.registered_drivers()
 if HAS_MPIO:
-    MPI_ACTIVE = h5py._MPI_ACTIVE
+    MPI_ACTIVE = h5py.h5.get_config().mpi
 else:
     MPI_ACTIVE = False
 
