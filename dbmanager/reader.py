@@ -61,6 +61,10 @@ class Data(Group):
         with self._file():
             self._getitem_keys = list(self._group.keys())
 
+    def __iter__(self) -> Field:
+        for field in self._getitem_keys:
+            yield Field(HDF5Pointer(self._file, f'{self._group.name}/{field}'), self.sim, field)
+
     @with_file_open('r')
     def __getitem__(self, key) -> Field:
         return Field(HDF5Pointer(self._file, f'{self._group.name}/{key}'), self.sim, key)
@@ -316,11 +320,11 @@ class SimulationReader(Simulation):
             :class:`pd.DataFrame`
         """
         tmp_dictionary = dict()
-        for data in self._file['data'].keys():
-            steps = max([int(step) for step in self._file[f'data/{data}'].keys()]) + 1
-            shape = self._file[f'data/{data}/0'].shape
-            dtype = self._file[f'data/{data}/0'].dtype
-            tmp_dictionary[data] = {'dtype': dtype, 'shape': shape, 'steps': steps}
+        for data in self.data:
+            steps = len(data)
+            shape = data._group['0'].shape
+            dtype = data._group['0'].dtype
+            tmp_dictionary[data._name] = {'dtype': dtype, 'shape': shape, 'steps': steps}
         return pd.DataFrame.from_dict(tmp_dictionary)
 
     @property
