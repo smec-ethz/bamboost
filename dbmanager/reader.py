@@ -164,18 +164,15 @@ class Field(Group):
             self._create_vds()
             return self._group['__vds']
 
-    @with_file_open()
+    @with_file_open('r+')
     def _create_times(self) -> None:
-        if self._times_key not in self._group.obj.keys():
-            times = list()
-            for step in range(len(self)):
-                times.append(self._group.obj[str(step)].attrs.get('t', step))
+        times = list()
+        for step in range(len(self)):
+            times.append(self._group.obj[str(step)].attrs.get('t', step))
 
-            self._file.change_file_mode('a')
-            if self._times_key in self._group.obj.keys():
-                del self._group.obj[self._times_key]
-            self._group.obj.create_dataset(self._times_key, data=np.array(times))
-            self._file.change_file_mode('r')
+        if self._times_key in self._group.obj.keys():
+            del self._group.obj[self._times_key]
+        self._group.obj.create_dataset(self._times_key, data=np.array(times))
 
 
     def _create_vds(self) -> None:
@@ -183,7 +180,7 @@ class Field(Group):
         Requires HDF5 > 1.10 !
         """
 
-        with self._file:
+        with self._file('r'):
 
             grp = self._group.obj
             length = len(self)
@@ -196,13 +193,11 @@ class Field(Group):
                 vsource = h5py.VirtualSource(grp[str(step)])
                 layout[step] = vsource
 
-        with self._file:
-            self._file.change_file_mode('a')
+        with self._file('r+'):
             if self._vds_key in self._group.obj.keys():
                 del self._group.obj[self._vds_key]
 
             self._group.obj.create_virtual_dataset(self._vds_key, layout)
-            self._file.change_file_mode('r')
 
 
 class MeshGroup(Group):
