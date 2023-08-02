@@ -50,7 +50,7 @@ def open_h5file(file: str, mode, driver=None, comm=None):
                 return h5py.File(file, mode)
 
         except OSError:
-            log.info(f"File {file} not accessible, waiting") 
+            log.warning(f"File {file} not accessible, waiting") 
             time.sleep(1)
 
 
@@ -95,7 +95,10 @@ class FileHandler:
         return self.file_object[key]
 
     def __getattr__(self, __name: str) -> Any:
-        return self.file_object.__getattribute__(__name)
+        try:
+            return self.file_object.__getattribute__(__name)
+        except:
+            return self.__getattribute__(__name)
 
     def __enter__(self):
         self.open(self._mode, self._driver, self._comm)

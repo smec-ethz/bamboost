@@ -53,13 +53,17 @@ class Simulation:
         self.xdmffile = os.path.join(self.path, f'{self.uid}.xdmf')
         os.makedirs(self.path, exist_ok=True)
 
-        self._file = FileHandler(self.h5file)
-
         # MPI information
         self._comm = comm
         self._psize = self._comm.size
         self._prank = self._comm.rank
         self._ranks = np.array([i for i in range(self._psize)])
+
+        # FileHandler must be shared between processes!
+        file_handler = None
+        if self._prank==0:
+            file_handler = FileHandler(f'{self.h5file}')
+        self._file = self._comm.bcast(file_handler, root=0)
 
     @with_file_open()
     def __getitem__(self, key) -> HDF5Pointer:
@@ -71,13 +75,14 @@ class Simulation:
         return HDF5Pointer(self._file, key)
 
     @property
-    @with_file_open()
     def parameters(self):
         tmp_dict = dict()
         if self._prank==0:
-            tmp_dict.update(self._file['parameters'].attrs)
-            for key in self._file['parameters'].keys():
-                tmp_dict.update({key: self._file[f'parameters/{key}'][()]})
+            with self._file('r'):
+                tmp_dict.update(self._file['parameters'].attrs)
+                for key in self._file['parameters'].keys():
+                    tmp_dict.update({key: self._file[f'parameters/{key}'][()]})
+
         tmp_dict = unflatten_dict(tmp_dict)
 
         tmp_dict = self._comm.bcast(tmp_dict, root=0)
@@ -239,17 +244,16 @@ class SimulationWriter(Simulation):
 
         return self
 
-    @with_file_open('a')
     def add_metadata(self) -> None:
         """Add metadata to h5 file."""
         nb_proc = self._comm.Get_size()
         if self._prank==0:
-            self._file.attrs['time_stamp'] = str(datetime.datetime.now().replace(microsecond=0))
-            self._file.attrs['id'] = self.uid
-            self._file.attrs['processors'] = nb_proc
-            self._file.attrs['notes'] = self._file.attrs.get('notes', "")
+            with self._file('a'):
+                self._file.attrs['time_stamp'] = str(datetime.datetime.now().replace(microsecond=0))
+                self._file.attrs['id'] = self.uid
+                self._file.attrs['processors'] = nb_proc
+                self._file.attrs['notes'] = self._file.attrs.get('notes', "")
 
-    @with_file_open('a')
     def add_parameters(self, parameters: dict) -> None:
         """Add parameters to simulation.
 
@@ -257,19 +261,20 @@ class SimulationWriter(Simulation):
             parameters (dict): Dictionary with parameters.
         """
         if self._prank==0:
-            # flatten parameters
-            parameters = flatten_dict(parameters)
+            with self._file('a'):
+                # flatten parameters
+                parameters = flatten_dict(parameters)
 
-            if 'parameters' in self._file.keys():
-                del self._file['parameters']
-            grp = self._file.create_group('/parameters')
-            for key, val in parameters.items():
-                if isinstance(val, np.ndarray):
-                    grp.create_dataset(key, data=val)
-                elif val is not None:
-                    grp.attrs[key] = val
-                else:
-                    pass
+                if 'parameters' in self._file.keys():
+                    del self._file['parameters']
+                grp = self._file.create_group('/parameters')
+                for key, val in parameters.items():
+                    if isinstance(val, np.ndarray):
+                        grp.create_dataset(key, data=val)
+                    elif val is not None:
+                        grp.attrs[key] = val
+                    else:
+                        pass
 
     def add_mesh(self, coordinates, connectivity, mesh_name: str = None) -> None:
         """Add the mesh to file. Currently only 2d meshes.
@@ -306,6 +311,8 @@ class SimulationWriter(Simulation):
         connectivity = connectivity + idx_start
 
         with self._file('a', driver='mpio', comm=self._comm) as f:
+            if mesh_location in self._file.file_object:
+                del self._file.file_object[mesh_location]
             grp = f.require_group(mesh_location)
             coord = grp.require_dataset('geometry', shape=coord_shape, dtype='f')
             conn  = grp.require_dataset('topology', shape=conn_shape, dtype='i')

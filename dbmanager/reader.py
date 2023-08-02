@@ -59,10 +59,10 @@ class Data(Group):
         super().__init__(_group, sim, _name)
 
         with self._file():
-            self._getitem_keys = list(self._group.keys())
+            self.fields = list(self._group.keys())
 
     def __iter__(self) -> Field:
-        for field in self._getitem_keys:
+        for field in self.fields:
             yield Field(HDF5Pointer(self._file, f'{self._group.name}/{field}'), self.sim, field)
 
     @with_file_open('r')
@@ -70,7 +70,7 @@ class Data(Group):
         return Field(HDF5Pointer(self._file, f'{self._group.name}/{key}'), self.sim, key)
     
     def _ipython_key_completions_(self):
-        return self._getitem_keys
+        return self.fields
 
 
 class Field(Group):
@@ -209,14 +209,14 @@ class MeshGroup(Group):
     def __init__(self, _group: HDF5Pointer, sim: Simulation, _name: str) -> None:
         super().__init__(_group, sim, _name)
         with self._file():
-            self._getitem_keys = list(self._group.keys())
+            self.fields = list(self._group.keys())
 
     @with_file_open('r')
     def __getitem__(self, key) -> Mesh:
         return Mesh(HDF5Pointer(self._file, f'{self._group.name}/{key}'), self.sim, key)
 
     def _ipython_key_completions_(self):
-        return self._getitem_keys
+        return self.fields
 
 
 class Mesh(Group):
