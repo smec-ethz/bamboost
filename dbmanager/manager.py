@@ -48,8 +48,9 @@ class Manager:
             self._init_meta_folder()
 
         self.all_uids = self._get_uids()
+        self._dataframe: pd.DataFrame = None
 
-    def __getitem__(self, key: Union[str, int]):
+    def __getitem__(self, key: Union[str, int]) -> SimulationReader:
         """Returns the simulation in the specified row of the dataframe.
 
         Args:
@@ -81,6 +82,17 @@ class Manager:
         Returns:
             :class:`pd.DataFrame`
         """
+        if self._dataframe is not None:
+            return self._dataframe
+        else:
+            return self.get_view()
+
+    def get_view(self) -> pd.DataFrame:
+        """View of the database and its parametric space.
+
+        Returns:
+            :class:`pd.DataFrame`
+        """
         all_uids = self._get_uids()
         data = list()
 
@@ -100,8 +112,8 @@ class Manager:
             return df
 
         # Sort dataframe columns
-        df = df[['id', 'notes', 'status', *df.columns.difference(['id', 'notes', 'status'])]]
-        return df
+        self._dataframe = df[['id', 'notes', 'status', *df.columns.difference(['id', 'notes', 'status'])]]
+        return self._dataframe
 
     @property
     def data_info(self) -> pd.DataFrame:

@@ -82,7 +82,7 @@ class Field(Group):
         super().__init__(_group, sim, _name)
 
     @with_file_open('r')
-    def __getitem__(self, key) -> Any:
+    def __getitem__(self, key) -> np.ndarray:
         return self._get_full_data()[key]
 
     def __len__(self) -> int:
