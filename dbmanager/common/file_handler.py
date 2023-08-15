@@ -1,7 +1,36 @@
-from itertools import cycle
+# This file is part of dbmanager, a Python library built for datamanagement
+# using the HDF5 file format.
+#
+# https://gitlab.ethz.ch/compmechmat/research/libs/dbmanager
+#
+# Copyright 2023 Flavio Lorez and contributors
+#
+# There is no warranty for this code
+from __future__ import annotations
+import abc
+from collections import deque
+
+from functools import wraps
+from abc import ABC, abstractmethod
 import time
-import sys
+from typing import Any, Union
 import h5py
+import logging
+
+log = logging.getLogger(__name__)
+
+HAS_MPIO = 'mpio' in h5py.registered_drivers()
+if HAS_MPIO:
+    MPI_ACTIVE = h5py.h5.get_config().mpi
+else:
+    MPI_ACTIVE = False
+
+FILE_MODE_HIRARCHY = {
+        'r': 1,
+        'r+': 2,
+        'a': 2,
+        'w': 3,
+        }
 
 
 def open_h5file(file: str, mode, driver=None, comm=None):
@@ -13,15 +42,162 @@ def open_h5file(file: str, mode, driver=None, comm=None):
         driver (str): driver for h5.File
         comm: MPI communicator
     """
-    dots = cycle(['.','..','...'])
     while True:
         try:
-            if driver=='mpio' and ('mpio' in h5py.registered_drivers()):
+            if driver=='mpio' and HAS_MPIO and MPI_ACTIVE:
                 return h5py.File(file, mode, driver=driver, comm=comm)
             else:
                 return h5py.File(file, mode)
 
         except OSError:
-            print(f"File {file} not accessible, waiting{next(dots)}", flush=True, end="\r") 
+            log.warning(f"File {file} not accessible, waiting") 
             time.sleep(1)
-            sys.stdout.write("\033[K")
+
+
+def with_file_open(mode: str = 'r', driver=None, comm=None):
+    """Open the file (`self._file`) before function
+    Close the file after the function call
+
+    Works on classes containing the member `_file` of type :class:`~dbmanager.common.file_handler.FileHandler`
+    """
+    def decorator(method):
+        @wraps(method)
+        def wrapper(self, *args, **kwargs):
+            with self._file(mode, driver, comm):
+                return method(self, *args, **kwargs)
+        return wrapper
+    return decorator
+
+
+class FileHandler:
+    """File handler for an hdf5 file with the purpose of handling opening and closing
+    of the file. We use the concept of composition to include an object of this type
+    in classes which need access to an hdf5 file (such as the hdf5pointer and Simulation.)
+    """
+    def __init__(self, file_name: str) -> None:
+        self.file_object: h5py.File = None
+        self.file_name = file_name
+        self._lock = 0
+        self._mode = 'r'
+        self._driver = None
+        self._comm = None
+
+    def __call__(self, mode: str = 'r', driver=None, comm=None) -> FileHandler:
+        """Used to set the options for file opening.
+        Example: `with sim._file('a', driver='mpio') as file:`
+        """
+        self._mode = mode
+        self._driver = driver
+        self._comm = comm
+        return self
+
+    def __getitem__(self, key) -> Any:
+        return self.file_object[key]
+
+    def __getattr__(self, __name: str) -> Any:
+        try:
+            return self.file_object.__getattribute__(__name)
+        except:
+            return self.__getattribute__(__name)
+
+    def __enter__(self):
+        self.open(self._mode, self._driver, self._comm)
+        return self
+
+    def __exit__(self, *args):
+        self.close()
+
+    def open(self, mode: str = 'r', driver=None, comm=None):
+        if self._lock==0:
+            log.debug(f"[{id(self)}] Open {self.file_name}")
+            self.file_object = open_h5file(self.file_name, mode, driver, comm)
+
+        if FILE_MODE_HIRARCHY[self.file_object.mode] < FILE_MODE_HIRARCHY[mode]:
+            self.change_file_mode(mode, driver, comm)
+
+        log.debug(f"[{id(self)}] Lock stack {self._lock}")
+        self._lock += 1
+        return self.file_object
+
+    def close(self):
+        self._lock -= 1
+        if self._lock==0:
+            log.debug(f"[{id(self)}] Close {self.file_name}")
+            self.file_object.close()
+        log.debug(f"[{id(self)}] Lock stack {self._lock}")
+
+    def change_file_mode(self, mode: str, driver=None, comm=None):
+        log.info(f"Forced closing and reopening to change file mode [{self.file_name}].")
+        self.file_object.close()
+        self.file_object = open_h5file(self.file_name, mode, driver, comm)
+        
+
+class HDF5Pointer:
+    """Wrapper of a h5py dataset. Storing the file and the infile path. Thus, each call
+    opens the file, does operation and closes the file again.
+
+    Args:
+        file (`str`): path to h5 file
+        path_to_data (`str`): infile path to dataset
+    """
+
+    @property
+    def obj(self):
+        if self._attribute:
+            return self._file[self.path_to_data].__getattribute__(self._attribute)
+        else:
+            return self._file[self.path_to_data]
+
+    def __init__(self, file_handler: FileHandler, path_to_data: str, *, _attribute: str = None) -> None:
+        self._file = file_handler
+        self.path_to_data = path_to_data
+        self._attribute = _attribute
+
+        # Test if pointer is valid
+        try:
+            with self._file():
+                self.obj
+        except KeyError:
+            raise KeyError(f"{self.path_to_data} is not a valid location.")
+
+    @with_file_open('r')
+    def __call__(self, *args: Any, **kwargs: Any) -> Any:
+        return self.obj.__call__(*args, **kwargs)
+
+    @with_file_open('r')
+    def __getattr__(self, __name: str) -> Any:
+        if hasattr(self.obj, __name):
+            return self.obj.__getattribute__(__name)
+        return self.__getattribute__(__name)
+
+    @with_file_open()
+    def __str__(self) -> str:
+        return f'{self.__class__} pointing to: ' + self._file[self.path_to_data].__repr__()
+
+    __repr__ = __str__
+
+    @with_file_open('r')
+    def __getitem__(self, key):
+        value = self.obj.__getitem__(key)
+        if isinstance(value, h5py._hl.base.HLObject):
+            return self.__class__(self._file, f'{self.path_to_data}/{key}')
+        else:
+            return value
+
+    @with_file_open('a')
+    def __setitem__(self, slice, newvalue):
+        self.obj.__setitem__(slice, newvalue)
+
+    @with_file_open()
+    def keys(self):
+        return set(self.obj.keys())
+
+    @property
+    @with_file_open()
+    def shape(self):
+        return self.obj.shape 
+
+    @property
+    @with_file_open()
+    def dtype(self):
+        return self.obj.dtype

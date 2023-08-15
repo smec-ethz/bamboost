@@ -6,7 +6,7 @@ from scipy.interpolate import LinearNDInterpolator
 import numpy as np
 
 
-from .simulation import SimulationReader
+from .reader import SimulationReader
 
 
 class Postprocessor:
