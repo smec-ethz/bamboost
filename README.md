@@ -54,21 +54,29 @@ print(db.df)
 A simulation within a database can be viewed, retrieved and modified with the `Simulation` object.
 There are various ways to get the `Simulation` object:
 ```python
-sim = db.sim('uid')
-sim = db.sim((db.df['parameter1']==2.0) & (db.df['time']>1))
+sim = db['uid']
 sim = db[index]
+sim = db.sim('uid')
 ```
 
-All simulations can be returned as a (sorted) list:
+All simulations can be returned as a (sorted) list. The argument `select` can be used to
+filter the simulations:
 ```python
-sims = db.sims()
-sims = db.sims(sort='parameter1', reverse=False)
+sims = db.sims()  # returns all
+sims = db.sims(select=(db.df.eps==1))  # returns all where eps is 1
+sims = db.sims(sort='parameter1', reverse=False)  # returns all, sorrted by parameter1
 ```
+
+### Manage databases
+Will be added in the future. All opened databases will be remembered, giving you 
+easy access to your databases wherever they may be on the disk. Because it's likely our
+brilliance makes us forget where we put our stuff.
 
 
 ### Write data
 You can use `dbmanagers` to write simulation or experimental data.
-Use the `Manager` to create a new simulation (or access an existing one). Say you have (or want to create) a database at _data_path_.
+Use the `Manager` to create a new simulation (or access an existing one).
+Say you have (or want to create) a database at _data_path_.
 The code sample below shows the main functionality. 
 
 ```python
@@ -122,47 +130,55 @@ db.df  # or also just `db`
 Select a simulation of your dataset. `sim` will be a `SimulationReader` object.
 ```python
 sim = db[index]
-sim = db.sim(uid)
-sim = db.sim((db.df.param1==2) & (db.df.param2>0), sort='param2')  # will return list of all matching, sorted by param2
+sim = db[uid]
+sims = db.sims((db.df.param1==2) & (db.df.param2>0), sort='param2')  # will return list of all matching, sorted by param2
 ```
 
 
-Show data stored: This displays the stored fields and its sizes.
+**Show data stored:** This displays the stored fields and its sizes.
 ```python
 sim.data_info
 ```
-Access a mesh: Will return a tuple where [0] is the coordinates, [1] is the connectivity.
+**Access a mesh:** Directly access a tuple where [0] is the coordinates, [1] is the connectivity.
 ```python
 coords, conn = sim.mesh  # default mesh
 coords, conn = sim.get_mesh(mesh_name=...)
 ```
-Access field data:
+You can get a mesh object the following way.
 ```python
-full_field = sim.data('field_data_1', read_linked_mesh=True)
-full_field.t  # an array with the times
-full_field.arr  # an array with the data indexed (time, node, dimension)
-full_field.mesh  # the corresponding mesh, only returned if option set to True
-
-single_step = sim.data('field_data_1', -1)
-single_step.t  # the time at the step
-single_step.arr  # the data aat the step
-
-single_time = sim.data('field_data_1', time=1e-3)
-single_time.t, single_time.arr  # same as above
+mesh1 = sim.meshes['mesh1']
+mesh1.coordinates  # gives coordinates
+mesh1.connectivity  # gives connectivity
 ```
-Access global data:
+
+**Access field data**:
+`sim.data` acts as an accessor for all field data.
+```python
+field1 = sim.data['field1']
+field1[:], field1[0, :]  # slice the dataset and you get numpy arrays
+field1.at_step(-1)  # similar for access of one step
+field1.mesh  # returns the linked mesh object (see above)
+field1.msh  # returns a tuple of the mesh (coordinates, connectivity)
+field1.coordinates, field1.connectivity  # direct access to linked mesh' coords and conn arrays
+field1.times  # returns timesteps of data
+field1.shape  # shape of data
+```
+
+**Access global data:**
 ```python
 sim.globals
 kinetic_energy = sim.globals.kinetic_energy
 ```
 
-By default, data is read into RAM. If you have large datasets you may switch the option `dataset.ram=False`. Then, data will be returned as an accessor (h5py object). When using this option, you must `open()` and `close()` yourself.
+**Open file:**
+All methods internally open the HDF5 file and make sure that it is closed again. Sometimes
+it's useful to keep the file open (i.e. to directly change something in the file manually).
+To do so, you are encouraged to use the following.
 ```python
-sim.opts['dataset.ram'] = False
-sim.open()
-arr = sim.data('field_data_1').arr
-print(arr[::10, :, 0])  # Only when you slice it, data will be copied into memory
-sim.close()  # When you close it, the data will be inaccessible
+with sim.open(mode='r+') as file:
+    # do anything
+    # in here, you can still use all functions of the dbmanager, the functions will not close
+    # the file in the case you manually opened the file...
 ```
 
 ### Job management
@@ -184,7 +200,7 @@ commands.append(f'mpirun python {os.path.join(sim.path, 'postprocess.py')}') # e
 
 sim.create_batch_script(commands, ntasks=4, time=..., mem_per_cpu=..., euler=True)
 
-sim.submit()  # submits the job using slurm
+sim.submit()  # submits the job using slurm (works only in jupyterhub sessions on Euler)
 ```
 
 
