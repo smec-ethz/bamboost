@@ -140,6 +140,8 @@ class Manager:
         Returns:
             :class:`~dbmanager.simulation.SimulationReader`
         """
+        if uid not in self.all_uids:
+            raise KeyError('The simulation id is not valid.')
         sim = SimulationReader(uid, self.path, self.comm)
         return sim
             
