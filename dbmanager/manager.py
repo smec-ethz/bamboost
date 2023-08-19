@@ -15,8 +15,7 @@ import pandas as pd
 from ctypes import ArgumentError
 from mpi4py import MPI
 
-from .simulation import Simulation, SimulationWriter
-from .reader import SimulationReader
+from .simulation import SimulationWriter, SimulationReader
 from .common.file_handler import open_h5file
 
 

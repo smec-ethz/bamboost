@@ -13,21 +13,28 @@ import os
 import shutil
 import subprocess
 from typing import Any, Tuple, Union
+from types import SimpleNamespace
 import numpy as np
+import pandas as pd
 import datetime
 import logging
+import h5py
 from mpi4py import MPI
+
+
+class Simulation: pass
+class SimulationReader(Simulation): pass
+class SimulationWriter(Simulation): pass
 
 from .xdmf import XDMFWriter
 from .common.git_utility import GitStateGetter
 from .common.job import Job
 from .common.file_handler import FileHandler, with_file_open, HDF5Pointer
 from .common.utilities import flatten_dict, unflatten_dict
+from .infile_objects import GroupFieldData, GroupMeshes
 
 log = logging.getLogger(__name__)
 
-class Simulation: pass
-class SimulationWriter(Simulation): pass
 
 
 class Simulation:
@@ -209,6 +216,148 @@ class Simulation:
         data.create_dataset(name, data=vector)
 
     add_postprocess_field = add_postprocess_data
+
+
+class SimulationReader(Simulation):
+    """Viewer of a single simulation of the database.
+
+    Args:
+        uid (`str`): unique identifier
+        path (`str`): database path
+        comm (:class:`MPI.COMM_WORLD`): mpi communicator
+    """
+
+    def __init__(self, uid: str, path: str, comm: MPI.Comm = MPI.COMM_WORLD):
+        super().__init__(uid, path, comm)
+
+        # Create views of data and mesh if these exist
+        try:
+            self.data: GroupFieldData = GroupFieldData(HDF5Pointer(self._file, 'data'),
+                                                       sim=self, _name='data')
+        except KeyError:
+            log.warning(f"Data not found in this simulation file.")
+            self.data = "File doesn't contain data"
+
+        try:
+            self.meshes: GroupMeshes = GroupMeshes(HDF5Pointer(self._file, self._mesh_location), self, 'Mesh')
+        except KeyError:
+            log.warning("Meshes not found in this simulation file.")
+            self.meshes = "File doesn't contain mesh data"
+
+    def open(self, mode: str = 'r', driver=None, comm=None) -> FileHandler:
+        """Use this as a context manager in a `with` statement.
+        Purpose: keeping the file open to directly access/edit something in the
+        HDF5 file of this simulation.
+
+        Args:
+            mode (`str`): file mode (see h5py docs)
+            driver (`str`): file driver (see h5py docs)
+            comm (`str`): mpi communicator
+        """
+        return self._file(mode, driver, comm)
+        
+    @property
+    def mesh(self):
+        """Return coordinates and connectivity of default mesh.
+
+        Returns:
+            Tuple of np.arrays (coordinates, connectivity)
+        """
+        return self.get_mesh()
+
+    @with_file_open('r')
+    def get_mesh(self, mesh_name: str = None) -> Tuple[np.ndarray, np.ndarray]:
+        """Return coordinates and connectivity. Currently returns numpy arrays.
+
+        Args:
+            mesh_name (`str`): optional, name of mesh to read (default = mesh)
+        Returns:
+            Tuple of np.arrays (coordinates, connectivity)
+        """
+        if mesh_name is None:
+            mesh_name = self._default_mesh
+
+        mesh = self.meshes[mesh_name]
+        return mesh.coordinates, mesh.connectivity
+
+    @property
+    @with_file_open('r')
+    def globals(self) -> pd.DataFrame:
+        """Return global data.
+
+        Returns:
+            :class:`pd.DataFrame`
+        """
+        grp = self._file['globals']
+        d = {key: grp[key][()] for key in grp.keys()}
+        return pd.DataFrame.from_dict(d)
+
+    @property
+    @with_file_open('r')
+    def data_info(self) -> pd.Dataframe:
+        """View the data stored.
+
+        Returns:
+            :class:`pd.DataFrame`
+        """
+        tmp_dictionary = dict()
+        for data in self.data:
+            steps = len(data)
+            shape = data._group['0'].shape
+            dtype = data._group['0'].dtype
+            tmp_dictionary[data._name] = {'dtype': dtype, 'shape': shape, 'steps': steps}
+        return pd.DataFrame.from_dict(tmp_dictionary)
+
+    @property
+    @with_file_open('r')
+    def git(self) -> dict:
+        """Get Git information.
+
+        Returns:
+            :class:`dict` with different repositories.
+        """
+        if 'git' not in self._file.keys():
+            return "Sorrrry, no git information stored :()"
+        grp = self._file['git']
+        tmp_dict = {}
+        for repo in grp.keys():
+            tmp_dict[repo] = grp[repo][()].decode('utf8')
+        return tmp_dict
+
+    @property
+    @with_file_open('r')
+    def post(self) -> SimpleNamespace:
+        """Return the data stored in the postprocess category.
+
+        Returns:
+            SimpleNamespace with all data.
+        """
+        data = self._file['postprocess']
+        d = {key: data[key][()] for key in data.keys()}
+        return SimpleNamespace(**d)
+
+    def get_data_interpolator(self, field: str, step: int):
+        """Get Linear interpolator for data field at step. Uses the linked mesh.
+
+        Args:
+            name (`str`): name of the data field
+            step (`int`): step
+        Returns:
+            :class:`scipy.interpolate.LinearNDInterpolator`
+        """
+        from scipy.interpolate import LinearNDInterpolator
+        return LinearNDInterpolator(self.data[field].mesh.coordinates,
+                                    self.data[field].at_step(step))
+
+    @with_file_open()
+    def print_hdf5_file_structure(self, print_datasets: bool = False):
+        """Print data structure in file to screen."""
+        def print_hdf5_item(name, obj):
+            if isinstance(obj, h5py.Group):
+                print(f"Group: {name}")
+            elif isinstance(obj, h5py.Dataset) and print_datasets:
+                print(f"Dataset: {name}")
+        self._file.visititems(print_hdf5_item)
 
 
 class SimulationWriter(Simulation):
