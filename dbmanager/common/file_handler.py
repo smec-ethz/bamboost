@@ -73,7 +73,21 @@ class FileHandler:
     """File handler for an hdf5 file with the purpose of handling opening and closing
     of the file. We use the concept of composition to include an object of this type
     in classes which need access to an hdf5 file (such as the hdf5pointer and Simulation.)
+
+    Args:
+        - file_name: the path to the file
+
+    Attributes:
+        - file_object: the h5py file object (accessible if open)
+        - _lock: lock is kind of a stack. `open` increases the stack. `close` decreases
+            the stack. file_object is only closed if the stack is at 0. Ensures consecutive
+            method calls works. Would be a problem if the file is closed after each 
+            sub-operation.
+        - _mode: file mode
+        - _driver: file driver
+        - _comm: MPI communicator
     """
+
     def __init__(self, file_name: str) -> None:
         self.file_object: h5py.File = None
         self.file_name = file_name
@@ -137,18 +151,12 @@ class HDF5Pointer:
     opens the file, does operation and closes the file again.
 
     Args:
-        file (`str`): path to h5 file
-        path_to_data (`str`): infile path to dataset
+        - file_handler: file this belongs to
+        - path_to_data: infile path to object
     """
 
-    @property
-    def obj(self):
-        if self._attribute:
-            return self._file[self.path_to_data].__getattribute__(self._attribute)
-        else:
-            return self._file[self.path_to_data]
-
-    def __init__(self, file_handler: FileHandler, path_to_data: str, *, _attribute: str = None) -> None:
+    def __init__(self, file_handler: FileHandler, path_to_data: str, *,
+                 _attribute: str = None) -> None:
         self._file = file_handler
         self.path_to_data = path_to_data
         self._attribute = _attribute
@@ -159,6 +167,14 @@ class HDF5Pointer:
                 self.obj
         except KeyError:
             raise KeyError(f"{self.path_to_data} is not a valid location.")
+
+    @property
+    def obj(self):
+        """The object this HDF5Pointer points to."""
+        if self._attribute:
+            return self._file[self.path_to_data].__getattribute__(self._attribute)
+        else:
+            return self._file[self.path_to_data]
 
     @with_file_open('r')
     def __call__(self, *args: Any, **kwargs: Any) -> Any:
