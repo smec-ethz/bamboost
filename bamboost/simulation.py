@@ -70,7 +70,7 @@ class Simulation:
         Returns:
             :class:`~bamboost.common.file_handler.BasePointer`
         """
-        return hdf_pointer.get_best_pointer(self._file[key])
+        return hdf_pointer.get_best_pointer(self._file, key)
 
     @property
     def parameters(self):

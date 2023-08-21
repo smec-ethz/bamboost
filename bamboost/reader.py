@@ -74,6 +74,11 @@ class FieldData(hdf_pointer.Group):
     def shape(self) -> tuple:
         return self._get_full_data().shape
 
+    @property
+    @with_file_open('r')
+    def dtype(self) -> type:
+        return self._get_full_data().dtype
+
     @with_file_open()
     def at_step(self, *steps: int) -> np.ndarray:
         """Direct access to data at step. Does not require the virtual dataset.
@@ -94,18 +99,16 @@ class FieldData(hdf_pointer.Group):
             return data
 
     @property
-    def times(self) -> hdf_pointer.BasePointer:
+    @with_file_open()
+    def times(self) -> np.ndarray:
         """Return the array of timestamps.
 
         Returns:
-            :class:`~bamboost.common.hdf_pointer.BasePointer`
+            :class:`np.ndarray`
         """
-        try:
-            # try to access the times dataset in the object of the pointer
-            return self.obj[self._times_key]
-        except KeyError:
+        if self._times_key not in self.keys():
             self._create_times()
-            return self.obj[self._times_key]
+        return self.obj[self._times_key][()]
 
     @property
     @with_file_open()
@@ -143,9 +146,9 @@ class FieldData(hdf_pointer.Group):
 
     @with_file_open('r+')
     def _create_times(self) -> None:
-        times = (self.obj[str(step)].attrs.get('t', step)
+        times = [self.obj[str(step)].attrs.get('t', step)
                  for step in range(len(self))
-                 )
+                 ]
         if self._times_key in self.obj.keys():
             del self.obj[self._times_key]
         self.obj.create_dataset(self._times_key, data=np.array(times))

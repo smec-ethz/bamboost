@@ -24,7 +24,7 @@ class Group(BasePointer): pass
 class Dataset(BasePointer): pass
 
 
-def get_best_pointer(value: h5py._hl.base.HLObject) -> BasePointer:
+def get_best_pointer(value: Any) -> BasePointer:
     """Returns pointer based on h5py object type."""
     if isinstance(value, h5py.Group):
         return Group
@@ -33,7 +33,7 @@ def get_best_pointer(value: h5py._hl.base.HLObject) -> BasePointer:
     if isinstance(value, h5py._hl.base.HLObject):
         return BasePointer
     else:
-        return value  # probably no h5py type object, return it as is
+        return None
 
 
 class BasePointer:
@@ -75,7 +75,10 @@ class BasePointer:
     @with_file_open('r')
     def __getitem__(self, key):
         value = self.obj[key]
-        return get_best_pointer(value)
+        new_pointer = get_best_pointer(value)
+        if new_pointer is None:
+            return value
+        return new_pointer(self._file, f'{self.path_to_data}/{key}')
 
     @with_file_open('a')
     def __setitem__(self, slice, newvalue):
