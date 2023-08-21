@@ -15,7 +15,8 @@ import pandas as pd
 from ctypes import ArgumentError
 from mpi4py import MPI
 
-from .simulation import SimulationWriter, SimulationReader
+from .simulation import SimulationWriter
+from .reader import SimulationReader
 from .common.file_handler import open_h5file
 
 
@@ -111,7 +112,8 @@ class Manager:
             return df
 
         # Sort dataframe columns
-        self._dataframe = df[['id', 'notes', 'status', *df.columns.difference(['id', 'notes', 'status'])]]
+        self._dataframe = df[['id', 'notes', 'status',
+                              *df.columns.difference(['id', 'notes', 'status'])]]
         return self._dataframe
 
     @property

@@ -7,11 +7,9 @@
 #
 # There is no warranty for this code
 from __future__ import annotations
-import abc
 from collections import deque
 
 from functools import wraps
-from abc import ABC, abstractmethod
 import time
 from typing import Any, Union
 import h5py
@@ -75,17 +73,17 @@ class FileHandler:
     in classes which need access to an hdf5 file (such as the hdf5pointer and Simulation.)
 
     Args:
-        - file_name: the path to the file
+        file_name: the path to the file
 
     Attributes:
-        - file_object: the h5py file object (accessible if open)
-        - _lock: lock is kind of a stack. `open` increases the stack. `close` decreases
+        file_object: the h5py file object (accessible if open)
+        _lock: lock is kind of a stack. `open` increases the stack. `close` decreases
             the stack. file_object is only closed if the stack is at 0. Ensures consecutive
             method calls works. Would be a problem if the file is closed after each 
             sub-operation.
-        - _mode: file mode
-        - _driver: file driver
-        - _comm: MPI communicator
+        _mode: file mode
+        _driver: file driver
+        _comm: MPI communicator
     """
 
     def __init__(self, file_name: str) -> None:
@@ -146,74 +144,4 @@ class FileHandler:
         self.file_object = open_h5file(self.file_name, mode, driver, comm)
         
 
-class HDF5Pointer:
-    """Wrapper of a h5py dataset. Storing the file and the infile path. Thus, each call
-    opens the file, does operation and closes the file again.
 
-    Args:
-        - file_handler: file this belongs to
-        - path_to_data: infile path to object
-    """
-
-    def __init__(self, file_handler: FileHandler, path_to_data: str, *,
-                 _attribute: str = None) -> None:
-        self._file = file_handler
-        self.path_to_data = path_to_data
-        self._attribute = _attribute
-
-        # Test if pointer is valid
-        try:
-            with self._file():
-                self.obj
-        except KeyError:
-            raise KeyError(f"{self.path_to_data} is not a valid location.")
-
-    @property
-    def obj(self):
-        """The object this HDF5Pointer points to."""
-        if self._attribute:
-            return self._file[self.path_to_data].__getattribute__(self._attribute)
-        else:
-            return self._file[self.path_to_data]
-
-    @with_file_open('r')
-    def __call__(self, *args: Any, **kwargs: Any) -> Any:
-        return self.obj.__call__(*args, **kwargs)
-
-    @with_file_open('r')
-    def __getattr__(self, __name: str) -> Any:
-        if hasattr(self.obj, __name):
-            return self.obj.__getattribute__(__name)
-        return self.__getattribute__(__name)
-
-    @with_file_open()
-    def __str__(self) -> str:
-        return f'{self.__class__} pointing to: ' + self._file[self.path_to_data].__repr__()
-
-    __repr__ = __str__
-
-    @with_file_open('r')
-    def __getitem__(self, key):
-        value = self.obj.__getitem__(key)
-        if isinstance(value, h5py._hl.base.HLObject):
-            return self.__class__(self._file, f'{self.path_to_data}/{key}')
-        else:
-            return value
-
-    @with_file_open('a')
-    def __setitem__(self, slice, newvalue):
-        self.obj.__setitem__(slice, newvalue)
-
-    @with_file_open()
-    def keys(self):
-        return set(self.obj.keys())
-
-    @property
-    @with_file_open()
-    def shape(self):
-        return self.obj.shape 
-
-    @property
-    @with_file_open()
-    def dtype(self):
-        return self.obj.dtype
