@@ -1,22 +1,12 @@
-<html>
-<div align="center" style="font-size: 30pt; font-weight: 200; margin-bottom: 10pt;">
+<h1 align="center">
 	<img src="./assets/bamboost_icon.png" width="150" alt="Logo"/><br/>
 	Bamboost <br>
 
-</div>
+</h1>
 
-<body >
-    <div style="position: relative; width: 70%; background-color: #939ab7; padding: 20px; border-radius: 15px; margin-left: auto; margin-right: auto; color: black;">
-        <p style="margin: 0; text-align: center; ">
-            Bamboost is a Python library built for datamanagement using
-            the HDF5 file format.
-            bamboost stands for a <span style="font-weight: bold;";>lightweight</span> shelf which will <span style="font-weight: bold;">boost</span> your efficiency and which
-            will totally break if you load it heavily. Just kidding, bamboo can fully carry pandas. <br>
-            🐼🐼🐼🐼
-        </p>
-    </div>
-</body>
-</html>
+<div align="center">
+    <img src="./assets/header_readme.svg" width="100%" alt="Header"/><br/>
+</div>
 
 ## Installation
 Clone the repository, navigate into it and install it using pip:
