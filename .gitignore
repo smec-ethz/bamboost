@@ -8,3 +8,4 @@ Makefile
 out/
 *.egg-info*
 dbmanager.wiki
+*.vscode*
