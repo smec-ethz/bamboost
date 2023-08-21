@@ -17,12 +17,12 @@ sys.path.insert(0, os.path.abspath('..'))
 
 # -- Project information -----------------------------------------------------
 
-project = 'dbmanager'
+project = 'bamboost'
 copyright = '2023, florez'
 author = 'florez'
 
 # The full version, including alpha/beta/rc tags
-release = '0.0.1'
+release = '0.3'
 
 
 # -- General configuration ---------------------------------------------------
@@ -34,6 +34,7 @@ extensions = [
         'sphinx.ext.autodoc',
         'sphinx.ext.viewcode',
         'sphinx.ext.napoleon',
+        'sphinx_markdown_builder',
 ]
 
 # Add any paths that contain templates here, relative to this directory.

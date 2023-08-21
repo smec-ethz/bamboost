@@ -3,9 +3,9 @@
    You can adapt this file completely to your liking, but it should at least
    contain the root `toctree` directive.
 
-Welcome to dbmanager's documentation!
+Welcome to bamboost's documentation!
 =====================================
-**DBManager** is a Python library for managing data generation and storage. **DBManager** uses HDF5
+**bamboost** is a Python library for managing data generation and storage. **bamboost** uses HDF5
 files for efficient storage and retrieval of data.
 
 .. note::
