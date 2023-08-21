@@ -1,4 +1,4 @@
-# This file is part of dbmanager, a Python library built for datamanagement
+# This file is part of bamboost, a Python library built for datamanagement
 # using the HDF5 file format.
 #
 # https://gitlab.ethz.ch/compmechmat/research/libs/dbmanager
@@ -56,7 +56,7 @@ def with_file_open(mode: str = 'r', driver=None, comm=None):
     """Open the file (`self._file`) before function
     Close the file after the function call
 
-    Works on classes containing the member `_file` of type :class:`~dbmanager.common.file_handler.FileHandler`
+    Works on classes containing the member `_file` of type :class:`~bamboost.common.file_handler.FileHandler`
     """
     def decorator(method):
         @wraps(method)

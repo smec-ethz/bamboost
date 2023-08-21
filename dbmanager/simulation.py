@@ -1,4 +1,4 @@
-# This file is part of dbmanager, a Python library built for datamanagement
+# This file is part of bamboost, a Python library built for datamanagement
 # using the HDF5 file format.
 #
 # https://gitlab.ethz.ch/compmechmat/research/libs/dbmanager
@@ -68,7 +68,7 @@ class Simulation:
         """Direct access to HDF5 file.
 
         Returns:
-            :class:`~dbmanager.common.file_handler.BasePointer`
+            :class:`~bamboost.common.file_handler.BasePointer`
         """
         return hdf_pointer.get_best_pointer(self._file[key])
 

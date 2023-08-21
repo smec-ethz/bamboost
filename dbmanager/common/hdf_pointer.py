@@ -1,4 +1,4 @@
-# This file is part of dbmanager, a Python library built for datamanagement
+# This file is part of bamboost, a Python library built for datamanagement
 # using the HDF5 file format.
 #
 # https://gitlab.ethz.ch/compmechmat/research/libs/dbmanager
@@ -9,8 +9,7 @@
 
 from __future__ import annotations
 
-from typing import Any, Tuple
-import numpy as np
+from typing import Any
 import h5py
 import logging
 

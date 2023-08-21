@@ -1,4 +1,4 @@
-# This file is part of dbmanager, a Python library built for datamanagement
+# This file is part of bamboost, a Python library built for datamanagement
 # using the HDF5 file format.
 #
 # https://gitlab.ethz.ch/compmechmat/research/libs/dbmanager
@@ -21,7 +21,7 @@ from .common.file_handler import open_h5file
 
 
 META_INFO = """
-This database has been created using `dbmanager`, a python package developed at
+This database has been created using `bamboost`, a python package developed at
 the CMBM group of ETH zurich. It has been built for data management using the
 HDF5 file format.
 
@@ -57,7 +57,7 @@ class Manager:
             row (`str`): return the simulation with the specified uid
             row (int): return the simulation with index specified by row
         Returns:
-            :class:`~dbmanager.reader.SimulationReader`
+            :class:`~bamboost.reader.SimulationReader`
         """
         if isinstance(key, str):
             return self.sim(key)
@@ -139,7 +139,7 @@ class Manager:
         Args:
             uid (`str`): unique identifier
         Returns:
-            :class:`~dbmanager.simulation.SimulationReader`
+            :class:`~bamboost.simulation.SimulationReader`
         """
         if uid not in self.all_uids:
             raise KeyError('The simulation id is not valid.')
@@ -157,7 +157,7 @@ class Manager:
             reverse (`bool`): swap sort direction
             exclude (`list[str]`): sims to exclude
         Returns:
-            A list of `:class:~dbmanager.simulation.SimulationReader` objects
+            A list of `:class:~bamboost.simulation.SimulationReader` objects
         """
         if select is not None:
             id_list = self.df[select]['id'].values
@@ -185,10 +185,10 @@ class Manager:
                 will be assigned.
             parameters (`dict`): Parameter dictionary. If provided, the parameters will be 
                 checked against the existing sims for duplication. Otherwise, they may be 
-                specified later with :func:`~dbmanager.simulation.SimulationWriter.add_parameters`.
+                specified later with :func:`~bamboost.simulation.SimulationWriter.add_parameters`.
             skip_duplicate_check (`bool`): if True, the duplicate check is skipped.
         Returns:
-            sim (:class:`~dbmanager.simulation.SimulationWriter`)
+            sim (:class:`~bamboost.simulation.SimulationWriter`)
         """
         if parameters and not skip_duplicate_check:
             go_on, uid = self._check_duplicate(parameters, uid)

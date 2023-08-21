@@ -1,4 +1,4 @@
-# This file is part of dbmanager, a Python library built for datamanagement
+# This file is part of bamboost, a Python library built for datamanagement
 # using the HDF5 file format.
 #
 # https://gitlab.ethz.ch/compmechmat/research/libs/dbmanager
@@ -98,7 +98,7 @@ class FieldData(hdf_pointer.Group):
         """Return the array of timestamps.
 
         Returns:
-            :class:`~dbmanager.common.hdf_pointer.BasePointer`
+            :class:`~bamboost.common.hdf_pointer.BasePointer`
         """
         try:
             # try to access the times dataset in the object of the pointer
