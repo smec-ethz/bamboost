@@ -1,15 +1,26 @@
-# dbmanager
+<h1 align="center">
+	<img src="./assets/bamboost_icon.png" width="150" alt="Logo"/><br/>
+	Bamboost <br>
+
+</h1>
+
+<div align="center">
+    <img src="./assets/header_readme.svg" width="100%" alt="Header"/><br/>
+</div>
 
 ## Installation
 Clone the repository, navigate into it and install it using pip:
 ```
 pip install -e .
 ```
-The option `-e` installs a project in editable mode from a local path. This way, you won't need to reinstall when pulling a new version or changing something in the package.
+The option `-e` installs a project in editable mode from a local path. This way,
+you won't need to reinstall when pulling a new version or changing something in the
+package.
 
 ### h5py with parallel support
-For mpi support, `h5py` must be installed with parallel support. Otherwise, each process writes one
-after the other which takes forever. The default installation on Euler is not enough.
+For mpi support, `h5py` must be installed with parallel support. Otherwise, eachp
+process writes one after the other which takes forever. The default installation on
+Euler is not enough.
 
 It's simple, do the following:
 ```
@@ -23,7 +34,7 @@ pip install --force-reinstall --no-deps --no-binary=h5py h5py
 > `python 3.x` (if you're version is too low, it's very likely only because of typehints.
 Please report and we can remove/change it)
 
-`dbmanager` depends only on following packages:
+`bamboost` depends only on following packages:
 
 - `numpy>?`
 - `pandas`
@@ -33,22 +44,18 @@ Please report and we can remove/change it)
 ## Usage
 
 ### Manager
-The dbmanager's main object is the `Manager`. It manages the database located in the directory
-specified during construction. It can display all simulations, create new simulations, remove simulations
+The main object of `bamboost` is the `Manager`. It manages the database located in the directory
+specified during construction. It can display the parametric space, create new simulations, remove simulations
 select a specific simulation based on it's `uid` or on conditions of it's parameters.
 ```python
-from dbmanager import Manager
+from bamboost import Manager
 
 db = Manager(path)
 ```
 
-The database can be viewed with:
+`pandas` is used to display the database:
 ```python
-# interactive sessions (notebooks)
 db.df
-
-# scripts
-print(db.df)
 ```
 
 A simulation within a database can be viewed, retrieved and modified with the `Simulation` object.
@@ -76,11 +83,11 @@ brilliance makes us forget where we put our stuff.
 ### Write data
 You can use `dbmanagers` to write simulation or experimental data.
 Use the `Manager` to create a new simulation (or access an existing one).
-Say you have (or want to create) a database at _data_path_.
+Say you have (or want to create) a database at `data_path`.
 The code sample below shows the main functionality. 
 
 ```python
-from dbmanager import Manager
+from bamboost import Manager
 
 db = Manager(data_path)
 
@@ -106,7 +113,7 @@ with writer:
 
 If you have an existing dataset. Do the following. You will need to pass the path and the uid to the script (best use `argparse`).
 ```python
-from dbmanager import SimulationWriter
+from bamboost import SimulationWriter
 
 with SimulationWriter(path, uid) as writer:
 
@@ -118,14 +125,14 @@ The key purpose is convenient access to data. I recommend an interactive session
 
 #### Display database
 ```python
-from dbmanager import Manager
+from bamboost import Manager
 
 db = Manager(data_path)
 ```
 
 To display the database with its parametric space simply input
 ```python
-db.df  # or also just `db`
+db.df
 ```
 Select a simulation of your dataset. `sim` will be a `SimulationReader` object.
 ```python
@@ -149,6 +156,7 @@ You can get a mesh object the following way.
 mesh1 = sim.meshes['mesh1']
 mesh1.coordinates  # gives coordinates
 mesh1.connectivity  # gives connectivity
+mesh1.get_tuple()  # gives both the above
 ```
 
 **Access field data**:
@@ -162,6 +170,7 @@ field1.msh  # returns a tuple of the mesh (coordinates, connectivity)
 field1.coordinates, field1.connectivity  # direct access to linked mesh' coords and conn arrays
 field1.times  # returns timesteps of data
 field1.shape  # shape of data
+field1.dtype  # data type of data
 ```
 
 **Access global data:**
@@ -177,14 +186,14 @@ To do so, you are encouraged to use the following.
 ```python
 with sim.open(mode='r+') as file:
     # do anything
-    # in here, you can still use all functions of the dbmanager, the functions will not close
+    # in here, you can still use all functions of the bamboost, the functions will not close
     # the file in the case you manually opened the file...
 ```
 
 ### Job management
-You can use `dbmanager` to create euler jobs, and to submit them.
+You can use `bamboost` to create euler jobs, and to submit them.
 ```python
-from dbmanager import Manager
+from bamboost import Manager
 db = Manager(data_path)
 params = {...}  # dictionary of parameters (can have nested dictionaries)
 
@@ -205,7 +214,6 @@ sim.submit()  # submits the job using slurm (works only in jupyterhub sessions o
 
 
 To be continued...
-In the meantime, you can have a look at the example :)
 
 ## Feature requests / Issues
-Please open issues on gitlab: [cmbm/dbmanager](https://gitlab.ethz.ch/compmechmat/research/libs/dbmanager)
+Please open issues on gitlab: [cmbm/bamboost](https://gitlab.ethz.ch/compmechmat/research/libs/dbmanager)

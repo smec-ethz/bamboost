@@ -1,4 +1,4 @@
-# This file is part of dbmanager, a Python library built for datamanagement
+# This file is part of bamboost, a Python library built for datamanagement
 # using the HDF5 file format.
 #
 # https://gitlab.ethz.ch/compmechmat/research/libs/dbmanager
@@ -13,21 +13,23 @@ import os
 import shutil
 import subprocess
 from typing import Any, Tuple, Union
+from types import SimpleNamespace
 import numpy as np
+import pandas as pd
 import datetime
 import logging
+import h5py
 from mpi4py import MPI
 
 from .xdmf import XDMFWriter
 from .common.git_utility import GitStateGetter
 from .common.job import Job
-from .common.file_handler import FileHandler, with_file_open, HDF5Pointer
+from .common.file_handler import FileHandler, with_file_open
 from .common.utilities import flatten_dict, unflatten_dict
+from .common import hdf_pointer
 
 log = logging.getLogger(__name__)
 
-class Simulation: pass
-class SimulationWriter(Simulation): pass
 
 
 class Simulation:
@@ -38,10 +40,6 @@ class Simulation:
         path (str): path to parent/database folder
         comm (MPI.Comm): MPI communicator (default=MPI.COMM_WORLD)
     """
-    opts = {
-            'dataset.numpy': False,
-            'dataset.h5py': False,
-            }
     _mesh_location = 'Mesh/0'
     _default_mesh = 'mesh'
 
@@ -66,13 +64,13 @@ class Simulation:
         self._file = self._comm.bcast(file_handler, root=0)
 
     @with_file_open()
-    def __getitem__(self, key) -> HDF5Pointer:
+    def __getitem__(self, key) -> hdf_pointer.BasePointer:
         """Direct access to HDF5 file.
 
         Returns:
-            :class:`~dbmanager.common.file_handler.HDF5Pointer`
+            :class:`~bamboost.common.file_handler.BasePointer`
         """
-        return HDF5Pointer(self._file, key)
+        return hdf_pointer.get_best_pointer(self._file, key)
 
     @property
     def parameters(self):
@@ -203,12 +201,13 @@ class Simulation:
     @with_file_open('a')
     def add_postprocess_data(self, name: str, vector: np.array) -> None:
         """Add a custom field in postprocessing."""
-        data = self._file.require_group('postprocess')  # Require group data to store all point data in
+        data = self._file.require_group('postprocess')  # Require group data to store all point data inpost
         if name in data.keys():
             del data[name]
         data.create_dataset(name, data=vector)
 
     add_postprocess_field = add_postprocess_data
+
 
 
 class SimulationWriter(Simulation):

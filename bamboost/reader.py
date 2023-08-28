@@ -1,4 +1,4 @@
-# This file is part of dbmanager, a Python library built for datamanagement
+# This file is part of bamboost, a Python library built for datamanagement
 # using the HDF5 file format.
 #
 # https://gitlab.ethz.ch/compmechmat/research/libs/dbmanager
@@ -8,115 +8,107 @@
 # There is no warranty for this code
 
 from __future__ import annotations
-
-from typing import Any, Tuple, Union
-from types import SimpleNamespace
-import numpy as np
-import h5py
+from typing import Tuple
 import logging
+from types import SimpleNamespace
+
+import numpy as np
 import pandas as pd
+import h5py
 from mpi4py import MPI
 
 from .simulation import Simulation
-from .common.file_handler import FileHandler, with_file_open, HDF5Pointer
+from .common import hdf_pointer
+from .common.file_handler import FileHandler, with_file_open
 
 log = logging.getLogger(__name__)
 
-class Group: pass
-class Data(Group): pass
-class Field(Group): pass
-class SimulationReader(Simulation): pass
+
+# -----------------------------------------------------------------------------
+
+class DataGroup(hdf_pointer.Group):
+
+    def __init__(self, file_handler: FileHandler, meshes: MeshGroup,
+                 path_to_data: str = '/data') -> None:
+        super().__init__(file_handler, path_to_data)
+        self.meshes = meshes
+
+    def __getitem__(self, key) -> FieldData:
+        return FieldData(self._file, f'{self.path_to_data}/{key}', meshes=self.meshes)
+
+    def __iter__(self) -> FieldData:
+        for key in self._keys:
+            yield self.__getitem__(key)
 
 
-class Group:
-
-    def __init__(self, _group: HDF5Pointer, sim: Simulation, _name: str) -> None:
-        self._group = _group
-        self._file = self._group._file
-        self._name = _name
-        self.sim = sim
-        self.uid = sim.uid
-
-    def __str__(self) -> str:
-        return f"{self.__class__} {self._name} in {self.uid}"
-
-    __repr__ = __str__
-
-    @with_file_open('r')
-    def __getitem__(self, key) -> Field:
-        return Group(HDF5Pointer(self._file, f'{self._group.name}/{key}'), self.sim, key)
-
-    def __getattr__(self, attr) -> Any:
-        if hasattr(self._group, attr):
-            return self._group.__getattribute__(attr)
-        else:
-            return self.__getattribute__(attr)
-    
-
-class Data(Group):
-
-    def __init__(self, _group: HDF5Pointer, sim: Simulation, _name: str) -> None:
-        super().__init__(_group, sim, _name)
-
-        with self._file():
-            self.fields = list(self._group.keys())
-
-    def __iter__(self) -> Field:
-        for field in self.fields:
-            yield Field(HDF5Pointer(self._file, f'{self._group.name}/{field}'), self.sim, field)
-
-    @with_file_open('r')
-    def __getitem__(self, key) -> Field:
-        return Field(HDF5Pointer(self._file, f'{self._group.name}/{key}'), self.sim, key)
-    
-    def _ipython_key_completions_(self):
-        return self.fields
-
-
-class Field(Group):
+class FieldData(hdf_pointer.Group):
 
     _vds_key = '__vds'
     _times_key = '__times'
 
-    def __init__(self, _group: HDF5Pointer, sim: Simulation, _name: str) -> None:
-        super().__init__(_group, sim, _name)
+    def __init__(self, file_handler: FileHandler, path_to_data: str,
+                 meshes: MeshGroup) -> None:
+        super().__init__(file_handler, path_to_data)
+        self.meshes = meshes
+        self._name = path_to_data.split('/')[-1]
 
     @with_file_open('r')
     def __getitem__(self, key) -> np.ndarray:
         return self._get_full_data()[key]
 
+    def _get_full_data(self) -> h5py.Dataset:
+        try:
+            return self.obj[self._vds_key]
+        except KeyError:
+            self._create_vds()
+            return self.obj[self._vds_key]
+
+    @with_file_open('r')
     def __len__(self) -> int:
-        count = 0
-        reduntants = (self._vds_key, self._times_key)
-        with self._file:
-            for key in reduntants:
-                count += 1 if key in self._group.obj.keys() else 0
-            return len(self._group.obj.keys()) - count
+        non_field_keys = (self._vds_key, self._times_key)
+        nb_non_field_keys = sum(1 for key in non_field_keys if key in self.keys())
+        return len(self.keys()) - nb_non_field_keys
 
     @property
+    @with_file_open('r')
     def shape(self) -> tuple:
         return self._get_full_data().shape
 
     @property
-    def coordinates(self) -> np.ndarray:
-        return self.mesh.coordinates
+    @with_file_open('r')
+    def dtype(self) -> type:
+        return self._get_full_data().dtype
+
+    @with_file_open()
+    def at_step(self, *steps: int) -> np.ndarray:
+        """Direct access to data at step. Does not require the virtual dataset.
+
+        Args:
+            *step: step to extract (can be multiple)
+        Returns:
+            :class:`np.ndarray`
+        """
+        data = list()
+        for step in steps:
+            if step<0:
+                step = len(self) + step
+            data.append(self.obj[str(step)][()])
+        if len(data)<=1:
+            return data[0]
+        else:
+            return data
 
     @property
-    def connectivity(self) -> np.ndarray:
-        return self.mesh.connectivity
-
-    @property
-    def times(self) -> HDF5Pointer:
+    @with_file_open()
+    def times(self) -> np.ndarray:
         """Return the array of timestamps.
 
         Returns:
-            :class:`~dbmanager.common.file_handler.HDF5Pointer`
+            :class:`np.ndarray`
         """
-        try:
-            return self._group[self._times_key]
-        except KeyError:
+        if self._times_key not in self.keys():
             self._create_times()
-            return self._group[self._times_key]
+        return self.obj[self._times_key][()]
 
     @property
     @with_file_open()
@@ -126,33 +118,24 @@ class Field(Group):
         Returns:
             :class:`tuple[np.ndarray, np.ndarray]`
         """
-        mesh_name = self._group['0'].attrs.get('mesh', self.sim._default_mesh)
-        return self.sim.meshes[mesh_name]
+        mesh_name = self.obj['0'].attrs.get('mesh', self.meshes._default_mesh)
+        return self.meshes[mesh_name]
          
+    @property
+    def coordinates(self) -> np.ndarray:
+        """Wrapper for mesh.coordinates"""
+        return self.mesh.coordinates
+
+    @property
+    def connectivity(self) -> np.ndarray:
+        """Wrapper for mesh.connectivity"""
+        return self.mesh.connectivity
+
     @property
     @with_file_open()
     def msh(self) -> Tuple[np.ndarray, np.ndarray]:
-        mesh_name = self._group['0'].attrs.get('mesh', self.sim._default_mesh)
-        return self.sim.get_mesh(mesh_name)
-
-    @with_file_open()
-    def at_step(self, *steps: int) -> np.ndarray:
-        """Direct access to data at step. Does not require the virtual dataset.
-
-        Args:
-            step (`int`): step to extract
-        Returns:
-            :class:`np.ndarray`
-        """
-        data = list()
-        for step in steps:
-            if step<0:
-                step = len(self) + step
-            data.append(self._group[str(step)][()])
-        if len(data)<=1:
-            return data[0]
-        else:
-            return data
+        """Wrapper to get mesh as tuple"""
+        return (self.mesh.coordinates, self.mesh.connectivity)
 
     def regenerate_virtual_datasets(self) -> None:
         """Regenerate virtual dataset. Call this if the data has changed, thus the
@@ -161,82 +144,69 @@ class Field(Group):
         self._create_times()
         self._create_vds()
 
-    def _get_full_data(self) -> HDF5Pointer:
-        try:
-            return self._group['__vds']
-        except KeyError:
-            self._create_vds()
-            return self._group['__vds']
-
     @with_file_open('r+')
     def _create_times(self) -> None:
-        times = list()
-        for step in range(len(self)):
-            times.append(self._group.obj[str(step)].attrs.get('t', step))
-
-        if self._times_key in self._group.obj.keys():
-            del self._group.obj[self._times_key]
-        self._group.obj.create_dataset(self._times_key, data=np.array(times))
-
+        times = [self.obj[str(step)].attrs.get('t', step)
+                 for step in range(len(self))
+                 ]
+        if self._times_key in self.obj.keys():
+            del self.obj[self._times_key]
+        self.obj.create_dataset(self._times_key, data=np.array(times))
 
     def _create_vds(self) -> None:
         """Create virtual dataset of the full timeseries of a field.
         Requires HDF5 > 1.10 !
         """
-
         with self._file('r'):
-
-            grp = self._group.obj
             length = len(self)
-            ds_shape = grp['0'].shape
-            ds_dtype = grp['0'].dtype
+            ds_shape = self.obj['0'].shape
+            ds_dtype = self.obj['0'].dtype
 
             layout = h5py.VirtualLayout(shape=(length, *ds_shape), dtype=ds_dtype)
             
             for step in range(length):
-                vsource = h5py.VirtualSource(grp[str(step)])
+                vsource = h5py.VirtualSource(self.obj[str(step)])
                 layout[step] = vsource
 
         with self._file('r+'):
-            if self._vds_key in self._group.obj.keys():
-                del self._group.obj[self._vds_key]
+            if self._vds_key in self.obj.keys():
+                del self.obj[self._vds_key]
+            self.obj.create_virtual_dataset(self._vds_key, layout)
 
-            self._group.obj.create_virtual_dataset(self._vds_key, layout)
 
+class MeshGroup(hdf_pointer.Group):
 
-class MeshGroup(Group):
+    def __init__(self, file_handler: FileHandler, path_to_data: str = '/Mesh/0',
+                 _default_mesh: str = 'mesh') -> None:
+        super().__init__(file_handler, path_to_data)
+        self._default_mesh = _default_mesh
     
-    def __init__(self, _group: HDF5Pointer, sim: Simulation, _name: str) -> None:
-        super().__init__(_group, sim, _name)
-        with self._file():
-            self.fields = list(self._group.keys())
-
     @with_file_open('r')
     def __getitem__(self, key) -> Mesh:
-        return Mesh(HDF5Pointer(self._file, f'{self._group.name}/{key}'), self.sim, key)
-
-    def _ipython_key_completions_(self):
-        return self.fields
+        return Mesh(self._file, f'{self.path_to_data}/{key}')
 
 
-class Mesh(Group):
+class Mesh(hdf_pointer.Group):
 
-    def __init__(self, _group: HDF5Pointer, sim: Simulation, _name: str) -> None:
-        super().__init__(_group, sim, _name)
+    def __init__(self, file_handler: FileHandler, path_to_data: str) -> None:
+        super().__init__(file_handler, path_to_data)
 
     @property
     @with_file_open('r')
     def coordinates(self):
-        return self._group['geometry'][()]
+        return self.obj['geometry'][()]
 
     @property
     @with_file_open('r')
     def connectivity(self):
-        return self._group['topology'][()]
+        return self.obj['topology'][()]
+
+    @with_file_open('r')
+    def get_tuple(self) -> Tuple[np.ndarray, np.ndarray]:
+        return (self.coordinates, self.connectivity)
 
 
-# ---------------------------------------------------------------------------------------
-
+# -----------------------------------------------------------------------------
 
 class SimulationReader(Simulation):
     """Viewer of a single simulation of the database.
@@ -246,22 +216,22 @@ class SimulationReader(Simulation):
         path (`str`): database path
         comm (:class:`MPI.COMM_WORLD`): mpi communicator
     """
+    meshes: MeshGroup = None
+    data: DataGroup = None
 
     def __init__(self, uid: str, path: str, comm: MPI.Comm = MPI.COMM_WORLD):
         super().__init__(uid, path, comm)
 
         # Create views of data and mesh if these exist
         try:
-            self.data: Data = Data(HDF5Pointer(self._file, 'data'), sim=self, _name='data')
+            self.meshes = MeshGroup(self._file, self._mesh_location, self._default_mesh)
         except KeyError:
-            log.warning(f"Data not found in this simulation file.")
-            self.data = "File doesn't contain data"
+            log.warning(f'No mesh data in {self.uid}.')
 
         try:
-            self.meshes: MeshGroup = MeshGroup(HDF5Pointer(self._file, self._mesh_location), self, 'Mesh')
+            self.data = DataGroup(self._file, self.meshes)
         except KeyError:
-            log.warning("MeshGroup not found in this simulation file.")
-            self.meshes = "File doesn't contain mesh data"
+            log.warning(f'No field data in {self.uid}.')
 
     def open(self, mode: str = 'r', driver=None, comm=None) -> FileHandler:
         """Use this as a context manager in a `with` statement.
@@ -322,8 +292,8 @@ class SimulationReader(Simulation):
         tmp_dictionary = dict()
         for data in self.data:
             steps = len(data)
-            shape = data._group['0'].shape
-            dtype = data._group['0'].dtype
+            shape = data.obj['0'].shape
+            dtype = data.obj['0'].dtype
             tmp_dictionary[data._name] = {'dtype': dtype, 'shape': shape, 'steps': steps}
         return pd.DataFrame.from_dict(tmp_dictionary)
 

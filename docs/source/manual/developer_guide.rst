@@ -2,40 +2,40 @@ Developer's Guide
 =================
 
 
-dbmanager.manager module
+bamboost.manager module
 ------------------------
 
-.. automodule:: dbmanager.manager
+.. automodule:: bamboost.manager
    :members:
    :undoc-members:
    :show-inheritance:
 
-dbmanager.postprocessor module
-------------------------------
-
-.. automodule:: dbmanager.postprocessor
-   :members:
-   :undoc-members:
-   :show-inheritance:
-
-dbmanager.simulation module
+bamboost.simulation module
 ---------------------------
 
-.. automodule:: dbmanager.simulation
+.. automodule:: bamboost.simulation
    :members:
    :undoc-members:
    :show-inheritance:
 
-dbmanager.xdmf module
+bamboost.reader module
+------------------------------
+
+.. automodule:: bamboost.reader
+   :members:
+   :undoc-members:
+   :show-inheritance:
+
+bamboost.xdmf module
 ---------------------
 
-.. automodule:: dbmanager.xdmf
+.. automodule:: bamboost.xdmf
    :members:
    :undoc-members:
    :show-inheritance:
 
 
-dbmanager.common module
+bamboost.common module
 -----------------------
 
 .. toctree::
