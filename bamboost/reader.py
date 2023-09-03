@@ -40,6 +40,22 @@ class DataGroup(hdf_pointer.Group):
         for key in self._keys:
             yield self.__getitem__(key)
 
+    @property
+    @with_file_open('r')
+    def info(self) -> pd.Dataframe:
+        """View the data stored.
+
+        Returns:
+            :class:`pd.DataFrame`
+        """
+        tmp_dictionary = dict()
+        for data in self:
+            steps = len(data)
+            shape = data.obj['0'].shape
+            dtype = data.obj['0'].dtype
+            tmp_dictionary[data._name] = {'dtype': dtype, 'shape': shape, 'steps': steps}
+        return pd.DataFrame.from_dict(tmp_dictionary)
+
 
 class FieldData(hdf_pointer.Group):
 
@@ -222,8 +238,7 @@ class SimulationReader(Simulation):
     def __init__(self, uid: str, path: str, comm: MPI.Comm = MPI.COMM_WORLD):
         super().__init__(uid, path, comm)
 
-        # Create views of data and mesh if these exist
-        try:
+        try:  # Create views of data and mesh if these exist
             self.meshes = MeshGroup(self._file, self._mesh_location, self._default_mesh)
         except KeyError:
             log.warning(f'No mesh data in {self.uid}.')

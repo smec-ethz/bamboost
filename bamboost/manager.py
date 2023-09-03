@@ -37,6 +37,7 @@ class Manager:
             a new database will be created.
         comm (`MPI.Comm`): MPI communicator
     """
+    FIX_DF = False
 
     def __init__(self, path: str, comm: MPI.Comm = MPI.COMM_WORLD):
         self.path = path
@@ -82,10 +83,9 @@ class Manager:
         Returns:
             :class:`pd.DataFrame`
         """
-        if self._dataframe is not None:
+        if self.FIX_DF and self._dataframe is not None:
             return self._dataframe
-        else:
-            return self.get_view()
+        return self.get_view()
 
     def get_view(self) -> pd.DataFrame:
         """View of the database and its parametric space.

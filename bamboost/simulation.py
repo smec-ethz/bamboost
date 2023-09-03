@@ -12,13 +12,9 @@ from __future__ import annotations
 import os
 import shutil
 import subprocess
-from typing import Any, Tuple, Union
-from types import SimpleNamespace
 import numpy as np
-import pandas as pd
 import datetime
 import logging
-import h5py
 from mpi4py import MPI
 
 from .xdmf import XDMFWriter
@@ -57,11 +53,9 @@ class Simulation:
         self._prank = self._comm.rank
         self._ranks = np.array([i for i in range(self._psize)])
 
-        # FileHandler must be shared between processes!
-        file_handler = None
-        if self._prank==0:
-            file_handler = FileHandler(f'{self.h5file}')
-        self._file = self._comm.bcast(file_handler, root=0)
+        self._file = FileHandler(f'{self.h5file}')
+        self.userdata = hdf_pointer.MutableGroup(self._file, '/userdata',
+                                                 create_if_not_exist=True)
 
     @with_file_open()
     def __getitem__(self, key) -> hdf_pointer.BasePointer:

@@ -11,6 +11,7 @@ from __future__ import annotations
 
 from typing import Any
 import h5py
+import numpy as np
 import logging
 
 from .file_handler import FileHandler, with_file_open
@@ -88,7 +89,11 @@ class BasePointer:
 
 class Group(BasePointer):
 
-    def __init__(self, file_handler: FileHandler, path_to_data: str) -> None:
+    def __init__(self, file_handler: FileHandler, path_to_data: str,
+                 create_if_not_exist: bool = False) -> None:
+        if create_if_not_exist:
+            with file_handler('a'):
+                file_handler.require_group(path_to_data)
         super().__init__(file_handler, path_to_data)
         with self._file('r'):
             self._keys = tuple(self.keys())
@@ -101,6 +106,56 @@ class Group(BasePointer):
         return set(self.obj.keys())
 
 
+class MutableGroup(Group):
+
+    @with_file_open('r')
+    def __getitem__(self, key) -> Any:
+        if isinstance(self.obj[key], h5py.Group):
+            return MutableGroup(self._file, f'{self.path_to_data}/{key}')
+        return super().__getitem__(key)
+
+    def add_dataset(self, name: str, vector: np.ndarray, attrs: dict = None) -> None:
+        """Add a dataset to the group. Error is thrown if attempting to overwrite
+        with different shape than before. If same shape, data is overwritten
+        (this is inherited from h5py -> require_dataset)
+
+        Args:
+            name: Name for the dataset
+            vector: Data to write (max 2d)
+            attrs: Optional. Attributes of dataset.
+        """
+        if attrs is None:
+            attrs = {}
+        length_local = vector.shape[0]
+        length_p = np.array(self._file._comm.allgather(length_local))
+        length = np.sum(length_p)
+        dim = vector.shape[1:]
+        vec_shape = length, *dim
+
+        ranks = np.array([i for i in range(self._file._comm.size)])
+        idx_start = np.sum(length_p[ranks<self._file._comm.rank])
+        idx_end = idx_start + length_local
+
+        with self._file('a', driver='mpio'):
+            dataset = self.obj.require_dataset(name, shape=vec_shape, dtype='f')
+            dataset[idx_start:idx_end] = vector
+            for key, item in attrs.items():
+                dataset.attrs[key] = item
+            dataset.flush()
+
+        log.info(f'Written {name} as userdata to {self._file.file_name}...')
+
+    @with_file_open('a')
+    def require_group(self, name: str) -> Group:
+        """Add a new group to the current group. If exists, return existing.
+
+        Returns:
+            :class:`~bamboost.hdf_pointer.Group`
+        """
+        return MutableGroup(self._file, f'{self.path_to_data}/{name}',
+                            create_if_not_exist=True)
+
+
 class Dataset(BasePointer):
 
     def __init__(self, file_handler: FileHandler, path_to_data: str) -> None:
@@ -109,7 +164,7 @@ class Dataset(BasePointer):
     @property
     @with_file_open()
     def attrs(self):
-        return self.obj.attrs
+        return dict(self.obj.attrs)
 
     @property
     @with_file_open()
@@ -120,6 +175,5 @@ class Dataset(BasePointer):
     @with_file_open()
     def dtype(self):
         return self.obj.dtype
-
 
 
