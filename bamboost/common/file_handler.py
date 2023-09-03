@@ -14,6 +14,7 @@ import time
 from typing import Any, Union
 import h5py
 import logging
+from mpi4py import MPI
 
 log = logging.getLogger(__name__)
 
@@ -86,13 +87,13 @@ class FileHandler:
         _comm: MPI communicator
     """
 
-    def __init__(self, file_name: str) -> None:
+    def __init__(self, file_name: str, _comm: MPI.Comm = MPI.COMM_WORLD) -> None:
         self.file_object: h5py.File = None
         self.file_name = file_name
         self._lock = 0
         self._mode = 'r'
         self._driver = None
-        self._comm = None
+        self._comm = _comm
 
     def __call__(self, mode: str = 'r', driver=None, comm=None) -> FileHandler:
         """Used to set the options for file opening.
@@ -100,7 +101,7 @@ class FileHandler:
         """
         self._mode = mode
         self._driver = driver
-        self._comm = comm
+        self._comm = comm if comm is not None else self._comm
         return self
 
     def __getitem__(self, key) -> Any:
