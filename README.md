@@ -95,7 +95,7 @@ brilliance makes us forget where we put our stuff.
 
 
 ### Write data
-You can use `dbmanagers` to write simulation or experimental data.
+You can use `bamboost` to write simulation or experimental data.
 Use the `Manager` to create a new simulation (or access an existing one).
 Say you have (or want to create) a database at `data_path`.
 The code sample below shows the main functionality. 
@@ -230,4 +230,4 @@ sim.submit()  # submits the job using slurm (works only in jupyterhub sessions o
 To be continued...
 
 ## Feature requests / Issues
-Please open issues on gitlab: [cmbm/bamboost](https://gitlab.ethz.ch/compmechmat/research/libs/dbmanager)
+Please open issues on gitlab: [cmbm/bamboost](https://gitlab.ethz.ch/compmechmat/research/libs/bamboost)
