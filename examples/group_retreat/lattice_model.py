@@ -2,6 +2,20 @@ import numpy as np
 from scipy import spatial
 from itertools import combinations
 import matplotlib.pyplot as plt
+from matplotlib.collections import LineCollection
+
+
+def plot_lattice(coords, connectivity, displacements, ax=None):
+    if ax is None:
+        ax = plt.gca()
+    vec = coords + displacements
+    lines = LineCollection(vec[connectivity], color='.7', linewidth=.7)
+    ax.add_collection(lines)
+    ax.set_aspect('equal')
+    ax.set_ylim(-.1, 1.1)
+    ax.set_xlim(-.1, np.max(vec[:, 0])+.1)
+    return ax
+
 
 def get_rot_tensor(cos, sin):
     R = np.array([
@@ -44,9 +58,16 @@ class TrussElement:
 
 class LatticeModel:
 
-    def __init__(self, E) -> None:
+    def __init__(self, E, N: int = None, randomness: float = None,
+                 step: float = None) -> None:
         self.E = E
         self.bcs = None
+        if N is not None:
+            self.create_structure(N)
+        if randomness is not None:
+            self.add_randomness(randomness)
+        if step is not None:
+            self.move_top(step)
         
     def create_structure(self, N):
         xi = np.linspace(0, 1, N)
@@ -182,7 +203,6 @@ class LatticeModel:
         if vector is None:
             vector = self.coordinates
 
-        from matplotlib.collections import LineCollection
         lines = LineCollection(vector[self.connectivity], color='.7', linewidth=.7)
         ax.add_collection(lines)
         ax.set_aspect('equal')
