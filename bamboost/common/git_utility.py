@@ -36,12 +36,13 @@ class GitStateGetter:
 
         self.string += "\n"
         self.string += "----- LAST COMMIT ------ \n"
-        self.string += self._git_command('git rev-parse -v')
+        self.string += self._git_command('git rev-parse HEAD')
 
         self.string += "\n"
         self.string += "----- STATUS ------ \n"
         self.string += self._git_command('git status')
 
+        self.string += "\n"
         self.string += "----- DIFFERENCE ------ \n"
         self.string += self._git_command('git diff HEAD')
 
