@@ -6,6 +6,7 @@
 make.bat
 Makefile
 out/
+database*/
 *.egg-info*
 dbmanager.wiki
 *.vscode*

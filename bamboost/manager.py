@@ -68,6 +68,10 @@ class Manager:
     def __len__(self) -> int:
         return len(self.all_uids)
 
+    def __iter__(self) -> list:
+        for sim in self.sims():
+            yield sim
+
     def _ipython_key_completions_(self):
         return self.all_uids
 
@@ -133,21 +137,24 @@ class Manager:
                 data.append(tmp_dict)
         return pd.DataFrame.from_records(data)
 
-    def sim(self, uid) -> SimulationReader:
+    def sim(self, uid, return_writer: bool = False) -> SimulationReader:
         """Get an existing simulation with uid. Same as accessing with `db[uid]` directly.
 
         Args:
             uid (`str`): unique identifier
+            return_writer: if true, return `SimulationWriter`, otherwise
+                return `SimulationReader`
         Returns:
             :class:`~bamboost.simulation.SimulationReader`
         """
         if uid not in self.all_uids:
             raise KeyError('The simulation id is not valid.')
-        sim = SimulationReader(uid, self.path, self.comm)
-        return sim
+        if return_writer:
+            return SimulationWriter(uid, self.path, self.comm)
+        return SimulationReader(uid, self.path, self.comm)
             
     def sims(self, select: pd.Series = None, sort: str = None, reverse: bool = False,
-             exclude: set = None) -> list:
+             exclude: set = None, return_writer: bool = False) -> list:
         """Get all simulations in a list. Optionally, get all simulations matching the
         given selection using pandas.
 
@@ -156,6 +163,8 @@ class Manager:
             sort (`str`): Optionally sort the list with this keyword
             reverse (`bool`): swap sort direction
             exclude (`list[str]`): sims to exclude
+            return_writer: if true, return `SimulationWriter`, otherwise
+                return `SimulationReader`
         Returns:
             A list of `:class:~bamboost.simulation.SimulationReader` objects
         """
@@ -167,7 +176,7 @@ class Manager:
             exclude = list([exclude]) if isinstance(exclude, str) else exclude
             id_list = [id for id in id_list if id not in exclude]
 
-        existing_sims = [self[uid] for uid in id_list]
+        existing_sims = [self.sim(uid, return_writer) for uid in id_list]
 
         if sort is None:
             return existing_sims

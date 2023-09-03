@@ -14,4 +14,6 @@ setup(
         'mpi4py',
         'numpy',
         ],
+    # h5py is not in the install requirements because it would reinstall
+    # messing with the installation for parallel support :/
 )
