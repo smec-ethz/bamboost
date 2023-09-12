@@ -16,6 +16,7 @@ import numpy as np
 import datetime
 import logging
 from mpi4py import MPI
+from typing import Union
 
 from .xdmf import XDMFWriter
 from .common.git_utility import GitStateGetter
@@ -431,11 +432,27 @@ class SimulationWriter(Simulation):
         shutil.copy(script_path, self.path)
         self.executable = os.path.split(script_path)[1]
 
-    def copy_file(self, path_to_file: str) -> None:
+    def copy_file(self, source: Union[str, list], destination: str = '') -> None:
         """Copy a file to the datafolder.
 
         Args:
-            path_to_file (`str`): path to file
+            source: path to file, or list of files
+            destination: destination (will create intermediatory directories)
         """
-        shutil.copy(path_to_file, self.path)
+        if isinstance(source, list):
+            for item in source: self.copy_file(item, destination)
+            return
+
+        destination = os.path.join(self.path, destination)
+
+        if os.path.isdir(source):
+            shutil.copytree(source, os.path.join(destination, os.path.basename(source)),
+                            dirs_exist_ok=True)
+        elif os.path.isfile(source):
+            os.makedirs(destination, exist_ok=True)
+            shutil.copy(source, destination)
+        else:
+            raise FileNotFoundError
+
+
 
