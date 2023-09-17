@@ -6,6 +6,7 @@
 # Copyright 2023 Flavio Lorez and contributors
 #
 # There is no warranty for this code
+from __future__ import annotations
 
 import os
 import shutil
@@ -40,16 +41,24 @@ class Manager:
     FIX_DF = False
 
     def __init__(self, path: str, comm: MPI.Comm = MPI.COMM_WORLD):
+        # check if path exists
+        if not os.path.isdir(path):
+            self._make_new(path)
+
         self.path = path
         self.comm = comm
-        os.makedirs(self.path, exist_ok=True)
-
-        self._meta_folder = os.path.join(path, '.database')
-        if not os.path.isdir(self._meta_folder):
-            self._init_meta_folder()
-
         self.all_uids = self._get_uids()
         self._dataframe: pd.DataFrame = None
+
+    def _make_new(self, path):
+        """Initialize a new database."""
+        os.makedirs(self.path, exist_ok=True)
+        self._meta_folder = os.path.join(path, '.database')
+        if not os.path.isdir(self._meta_folder):  # may get removed entirely
+            self._init_meta_folder()
+
+        # Assign a unique id to the database
+        new_id = f'DB-{uuid.uuid4().hex[:10]}'
 
     def __getitem__(self, key: Union[str, int]) -> SimulationReader:
         """Returns the simulation in the specified row of the dataframe.
