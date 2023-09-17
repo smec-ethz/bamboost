@@ -6,8 +6,8 @@ import logging
 import os
 
 from .manager import Manager
-from .simulation import Simulation, SimulationWriter
-from .reader import SimulationReader
+from .simulation import Simulation
+from .simulation_writer import SimulationWriter
 
 def set_log_level(level: int = 30):
     for handler in logging.root.handlers[:]:
