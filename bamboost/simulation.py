@@ -10,20 +10,21 @@
 from __future__ import annotations
 
 import os
-import shutil
 import subprocess
 import numpy as np
-import datetime
+import pandas as pd
+import h5py
 import logging
 from mpi4py import MPI
-from typing import Union
+from typing import Tuple
 
 from .xdmf import XDMFWriter
-from .common.git_utility import GitStateGetter
 from .common.job import Job
 from .common.file_handler import FileHandler, with_file_open
 from .common.utilities import flatten_dict, unflatten_dict
 from .common import hdf_pointer
+from .accessors.meshes import MeshGroup
+from .accessors.fielddata import DataGroup
 
 log = logging.getLogger(__name__)
 
@@ -54,9 +55,12 @@ class Simulation:
         self._prank = self._comm.rank
         self._ranks = np.array([i for i in range(self._psize)])
 
-        self._file = FileHandler(f'{self.h5file}')
-        self.userdata = hdf_pointer.MutableGroup(self._file, '/userdata',
-                                                 create_if_not_exist=True)
+        self._file = FileHandler(self.h5file)
+
+        # Initialize groups to meshes, data and userdata. Create groups.
+        self.meshes = MeshGroup(self._file)
+        self.data = DataGroup(self._file, self.meshes)
+        self.userdata = hdf_pointer.MutableGroup(self._file, '/userdata')
 
     @with_file_open()
     def __getitem__(self, key) -> hdf_pointer.BasePointer:
@@ -65,7 +69,8 @@ class Simulation:
         Returns:
             :class:`~bamboost.common.file_handler.BasePointer`
         """
-        return hdf_pointer.get_best_pointer(self._file, key)
+        new_pointer = hdf_pointer.get_best_pointer(self._file.file_object[key])
+        return new_pointer(self._file, key)
 
     @property
     def parameters(self):
@@ -172,8 +177,10 @@ class Simulation:
                                      copied before with `copy_executable`!""")
         
         if euler:
-            job.create_sbatch_script(commands, path=os.path.abspath(self.path_database), uid=self.uid, nnodes=nnodes,
-                                     ntasks=ntasks, ncpus=ncpus, time=time, mem_per_cpu=mem_per_cpu, tmp=tmp)
+            job.create_sbatch_script(commands, path=os.path.abspath(self.path_database),
+                                     uid=self.uid, nnodes=nnodes, ntasks=ntasks,
+                                     ncpus=ncpus, time=time, mem_per_cpu=mem_per_cpu, 
+                                     tmp=tmp)
         else:
             job.create_bash_script_local(commands, path=os.path.abspath(self.path_database),
                                          uid=self.uid, ntasks=ntasks)
@@ -193,266 +200,112 @@ class Simulation:
     def change_note(self, note) -> None:
         self._file.attrs['notes'] = note
 
-    @with_file_open('a')
-    def add_postprocess_data(self, name: str, vector: np.array) -> None:
-        """Add a custom field in postprocessing."""
-        data = self._file.require_group('postprocess')  # Require group data to store all point data inpost
-        if name in data.keys():
-            del data[name]
-        data.create_dataset(name, data=vector)
 
-    add_postprocess_field = add_postprocess_data
+    # Ex-Simulation reader methods
+    # ----------------------------
 
-
-
-class SimulationWriter(Simulation):
-
-    # -------------------------------------------------------------------------
-    # Writing methods
-    # -------------------------------------------------------------------------
-
-    def __init__(self, uid: str, path: str, comm: MPI.Comm = MPI.COMM_WORLD):
-        super().__init__(uid, path, comm)
-        self.step = 0
-
-    def __enter__(self):
-        self.change_status('Running')
-        return self
-
-    def __exit__(self, exc_type, exc_val, exc_tb):
-        if exc_type or exc_val:
-            self.change_status('Failed')
-        else:
-            self.change_status('Finished')
-
-
-    def create(self) -> SimulationWriter:
-        """Create a new file for this simlation."""
-        self.step = 0
-        self.global_fields = dict()
-        if self._prank==0:
-            if os.path.exists(self.h5file):
-                os.remove(self.h5file)  # remove existing file if exists
-        self.add_metadata()
-        self.change_status('Initiated')
-
-        return self
-
-    def add_metadata(self) -> None:
-        """Add metadata to h5 file."""
-        nb_proc = self._comm.Get_size()
-        if self._prank==0:
-            with self._file('a'):
-                self._file.attrs['time_stamp'] = str(datetime.datetime.now().replace(microsecond=0))
-                self._file.attrs['id'] = self.uid
-                self._file.attrs['processors'] = nb_proc
-                self._file.attrs['notes'] = self._file.attrs.get('notes', "")
-
-    def add_parameters(self, parameters: dict) -> None:
-        """Add parameters to simulation.
+    def open(self, mode: str = 'r', driver=None, comm=None) -> FileHandler:
+        """Use this as a context manager in a `with` statement.
+        Purpose: keeping the file open to directly access/edit something in the
+        HDF5 file of this simulation.
 
         Args:
-            parameters (dict): Dictionary with parameters.
+            mode (`str`): file mode (see h5py docs)
+            driver (`str`): file driver (see h5py docs)
+            comm (`str`): mpi communicator
         """
-        if self._prank==0:
-            with self._file('a'):
-                # flatten parameters
-                parameters = flatten_dict(parameters)
+        return self._file(mode, driver, comm)
+        
+    @property
+    def mesh(self):
+        """Return coordinates and connectivity of default mesh.
 
-                if 'parameters' in self._file.keys():
-                    del self._file['parameters']
-                grp = self._file.create_group('/parameters')
-                for key, val in parameters.items():
-                    if isinstance(val, np.ndarray):
-                        grp.create_dataset(key, data=val)
-                    elif val is not None:
-                        grp.attrs[key] = val
-                    else:
-                        pass
+        Returns:
+            Tuple of np.arrays (coordinates, connectivity)
+        """
+        return self.get_mesh()
 
-    def add_mesh(self, coordinates, connectivity, mesh_name: str = None) -> None:
-        """Add the mesh to file. Currently only 2d meshes.
+    @with_file_open('r')
+    def get_mesh(self, mesh_name: str = None) -> Tuple[np.ndarray, np.ndarray]:
+        """Return coordinates and connectivity. Currently returns numpy arrays.
 
         Args:
-            coordinates (np.array): Coordinates as array (nb_nodes, dim)
-            connectivity (np.array): Connectivity matrix (nb_cells, nb nodes per cell)
-            mesh_name (`str`): name for mesh (default = `base`)
+            mesh_name (`str`): optional, name of mesh to read (default = mesh)
+        Returns:
+            Tuple of np.arrays (coordinates, connectivity)
         """
         if mesh_name is None:
             mesh_name = self._default_mesh
-        # self._mesh_location = 'Mesh/0/mesh/'
-        mesh_location = f'{self._mesh_location}/{mesh_name}/'
-        
-        nb_nodes_local = coordinates.shape[0]
-        nb_cells_local = connectivity.shape[0]
 
-        # gather total mesh
-        nb_nodes_p = np.array(self._comm.allgather(nb_nodes_local))
-        nb_cells_p = np.array(self._comm.allgather(nb_cells_local))
-        nb_nodes, nb_cells = np.sum(nb_nodes_p), np.sum(nb_cells_p)
+        mesh = self.meshes[mesh_name]
+        return mesh.coordinates, mesh.connectivity
 
-        # shape of datasets
-        coord_shape = (nb_nodes, coordinates.shape[1]) if coordinates.ndim>1 else (nb_nodes,)
-        conn_shape = (nb_cells, connectivity.shape[1]) if connectivity.ndim>1 else (nb_cells,)
+    @property
+    @with_file_open('r')
+    def globals(self) -> pd.DataFrame:
+        """Return global data.
 
-        # global indices nodes
-        idx_start = np.sum(nb_nodes_p[self._ranks<self._prank])
-        idx_end = idx_start + nb_nodes_local
+        Returns:
+            :class:`pd.DataFrame`
+        """
+        grp = self._file['globals']
+        d = {key: grp[key][()] for key in grp.keys()}
+        return pd.DataFrame.from_dict(d)
 
-        # global indices cells
-        idx_start_cells = np.sum(nb_cells_p[self._ranks<self._prank])
-        idx_end_cells = idx_start_cells + nb_cells_local
-        connectivity = connectivity + idx_start
+    @property
+    @with_file_open('r')
+    def data_info(self) -> pd.Dataframe:
+        """View the data stored.
 
-        with self._file('a', driver='mpio', comm=self._comm) as f:
-            if mesh_location in self._file.file_object:
-                del self._file.file_object[mesh_location]
-            grp = f.require_group(mesh_location)
-            coord = grp.require_dataset('geometry', shape=coord_shape, dtype='f')
-            conn  = grp.require_dataset('topology', shape=conn_shape, dtype='i')
+        Returns:
+            :class:`pd.DataFrame`
+        """
+        tmp_dictionary = dict()
+        for data in self.data:
+            steps = len(data)
+            shape = data.obj['0'].shape
+            dtype = data.obj['0'].dtype
+            tmp_dictionary[data._name] = {'dtype': dtype, 'shape': shape, 'steps': steps}
+        return pd.DataFrame.from_dict(tmp_dictionary)
 
-            coord[idx_start:idx_end] = coordinates
-            conn[idx_start_cells:idx_end_cells] = connectivity
+    @property
+    @with_file_open('r')
+    def git(self) -> dict:
+        """Get Git information.
 
-            coord.flush()
-            conn.flush()
+        Returns:
+            :class:`dict` with different repositories.
+        """
+        if 'git' not in self._file.keys():
+            return "Sorrrry, no git information stored :()"
+        grp = self._file['git']
+        tmp_dict = {}
+        for repo in grp.keys():
+            tmp_dict[repo] = grp[repo][()].decode('utf8')
+        return tmp_dict
 
-    def add_field(self, name: str, vector: np.array,
-                  time: float = None, mesh: str = None) -> None:
-        """Add a dataset to the file. The data is stored at `data/`.
+    def get_data_interpolator(self, field: str, step: int):
+        """Get Linear interpolator for data field at step. Uses the linked mesh.
 
         Args:
-            name (str): Name for the dataset
-            vector (np.array): Dataset
-            time (float): time
-            mesh (str): Linked mesh for this data
+            name (`str`): name of the data field
+            step (`int`): step
+        Returns:
+            :class:`scipy.interpolate.LinearNDInterpolator`
         """
-        if mesh is None:
-            mesh = self._default_mesh
+        from scipy.interpolate import LinearNDInterpolator
+        return LinearNDInterpolator(self.data[field].mesh.coordinates,
+                                    self.data[field].at_step(step))
 
-        # Get dimension of vector
-        if vector.ndim<=1:
-            vector = vector.reshape((-1, 1))
-        dim = vector.shape[1]
-
-        if time is None: time = self.step
-
-        length_local = vector.shape[0]
-        length_p = np.array(self._comm.allgather(length_local))
-        length = np.sum(length_p)
-
-        # global indices
-        idx_start = np.sum(length_p[self._ranks<self._prank])
-        idx_end = idx_start + length_local
-
-        # open file
-        with self._file('a', driver='mpio', comm=self._comm) as f:
-            data = f.require_group('data')  # Require group data to store all point data in
-            grp = data.require_group(name)
-            vec = grp.require_dataset(str(self.step), shape=(length, dim), dtype='f')
-            vec[idx_start:idx_end, :] = vector
-            
-            vec.attrs['t'] = time  # add time as attribute to dataset
-            vec.attrs['mesh'] = mesh  # add link to mesh as attribute
-            vec.flush()
-
-    def add_global_field(self, name: str, value: float) -> None:
-        """Add a gobal field. These are stored at `gloals/` as an array in a single dataset.
-
-        Args:
-            name (str): Name for the data
-            value (float): Data
-        """
-        if self._prank==0:
-            with self._file('a') as f:
-                grp = f.require_group('globals')
-                if name not in grp.keys():
-                    vec = grp.create_dataset(name, shape=(1, ), dtype='f',
-                                             chunks=True, maxshape=(None, ))
-                    vec[0] = value
-                else:
-                    vec = grp[name]
-                    vec.resize((self.step+1, ))
-                    vec[-1] = value
-                vec.flush()
-
-    def add_additional(self, name: str, file: str) -> None:
-        """Add an additional file stored elsewhere or in database directory. 
-
-        Args:
-            name: Name of data
-            file: filename of file
-        """
-        if self._prank==0:
-            with self._file('a') as f:
-                grp = f.require_group('additionals')
-                grp.attrs.update({name: file})
-
-    def finish_step(self) -> None:
-        """Finish step. Adds 1 to the step counter."""
-        self.step += 1
-
-    def finish_sim(self, status: str = 'Finished') -> None:
-        if self._prank==0:
-            self.change_status(status)
-
-    def register_git_attributes(self, repo_path: str = './') -> None:
-        """Register git information for given repo.
-
-        Args:
-            repo_path (`str`): path to git repository
-        """
-        if self._prank==0:
-            repo_path = os.path.abspath(repo_path)
-            # store current working directory
-            cwd = os.getcwd()
-            
-            # switch directory to git repo
-            os.chdir(repo_path)
-            git_string = GitStateGetter().create_git_string()
-
-            # switch working directory back
-            os.chdir(cwd)
-
-            with self._file('a') as f:
-                grp = f.require_group('git')
-                repo_name = os.path.split(repo_path)[1]
-                print(f"Adding repo {repo_name}")
-                if repo_name in grp.keys():
-                    del grp[repo_name]
-                grp.create_dataset(repo_name, data=git_string)
-
-    def copy_executable(self, script_path: str) -> None:
-        """WILL BE REMOVED. USE COPY_FILE.
-        Copy an executable to directory for reproducability.
-
-        Args:
-            script_path: path to script
-        """
-        shutil.copy(script_path, self.path)
-        self.executable = os.path.split(script_path)[1]
-
-    def copy_file(self, source: Union[str, list], destination: str = '') -> None:
-        """Copy a file to the datafolder.
-
-        Args:
-            source: path to file, or list of files
-            destination: destination (will create intermediatory directories)
-        """
-        if isinstance(source, list):
-            for item in source: self.copy_file(item, destination)
-            return
-
-        destination = os.path.join(self.path, destination)
-
-        if os.path.isdir(source):
-            shutil.copytree(source, os.path.join(destination, os.path.basename(source)),
-                            dirs_exist_ok=True)
-        elif os.path.isfile(source):
-            os.makedirs(destination, exist_ok=True)
-            shutil.copy(source, destination)
-        else:
-            raise FileNotFoundError
+    @with_file_open()
+    def print_hdf5_file_structure(self, print_datasets: bool = False):
+        """Print data structure in file to screen."""
+        def print_hdf5_item(name, obj):
+            if isinstance(obj, h5py.Group):
+                print(f"Group: {name}")
+            elif isinstance(obj, h5py.Dataset) and print_datasets:
+                print(f"Dataset: {name}")
+        self._file.visititems(print_hdf5_item)
 
 
 

@@ -20,11 +20,6 @@ log = logging.getLogger(__name__)
 
 
 
-class BasePointer: pass
-class Group(BasePointer): pass
-class Dataset(BasePointer): pass
-
-
 def get_best_pointer(value: Any) -> BasePointer:
     """Returns pointer based on h5py object type."""
     if isinstance(value, h5py.Group):
@@ -50,11 +45,6 @@ class BasePointer:
     def __init__(self, file_handler: FileHandler, path_to_data: str) -> None:
         self._file = file_handler
         self.path_to_data = path_to_data
-        try:  # Test if pointer is valid
-            with self._file():
-                self.obj
-        except KeyError:
-            raise KeyError(f"{self.path_to_data} is not a valid location!")
 
     @property
     def obj(self):
@@ -63,12 +53,16 @@ class BasePointer:
 
     @with_file_open('r')
     def __str__(self) -> str:
-        return f'{self.__class__} pointing to: ' + self._file[self.path_to_data].__repr__()
+        try:
+            return f'{self.__class__} pointing to: ' + self._file[self.path_to_data].__repr__()
+        except KeyError:
+            return f'{self.__class__} pointing to: {self.path_to_data} (No data at that location!)'
 
     __repr__ = __str__
 
     @with_file_open('r')
     def __getattr__(self, __name: str) -> Any:
+        """Any attribute request is sent to the h5py object the pointer points to."""
         if hasattr(self.obj, __name):
             return self.obj.__getattribute__(__name)
         return self.__getattribute__(__name)
@@ -89,27 +83,31 @@ class BasePointer:
 
 class Group(BasePointer):
 
-    def __init__(self, file_handler: FileHandler, path_to_data: str,
-                 create_if_not_exist: bool = False) -> None:
-        if create_if_not_exist:
-            with file_handler('a'):
-                file_handler.require_group(path_to_data)
+    def __init__(self, file_handler: FileHandler, path_to_data: str) -> None:
         super().__init__(file_handler, path_to_data)
-        with self._file('r'):
-            self._keys = tuple(self.keys())
 
     def _ipython_key_completions_(self):
-        return self._keys
+        return self.keys()
 
     @with_file_open('r')
     def keys(self):
-        return set(self.obj.keys())
+        return tuple(self.obj.keys())
 
 
 class MutableGroup(Group):
+    """Used for the `userdata` group."""
+
+    def __init__(self, file_handler: FileHandler, path_to_data: str) -> None:
+        super().__init__(file_handler, path_to_data)
+        # Create group if it doesn't exist
+        with self._file('a', driver='mpio'):
+            self._file.file_object.require_group(path_to_data)
 
     @with_file_open('r')
     def __getitem__(self, key) -> Any:
+        """Used to access datasets (:class:`~bamboost.common.hdf_pointer.Dataset`)
+        or groups inside this group (:class:`~bamboost.common.hdf_pointer.MutableGroup`)
+        """
         if isinstance(self.obj[key], h5py.Group):
             return MutableGroup(self._file, f'{self.path_to_data}/{key}')
         return super().__getitem__(key)
@@ -152,8 +150,7 @@ class MutableGroup(Group):
         Returns:
             :class:`~bamboost.hdf_pointer.Group`
         """
-        return MutableGroup(self._file, f'{self.path_to_data}/{name}',
-                            create_if_not_exist=True)
+        return MutableGroup(self._file, f'{self.path_to_data}/{name}')
 
 
 class Dataset(BasePointer):
