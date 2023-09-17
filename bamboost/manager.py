@@ -10,6 +10,7 @@ from __future__ import annotations
 
 import os
 import shutil
+import logging
 from typing import Union
 import uuid
 import h5py
@@ -20,6 +21,9 @@ from mpi4py import MPI
 from .simulation_writer import SimulationWriter
 from .simulation import Simulation
 from .common.file_handler import open_h5file
+from .indexer import Indexer
+
+log = logging.getLogger(__name__)
 
 
 META_INFO = """
@@ -50,16 +54,7 @@ class Manager:
         self.comm = comm
         self.all_uids = self._get_uids()
         self._dataframe: pd.DataFrame = None
-
-    def _make_new(self, path):
-        """Initialize a new database."""
-        os.makedirs(self.path, exist_ok=True)
         self._meta_folder = os.path.join(path, '.database')
-        if not os.path.isdir(self._meta_folder):  # may get removed entirely
-            self._init_meta_folder()
-
-        # Assign a unique id to the database
-        new_id = f'DB-{uuid.uuid4().hex[:10]}'
 
     def __getitem__(self, key: Union[str, int]) -> Simulation:
         """Returns the simulation in the specified row of the dataframe.
@@ -85,10 +80,38 @@ class Manager:
     def _ipython_key_completions_(self):
         return self._get_uids()
 
+    def _make_new(self, path):
+        """Initialize a new database."""
+        from datetime import datetime
+        # Create directory for database
+        os.makedirs(path, exist_ok=True)
+
+        # Assign a unique id to the database
+        new_id = f'{uuid.uuid4().hex[:10]}'.upper()
+        uid_file = os.path.join(path, f'.BAMBOOST-{new_id}')
+        with open(uid_file, 'a') as f:
+            f.write(new_id + '\n')
+            f.write(f'Date of creation: {datetime.now().strftime("%d/%m/%Y %H:%M:%S")}')
+        os.chmod(uid_file, 0o444)
+        log.info(f'Created new database (uid = {new_id})')
+        self._store_uid_in_index()
+
+    def _store_uid_in_index(self) -> None:
+        """Stores the UID of this database with the current path."""
+        Indexer().record_database(self.UID, os.path.abspath(self.path))
+
     def _init_meta_folder(self) -> None:
         os.makedirs(self._meta_folder, exist_ok=True)
         with open(os.path.join(self._meta_folder, 'README.txt'), 'w') as f:
             f.write(META_INFO)
+
+    @property
+    def UID(self) -> str:
+        """Get the UID of this database."""
+        for file in os.listdir(self.path):
+            if file.startswith('.BAMBOOST'):
+                return file.split('-')[1]
+        raise Exception("No database UID found.")
 
     @property
     def df(self) -> pd.DataFrame:
