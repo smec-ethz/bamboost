@@ -11,12 +11,13 @@ import os
 import shutil
 from typing import Union
 import uuid
+import h5py
 import pandas as pd
 from ctypes import ArgumentError
 from mpi4py import MPI
 
-from .simulation import SimulationWriter
-from .reader import SimulationReader
+from .simulation_writer import SimulationWriter
+from .simulation import Simulation
 from .common.file_handler import open_h5file
 
 
@@ -51,14 +52,14 @@ class Manager:
         self.all_uids = self._get_uids()
         self._dataframe: pd.DataFrame = None
 
-    def __getitem__(self, key: Union[str, int]) -> SimulationReader:
+    def __getitem__(self, key: Union[str, int]) -> Simulation:
         """Returns the simulation in the specified row of the dataframe.
 
         Args:
             row (`str`): return the simulation with the specified uid
             row (int): return the simulation with index specified by row
         Returns:
-            :class:`~bamboost.reader.SimulationReader`
+            :class:`~bamboost.reader.Simulation`
         """
         if isinstance(key, str):
             return self.sim(key)
@@ -66,14 +67,14 @@ class Manager:
             return self.sim(self.df.loc[key, 'id'])
 
     def __len__(self) -> int:
-        return len(self.all_uids)
+        return len(self._get_uids())
 
     def __iter__(self) -> list:
         for sim in self.sims():
             yield sim
 
     def _ipython_key_completions_(self):
-        return self.all_uids
+        return self._get_uids()
 
     def _init_meta_folder(self) -> None:
         os.makedirs(self._meta_folder, exist_ok=True)
@@ -137,21 +138,21 @@ class Manager:
                 data.append(tmp_dict)
         return pd.DataFrame.from_records(data)
 
-    def sim(self, uid, return_writer: bool = False) -> SimulationReader:
+    def sim(self, uid, return_writer: bool = False) -> Simulation:
         """Get an existing simulation with uid. Same as accessing with `db[uid]` directly.
 
         Args:
             uid (`str`): unique identifier
             return_writer: if true, return `SimulationWriter`, otherwise
-                return `SimulationReader`
+                return `Simulation`
         Returns:
-            :class:`~bamboost.simulation.SimulationReader`
+            :class:`~bamboost.simulation.Simulation`
         """
-        if uid not in self.all_uids:
+        if uid not in self._get_uids():
             raise KeyError('The simulation id is not valid.')
         if return_writer:
             return SimulationWriter(uid, self.path, self.comm)
-        return SimulationReader(uid, self.path, self.comm)
+        return Simulation(uid, self.path, self.comm)
             
     def sims(self, select: pd.Series = None, sort: str = None, reverse: bool = False,
              exclude: set = None, return_writer: bool = False) -> list:
@@ -164,14 +165,14 @@ class Manager:
             reverse (`bool`): swap sort direction
             exclude (`list[str]`): sims to exclude
             return_writer: if true, return `SimulationWriter`, otherwise
-                return `SimulationReader`
+                return `Simulation`
         Returns:
-            A list of `:class:~bamboost.simulation.SimulationReader` objects
+            A list of `:class:~bamboost.simulation.Simulation` objects
         """
         if select is not None:
             id_list = self.df[select]['id'].values
         else:
-            id_list = self.all_uids
+            id_list = self._get_uids()
         if exclude is not None:
             exclude = list([exclude]) if isinstance(exclude, str) else exclude
             id_list = [id for id in id_list if id not in exclude]
@@ -208,12 +209,21 @@ class Manager:
         if self.comm.rank==0:
             if not uid:
                 uid = uuid.uuid4().hex[:8]  # Assign random unique identifier
-
         uid = self.comm.bcast(uid, root=0)
+
+        # Create directory and h5 file
+        if self.comm.rank==0:
+            os.makedirs(os.path.join(self.path, uid), exist_ok=True)
+            path_to_h5_file = os.path.join(self.path, uid, f'{uid}.h5')
+            if os.path.exists(path_to_h5_file):
+                os.remove(path_to_h5_file)
+            h5py.File(path_to_h5_file, 'a').close()  # create file
+
         new_sim = SimulationWriter(uid, self.path, self.comm)            
-        new_sim.create()
-        if parameters:
-            new_sim.add_parameters(parameters)
+        new_sim.initialize()  # sets metadata and status
+        if parameters is None:
+            parameters = dict()
+        new_sim.add_parameters(parameters)
         return new_sim
 
     def remove(self, uid: str) -> None:

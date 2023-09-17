@@ -47,7 +47,7 @@ def open_h5file(file: str, mode, driver=None, comm=None):
                 return h5py.File(file, mode, driver=driver, comm=comm)
             else:
                 return h5py.File(file, mode)
-
+            
         except OSError:
             log.warning(f"File {file} not accessible, waiting") 
             time.sleep(1)
@@ -106,6 +106,9 @@ class FileHandler:
 
     def __getitem__(self, key) -> Any:
         return self.file_object[key]
+
+    def __delitem__(self, key) -> None:
+        del self.file_object[key]
 
     def __getattr__(self, __name: str) -> Any:
         try:
