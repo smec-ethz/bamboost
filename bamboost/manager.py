@@ -21,7 +21,7 @@ from mpi4py import MPI
 from .simulation_writer import SimulationWriter
 from .simulation import Simulation
 from .common.file_handler import open_h5file
-from .indexer import Indexer
+from . import index
 
 log = logging.getLogger(__name__)
 
@@ -42,16 +42,20 @@ class Manager:
         path (`str`): path to the directory of the database. If doesn't exist,
             a new database will be created.
         comm (`MPI.Comm`): MPI communicator
+        uid: UID of the database
     """
     FIX_DF = False
 
-    def __init__(self, path: str, comm: MPI.Comm = MPI.COMM_WORLD):
-        # check if path exists
-        if not os.path.isdir(path):
-            self._make_new(path)
-
+    def __init__(self, path: str = None, comm: MPI.Comm = MPI.COMM_WORLD, uid: str = None):
+        if uid is not None:
+            path = index.get_path(uid)
         self.path = path
         self.comm = comm
+
+        # check if path exists
+        if not os.path.isdir(path):
+            log.info(f'Created new database ({path})')
+            self._make_new(path)
         self.all_uids = self._get_uids()
         self.UID = self._retrieve_uid()
         self._dataframe: pd.DataFrame = None
@@ -101,14 +105,14 @@ class Manager:
         with open(uid_file, 'a') as f:
             f.write(self.UID + '\n')
             f.write(f'Date of creation: {datetime.now().strftime("%d/%m/%Y %H:%M:%S")}')
-        os.chmod(uid_file, 0o444)
-        log.info(f'Created new database (uid = {self.UID})')
+        os.chmod(uid_file, 0o444)  # read only for uid file
+        log.info(f'Registered new database (uid = {self.UID})')
         self._store_uid_in_index()
         return self.UID
 
     def _store_uid_in_index(self) -> None:
         """Stores the UID of this database with the current path."""
-        Indexer().record_database(self.UID, os.path.abspath(self.path))
+        index.record_database(self.UID, os.path.abspath(self.path))
 
     def _init_meta_folder(self) -> None:
         os.makedirs(self._meta_folder, exist_ok=True)
