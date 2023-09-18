@@ -32,7 +32,7 @@ if not os.path.isfile(KNOWN_PATHS):
         file.write(json.dumps([], indent=4))
 
 
-def _get_index_dict() -> dict:
+def get_index_dict() -> dict:
     with open(DATABASE_INDEX, 'r') as file:
         try:
             return json.loads(file.read())
@@ -45,7 +45,7 @@ def _write_index_dict(index: dict) -> None:
         file.write(json.dumps(index, indent=4))
 
 
-def _get_known_paths() -> list:
+def get_known_paths() -> list:
     with open(KNOWN_PATHS, 'r') as file:
         return json.loads(file.read())
 
@@ -84,7 +84,7 @@ def record_database(uid: str, path: str) -> None:
         uid: the uid of the database
         path: the path of the database
     """
-    index = _get_index_dict()
+    index = get_index_dict()
     index[uid] = path
     _write_index_dict(index)
 
@@ -96,7 +96,7 @@ def get_path(uid: str) -> str:
         uid: the UID of the database
     """
     # check in index
-    index = _get_index_dict()
+    index = get_index_dict()
     if uid in index.keys():
         path = index[uid]
         if _check_path(uid, path):
@@ -106,7 +106,7 @@ def get_path(uid: str) -> str:
             _write_index_dict(index)
 
     # check known paths
-    known_paths = _get_known_paths()
+    known_paths = get_known_paths()
     for path in known_paths:
         res = find(uid, root_dir=path)
         if res: 
@@ -141,6 +141,6 @@ def find(uid, root_dir) -> list:
 
 def clean() -> None:
     """Clean the database index from wrong paths."""
-    index = _get_index_dict()
+    index = get_index_dict()
     clean_index = {uid: path for uid, path in index.items() if _check_path(uid, path)}
     _write_index_dict(clean_index)

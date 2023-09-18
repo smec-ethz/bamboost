@@ -48,7 +48,7 @@ class Manager:
 
     def __init__(self, path: str = None, comm: MPI.Comm = MPI.COMM_WORLD, uid: str = None):
         if uid is not None:
-            path = index.get_path(uid)
+            path = index.get_path(uid.upper())
         self.path = path
         self.comm = comm
 
