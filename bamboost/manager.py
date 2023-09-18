@@ -39,12 +39,16 @@ https://gitlab.ethz.ch/compmechmat/research/libs/dbmanager
 
 class ManagerFromUID(object):
     def __init__(self) -> None:
-        self.completion_keys = tuple(index.get_index_dict().keys())
+        ids = index.get_index_dict()
+        self.completion_keys = tuple(
+                [f'{key} - {"..."+val[-25:] if len(val)>=25 else val}' for key, val in ids.items()]
+                )
 
     def _ipython_key_completions_(self):
         return self.completion_keys
 
     def __getitem__(self, key) -> Manager:
+        key = key.split()[0]  # take only uid
         return Manager(uid=key, create_if_not_exist=False)
 
 
