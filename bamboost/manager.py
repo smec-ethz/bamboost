@@ -34,6 +34,31 @@ HDF5 file format.
 https://gitlab.ethz.ch/compmechmat/research/libs/dbmanager
 """
 
+# Setup Manager getters
+# ---------------------
+
+class ManagerFromUID(object):
+    def __init__(self) -> None:
+        self.completion_keys = tuple(index.get_index_dict().keys())
+
+    def _ipython_key_completions_(self):
+        return self.completion_keys
+
+    def __getitem__(self, key) -> Manager:
+        return Manager(uid=key, create_if_not_exist=False)
+
+
+class ManagerFromName(object):
+    def __init__(self) -> None:
+        self.completion_keys = tuple(index.get_index_dict().values())
+
+    def _ipython_key_completions_(self):
+        return self.completion_keys
+
+    def __getitem__(self, key) -> Manager:
+        return Manager(key, create_if_not_exist=False)
+
+    
 
 class Manager:
     """View of database.
@@ -45,8 +70,12 @@ class Manager:
         uid: UID of the database
     """
     FIX_DF = False
+    fromUID = ManagerFromUID()
+    fromName = ManagerFromName()
 
-    def __init__(self, path: str = None, comm: MPI.Comm = MPI.COMM_WORLD, uid: str = None):
+
+    def __init__(self, path: str = None, comm: MPI.Comm = MPI.COMM_WORLD,
+                 uid: str = None, create_if_not_exist: bool = True):
         if uid is not None:
             path = index.get_path(uid.upper())
         self.path = path
@@ -54,6 +83,8 @@ class Manager:
 
         # check if path exists
         if not os.path.isdir(path):
+            if not create_if_not_exist:
+                raise NotADirectoryError('Specified path is not a valid path.')
             log.info(f'Created new database ({path})')
             self._make_new(path)
         self.all_uids = self._get_uids()
@@ -345,6 +376,4 @@ class Manager:
         subiterator = max([int(id.split('.')[1]) for id in uid_list if len(id.split('.'))>1] + [0])
         return f'{uid_base}.{subiterator+1}'
 
-
-        
 

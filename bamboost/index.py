@@ -16,6 +16,8 @@ import json
 log = logging.getLogger(__name__)
 
 # Define directories
+# ------------------
+
 HOME = os.path.expanduser('~')
 CONFIG_DIR = os.path.join(HOME, '.config', 'bamboost')
 DATABASE_INDEX = os.path.join(CONFIG_DIR, 'database_index.json')
@@ -31,6 +33,9 @@ if not os.path.isfile(KNOWN_PATHS):
     with open(KNOWN_PATHS, 'w') as file:
         file.write(json.dumps([], indent=4))
 
+
+# Module level functions
+# ----------------------
 
 def get_index_dict() -> dict:
     with open(DATABASE_INDEX, 'r') as file:
@@ -121,7 +126,7 @@ def get_path(uid: str) -> str:
         record_database(uid, path)
         return path
 
-    return FileNotFoundError(f'Database {uid} not found on system.')
+    raise FileNotFoundError(f'Database {uid} not found on system.')
 
 
 def find(uid, root_dir) -> list:
@@ -144,3 +149,5 @@ def clean() -> None:
     index = get_index_dict()
     clean_index = {uid: path for uid, path in index.items() if _check_path(uid, path)}
     _write_index_dict(clean_index)
+
+
