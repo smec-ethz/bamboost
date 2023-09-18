@@ -53,6 +53,7 @@ class Manager:
         self.path = path
         self.comm = comm
         self.all_uids = self._get_uids()
+        self.UID = self._retrieve_uid()
         self._dataframe: pd.DataFrame = None
         self._meta_folder = os.path.join(path, '.database')
 
@@ -80,21 +81,30 @@ class Manager:
     def _ipython_key_completions_(self):
         return self._get_uids()
 
-    def _make_new(self, path):
+    def _retrieve_uid(self) -> str:
+        """Get the UID of this database from the file tree."""
+        for file in os.listdir(self.path):
+            if file.startswith('.BAMBOOST'):
+                return file.split('-')[1]
+        log.warning('Database exists but no UID found. Generating new UID.')
+        return self._make_new(self.path)
+
+    def _make_new(self, path) -> str:
         """Initialize a new database."""
         from datetime import datetime
         # Create directory for database
         os.makedirs(path, exist_ok=True)
 
         # Assign a unique id to the database
-        new_id = f'{uuid.uuid4().hex[:10]}'.upper()
-        uid_file = os.path.join(path, f'.BAMBOOST-{new_id}')
+        self.UID = f'{uuid.uuid4().hex[:10]}'.upper()
+        uid_file = os.path.join(path, f'.BAMBOOST-{self.UID}')
         with open(uid_file, 'a') as f:
-            f.write(new_id + '\n')
+            f.write(self.UID + '\n')
             f.write(f'Date of creation: {datetime.now().strftime("%d/%m/%Y %H:%M:%S")}')
         os.chmod(uid_file, 0o444)
-        log.info(f'Created new database (uid = {new_id})')
+        log.info(f'Created new database (uid = {self.UID})')
         self._store_uid_in_index()
+        return self.UID
 
     def _store_uid_in_index(self) -> None:
         """Stores the UID of this database with the current path."""
@@ -104,14 +114,6 @@ class Manager:
         os.makedirs(self._meta_folder, exist_ok=True)
         with open(os.path.join(self._meta_folder, 'README.txt'), 'w') as f:
             f.write(META_INFO)
-
-    @property
-    def UID(self) -> str:
-        """Get the UID of this database."""
-        for file in os.listdir(self.path):
-            if file.startswith('.BAMBOOST'):
-                return file.split('-')[1]
-        raise Exception("No database UID found.")
 
     @property
     def df(self) -> pd.DataFrame:
