@@ -112,6 +112,15 @@ class MutableGroup(Group):
             return MutableGroup(self._file, f'{self.path_to_data}/{key}')
         return super().__getitem__(key)
 
+    @with_file_open('a')
+    def update_attrs(self, attrs: dict) -> None:
+        """Update the attributes of the group.
+
+        Args:
+            attrs: the dictionary to write as attributes
+        """
+        self.obj.attrs.update(attrs)
+
     def add_dataset(self, name: str, vector: np.ndarray, attrs: dict = None) -> None:
         """Add a dataset to the group. Error is thrown if attempting to overwrite
         with different shape than before. If same shape, data is overwritten

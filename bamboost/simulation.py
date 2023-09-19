@@ -8,6 +8,7 @@
 # There is no warranty for this code
 
 from __future__ import annotations
+from typing import Any
 
 import os
 import subprocess
@@ -29,6 +30,25 @@ from .accessors.fielddata import DataGroup
 
 log = logging.getLogger(__name__)
 
+
+class Links(hdf_pointer.MutableGroup):
+
+    def __init__(self, file_handler: FileHandler) -> None:
+        super().__init__(file_handler, path_to_data='links')
+
+    def _ipython_key_completions_(self):
+        return tuple(self.all_links().keys())
+
+    def __getitem__(self, key) -> Any:
+        return Simulation.fromUID(self.all_links()[key])
+    
+    @with_file_open('r')
+    def all_links(self) -> dict:
+        return dict(self.obj.attrs)
+
+    @with_file_open('r')
+    def __repr__(self) -> str:
+        return repr(pd.DataFrame.from_dict(self.all_links(), orient='index', columns=['UID']))
 
 
 class Simulation:
@@ -62,6 +82,7 @@ class Simulation:
         self.meshes = MeshGroup(self._file)
         self.data = DataGroup(self._file, self.meshes)
         self.userdata = hdf_pointer.MutableGroup(self._file, '/userdata')
+        self.links = Links(self._file)
 
     @classmethod
     def fromUID(cls, full_uid) -> Simulation:
@@ -117,6 +138,13 @@ class Simulation:
             length_limit: cutoff
         """
         utilities.tree(self.path, level, limit_to_directories, length_limit)
+
+    def open_in_file_explorer(self) -> None:
+        """Open the simulation directory. Uses `xdg-open` on linux systems."""
+        if os.name=='nt':  # should work on Windows
+            os.startfile(self.path)
+        else:
+            subprocess.run(['xdg-open', self.path])
 
     def get_full_uid(self) -> str:
         """Returns the full uid of the simulation (including the one of the database)"""
