@@ -41,14 +41,21 @@ class Links(hdf_pointer.MutableGroup):
 
     def __getitem__(self, key) -> Any:
         return Simulation.fromUID(self.all_links()[key])
-    
-    @with_file_open('r')
-    def all_links(self) -> dict:
-        return dict(self.obj.attrs)
+
+    def __setitem__(self, key, newvalue):
+        return self.update_attrs({key: newvalue})
+
+    def __delitem__(self, key):
+        with self._file('a'):
+            del self.obj.attrs[key]
 
     @with_file_open('r')
     def __repr__(self) -> str:
         return repr(pd.DataFrame.from_dict(self.all_links(), orient='index', columns=['UID']))
+    
+    @with_file_open('r')
+    def all_links(self) -> dict:
+        return dict(self.obj.attrs)
 
 
 class Simulation:
