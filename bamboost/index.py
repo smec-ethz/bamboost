@@ -71,6 +71,14 @@ def _find_python(uid, root_dir) -> list:
 
 def uid2(uid) -> str:
     return f'{PREFIX}{uid}'
+
+
+def get_uid_from_path(path: str) -> str:
+    """Returns the UID found in the specified path."""
+    for file in os.listdir(path):
+        if file.startswith('.BAMBOOST'):
+            return file.split('-')[1]
+    raise FileNotFoundError("No UID file found at specified path.")
     
 
 def _check_path(uid: str, path: str) -> bool:

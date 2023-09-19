@@ -18,10 +18,12 @@ import logging
 from mpi4py import MPI
 from typing import Tuple
 
+
 from .xdmf import XDMFWriter
 from .common.job import Job
 from .common.file_handler import FileHandler, with_file_open
 from .common import hdf_pointer, utilities
+from . import index
 from .accessors.meshes import MeshGroup
 from .accessors.fielddata import DataGroup
 
@@ -60,6 +62,17 @@ class Simulation:
         self.meshes = MeshGroup(self._file)
         self.data = DataGroup(self._file, self.meshes)
         self.userdata = hdf_pointer.MutableGroup(self._file, '/userdata')
+
+    @classmethod
+    def fromUID(cls, full_uid) -> Simulation:
+        """Return the `Simulation` with given UID.
+
+        Args:
+            full_uid: the full id (Database uid : simulation uid)
+        """
+        db_uid, sim_uid = full_uid.split(':')
+        db_path = index.get_path(db_uid)
+        return cls(sim_uid, db_path)
 
     @with_file_open()
     def __getitem__(self, key) -> hdf_pointer.BasePointer:
@@ -104,6 +117,11 @@ class Simulation:
             length_limit: cutoff
         """
         utilities.tree(self.path, level, limit_to_directories, length_limit)
+
+    def get_full_uid(self) -> str:
+        """Returns the full uid of the simulation (including the one of the database)"""
+        database_uid = index.get_uid_from_path(self.path_database)
+        return f'{database_uid}:{self.uid}'
 
     @with_file_open('a')
     def change_status(self, status: str) -> None:
