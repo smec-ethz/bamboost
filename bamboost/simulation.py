@@ -21,8 +21,7 @@ from typing import Tuple
 from .xdmf import XDMFWriter
 from .common.job import Job
 from .common.file_handler import FileHandler, with_file_open
-from .common.utilities import flatten_dict, unflatten_dict
-from .common import hdf_pointer
+from .common import hdf_pointer, utilities
 from .accessors.meshes import MeshGroup
 from .accessors.fielddata import DataGroup
 
@@ -81,7 +80,7 @@ class Simulation:
                 for key in self._file['parameters'].keys():
                     tmp_dict.update({key: self._file[f'parameters/{key}'][()]})
 
-        tmp_dict = unflatten_dict(tmp_dict)
+        tmp_dict = utilities.unflatten_dict(tmp_dict)
 
         tmp_dict = self._comm.bcast(tmp_dict, root=0)
         return tmp_dict
@@ -94,6 +93,17 @@ class Simulation:
                 tmp_dict.update(file.attrs)
         tmp_dict = self._comm.bcast(tmp_dict, root=0)
         return tmp_dict
+
+    def show_files(self, level=-1, limit_to_directories=False,
+                   length_limit=1000) -> None:
+        """Show the file tree of the simulation directory.
+
+        Args:
+            level: how deep to print the tree
+            limit_to_directories: only print directories
+            length_limit: cutoff
+        """
+        utilities.tree(self.path, level, limit_to_directories, length_limit)
 
     @with_file_open('a')
     def change_status(self, status: str) -> None:
@@ -298,14 +308,11 @@ class Simulation:
                                     self.data[field].at_step(step))
 
     @with_file_open()
-    def print_hdf5_file_structure(self, print_datasets: bool = False):
-        """Print data structure in file to screen."""
-        def print_hdf5_item(name, obj):
-            if isinstance(obj, h5py.Group):
-                print(f"Group: {name}")
-            elif isinstance(obj, h5py.Dataset) and print_datasets:
-                print(f"Dataset: {name}")
-        self._file.visititems(print_hdf5_item)
+    def show_h5tree(self) -> None:
+        """Print the tree inside the h5 file."""
+        # print('\U00002B57 ' + os.path.basename(self.h5file))
+        print('\U0001F43C ' + os.path.basename(self.h5file))
+        utilities.h5_tree(self._file.file_object)
 
 
 
