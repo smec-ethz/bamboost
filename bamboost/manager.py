@@ -110,6 +110,39 @@ class Manager:
         else:
             return self.sim(self.df.loc[key, 'id'])
 
+    def _repr_html_(self) -> str:
+
+        html_string = f'''
+        <div style="height: 200px; width: 80%; display: inline-flex;">
+        <div>
+            <img src="https://www.svgrepo.com/show/227124/bamboo.svg" height="70%" width="100%" style="position: relative; left: 10%; top: 15%; filter: grayscale(100%);">
+        </div>
+        <div style="text-align: left; flex: auto; left: 20%; position: absolute; ">
+            <h1>BAMBOOST / {self.UID}</h1><br/>
+            <table style="position: relative; ">
+                <tbody>
+                    <tr>
+                        <td>Database</td>
+                        <td>{self.path}</td>
+                    </tr>
+                    <tr>
+                        <td>UID</td>
+                        <td>{self.UID}</td>
+                    </tr>
+                    <tr>
+                        <td>Size</td>
+                        <td>{len(self)}</td>
+                    </tr>
+                    <tr>
+                        <td>Created</td>
+                        <td>10.08.2023</td>
+                    </tr>
+                </tbody>
+            </table>
+        </div>
+        '''
+        return html_string
+
     def __len__(self) -> int:
         return len(self._get_uids())
 
