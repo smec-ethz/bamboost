@@ -73,10 +73,9 @@ class Manager:
         comm (`MPI.Comm`): MPI communicator
         uid: UID of the database
     """
-    FIX_DF = False
+    FIX_DF = True
     fromUID = ManagerFromUID()
     fromName = ManagerFromName()
-
 
     def __init__(self, path: str = None, comm: MPI.Comm = MPI.COMM_WORLD,
                  uid: str = None, create_if_not_exist: bool = True):
@@ -91,8 +90,8 @@ class Manager:
                 raise NotADirectoryError('Specified path is not a valid path.')
             log.info(f'Created new database ({path})')
             self._make_new(path)
-        self.all_uids = self._get_uids()
         self.UID = self._retrieve_uid()
+        self._all_uids = self._get_uids()
         self._dataframe: pd.DataFrame = None
         self._meta_folder = os.path.join(path, '.database')
 
@@ -144,14 +143,14 @@ class Manager:
         return html_string
 
     def __len__(self) -> int:
-        return len(self._get_uids())
+        return len(self.all_uids)
 
     def __iter__(self) -> list:
         for sim in self.sims():
             yield sim
 
     def _ipython_key_completions_(self):
-        return self._get_uids()
+        return self.all_uids
 
     def _retrieve_uid(self) -> str:
         """Get the UID of this database from the file tree."""
@@ -188,6 +187,12 @@ class Manager:
             f.write(META_INFO)
 
     @property
+    def all_uids(self) -> set:
+        if self.FIX_DF:
+            return self._all_uids
+        return self._get_uids()
+
+    @property
     def df(self) -> pd.DataFrame:
         """View of the database and its parametric space.
 
@@ -204,7 +209,7 @@ class Manager:
         Returns:
             :class:`pd.DataFrame`
         """
-        all_uids = self._get_uids()
+        all_uids = self.all_uids
         data = list()
 
         for uid in all_uids:
@@ -235,7 +240,7 @@ class Manager:
             :class:`pd.DataFrame`
         """
         data = list()
-        for uid in self._get_uids():
+        for uid in self.all_uids:
             h5file_for_uid = os.path.join(self.path, uid, f'{uid}.h5')
             with open_h5file(h5file_for_uid, 'r') as file:
                 tmp_dict = dict()
@@ -254,7 +259,7 @@ class Manager:
         Returns:
             :class:`~bamboost.simulation.Simulation`
         """
-        if uid not in self._get_uids():
+        if uid not in self.all_uids:
             raise KeyError('The simulation id is not valid.')
         if return_writer:
             return SimulationWriter(uid, self.path, self.comm)
@@ -278,7 +283,7 @@ class Manager:
         if select is not None:
             id_list = self.df[select]['id'].values
         else:
-            id_list = self._get_uids()
+            id_list = self.all_uids
         if exclude is not None:
             exclude = list([exclude]) if isinstance(exclude, str) else exclude
             id_list = [id for id in id_list if id not in exclude]
@@ -360,7 +365,7 @@ class Manager:
         """
         duplicates = list()
 
-        for _uid in self._get_uids():
+        for _uid in self.all_uids:
             with open_h5file(os.path.join(os.path.join(self.path, _uid),
                                         f'{_uid}.h5'), 'r') as f:
                 if 'parameters' not in f.keys():
@@ -409,7 +414,7 @@ class Manager:
         Returns:
             New uid string
         """
-        uid_list = [uid for uid in self._get_uids() if uid.startswith(uid_base)]
+        uid_list = [uid for uid in self.all_uids if uid.startswith(uid_base)]
         subiterator = max([int(id.split('.')[1]) for id in uid_list if len(id.split('.'))>1] + [0])
         return f'{uid_base}.{subiterator+1}'
 
