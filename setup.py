@@ -9,6 +9,7 @@ setup(
     author_email='florez@ethz.ch',
     license='MIT',
     packages=find_packages(include=['bamboost', 'bamboost.*']),
+    include_package_data=True,
     install_requires=[
         'pandas',
         'mpi4py',

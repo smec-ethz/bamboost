@@ -71,13 +71,15 @@ def tree(dir_path: Path, level: int=-1, limit_to_directories: bool=False,
             elif not limit_to_directories:
                 yield prefix + pointer + path.name
                 files += 1
-    print(folder_symbol + dir_path.name)
+    tree_string = ""
+    tree_string += (folder_symbol + dir_path.name) + '\n'
     iterator = inner(dir_path, level=level)
     for line in islice(iterator, length_limit):
-        print(line)
+        tree_string += (line) + '\n'
     if next(iterator, None):
-        print(f'... length_limit, {length_limit}, reached, counted:')
-    print(f'\n{directories} directories' + (f', {files} files' if files else ''))
+        tree_string += (f'... length_limit, {length_limit}, reached, counted:') + '\n'
+    tree_string += (f'\n{directories} directories' + (f', {files} files' if files else '')) + '\n'
+    return tree_string
 
 
 def h5_tree(val, pre=''):

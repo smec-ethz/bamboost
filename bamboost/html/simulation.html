@@ -1,0 +1,91 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <style>
+        tr:hover {
+            background-color: #846ba277;
+        }
+        .container {
+            height: 100%;
+            width: 100%;
+            display: flex;
+            gap: 5%;
+            justify-content: center;
+            align-items: center;
+            flex-direction: row;
+            position: relative;
+        }
+        .content {
+            position: relative;
+            text-align: center;
+            align-items: center;
+            justify-content: flex-start;
+            display: flex;
+        }
+        /* .table {
+            text-align: center;
+        } */
+        .rectangle {
+            position: absolute;
+            left: 0%;
+            top: 0%;
+            bottom: 0%;
+            right: 80%;
+            background: linear-gradient(90deg, #846ba277, #ffffff00);
+            border-width: 0px;
+            border-style: solid;
+            /* border-right-width: 2px; */
+        }
+        .uid {
+            /* background-color: #846ba223; */
+            position: relative;
+            /* align-items: center; */
+            flex-shrink: 0;
+            text-align: left;
+            display: flex;
+            flex-direction: column;
+            justify-content: space-between;
+            /* height: 15vw; */
+            /* width: 15vw; */
+            /* max-height: 160px; */
+            /* max-width: 160px; */
+            filter: drop-shadow(10px 10px 20px #00000099);
+        }
+        .text_in_circle {
+            text-align: center;
+            font-size: 100%;
+            font-weight: bold;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <!-- <div style="rotate: -0deg; scale: 4; font-size: x-large; text-transform: uppercase;">🐼</div> -->
+        <div class="content">
+            <div class="uid">
+                <!-- <div class="text_in_circle"> -->
+                    <p style="font-size: x-large; font-weight: bold;">
+                        $UID
+                    </p> <br> 
+                    $TREE 
+                <!-- </div> -->
+            </div>            
+        </div>
+        <div class="content">
+            <!-- <div class="rectangle"></div> -->
+            <table>
+                <tbody>
+                    $TABLE
+                </tbody>
+            </table>
+        </div>
+        <div class="content">
+            <table>
+                <tbody>
+                    $META
+                </tbody>
+            </table>
+        </div>
+    </div>
+</body>
+</html>

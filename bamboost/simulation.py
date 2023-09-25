@@ -8,7 +8,8 @@
 # There is no warranty for this code
 
 from __future__ import annotations
-from typing import Any
+import pkgutil
+from typing import Any, Iterable
 
 import os
 import subprocess
@@ -112,6 +113,32 @@ class Simulation:
         new_pointer = hdf_pointer.get_best_pointer(self._file.file_object[key])
         return new_pointer(self._file, key)
 
+    def _repr_html_(self) -> str:
+        html_string = pkgutil.get_data(__name__, 'html/simulation.html').decode()
+        table_string = ""
+        for key, value in self.parameters.items():
+            if isinstance(value, Iterable) and not isinstance(value, str) and len(value)>5: value = '...'
+            table_string += f'''
+            <tr>
+                <td>{key}</td>
+                <td>{value}</td>
+            </tr>
+            '''
+        table_meta = ""
+        for key, value in self.metadata.items():
+            table_meta += f'''
+            <tr>
+                <td>{key}</td>
+                <td>{value}</td>
+            </tr>
+            '''
+        html_string = (html_string.replace('$UID', self.uid)
+                       .replace('$TREE', self.show_files(printit=False).replace('\n', '<br>')) 
+                       .replace('$TABLE', table_string)
+                       .replace('$META', table_meta)
+        )
+        return html_string
+
     @property
     def parameters(self):
         tmp_dict = dict()
@@ -136,7 +163,7 @@ class Simulation:
         return tmp_dict
 
     def show_files(self, level=-1, limit_to_directories=False,
-                   length_limit=1000) -> None:
+                   length_limit=1000, printit=True) -> str:
         """Show the file tree of the simulation directory.
 
         Args:
@@ -144,7 +171,11 @@ class Simulation:
             limit_to_directories: only print directories
             length_limit: cutoff
         """
-        utilities.tree(self.path, level, limit_to_directories, length_limit)
+        tree_string = utilities.tree(self.path, level, limit_to_directories, length_limit)
+        if printit:
+            print(tree_string)
+        else:
+            return tree_string
 
     def open_in_file_explorer(self) -> None:
         """Open the simulation directory. Uses `xdg-open` on linux systems."""
