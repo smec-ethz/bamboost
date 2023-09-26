@@ -115,6 +115,7 @@ class Simulation:
 
     def _repr_html_(self) -> str:
         html_string = pkgutil.get_data(__name__, 'html/simulation.html').decode()
+        # icon_svg = pkgutil.get_data(__name__, 'html/icon.svg').decode()
         table_string = ""
         for key, value in self.parameters.items():
             if isinstance(value, Iterable) and not isinstance(value, str) and len(value)>5: value = '...'
@@ -136,6 +137,7 @@ class Simulation:
                        .replace('$TREE', self.show_files(printit=False).replace('\n', '<br>')) 
                        .replace('$TABLE', table_string)
                        .replace('$META', table_meta)
+                       # .replace('$ICON', icon_svg)
         )
         return html_string
 
