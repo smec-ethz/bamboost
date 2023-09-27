@@ -93,7 +93,7 @@ class Simulation:
         self.links = Links(self._file)
 
     @classmethod
-    def fromUID(cls, full_uid) -> Simulation:
+    def fromUID(cls, full_uid: str) -> Simulation:
         """Return the `Simulation` with given UID.
 
         Args:

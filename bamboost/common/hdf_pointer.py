@@ -90,8 +90,8 @@ class Group(BasePointer):
         return self.keys()
 
     @with_file_open('r')
-    def keys(self):
-        return tuple(self.obj.keys())
+    def keys(self) -> set:
+        return set(self.obj.keys())
 
 
 class MutableGroup(Group):

@@ -85,9 +85,8 @@ class FieldData(hdf_pointer.Group):
 
     @with_file_open('r')
     def __len__(self) -> int:
-        non_field_keys = (self._vds_key, self._times_key)
-        nb_non_field_keys = sum(1 for key in non_field_keys if key in self.keys())
-        return len(self.keys()) - nb_non_field_keys
+        non_field_keys = set({self._vds_key, self._times_key})
+        return len(self.keys() - non_field_keys)
 
     @property
     @with_file_open('r')
