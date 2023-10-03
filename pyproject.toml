@@ -1,0 +1,33 @@
+# pyproject.toml
+
+[build-system]
+requires = ["setuptools"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "bamboost"
+version = "0.3.0"
+description = "A light weight database manager using HDF5"
+readme = { file = "README.md", content-type = "text/markdown" }
+authors = [{ name = "Flavio Lorez", email = "florez@ethz.ch" }]
+license = { file = "LICENSE" }
+classifiers = [
+    "License :: OSI Approved :: MIT License",
+    "Programming Language :: Python",
+    "Programming Language :: Python :: 3",
+]
+keywords = ["hdf5", "database", "database-manager"]
+dependencies = [
+    "mpi4py",
+    "h5py",
+    "numpy",
+    "pandas",
+    'tomli; python_version < "3.11"',
+]
+requires-python = ">=3.7"
+
+[project.urls]
+Homepage = "https://gitlab.ethz.ch/compmechmat/research/libs/bamboost/"
+
+[tool.setuptools.packages.find]
+include = ["bamboost", "bamboost*"]
