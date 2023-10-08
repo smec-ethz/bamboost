@@ -92,6 +92,7 @@ class Manager:
             log.info(f'Created new database ({path})')
             self._make_new(path)
         self.UID = self._retrieve_uid()
+        self._store_uid_in_index()
         self._all_uids = self._get_uids()
         self._dataframe: pd.DataFrame = None
         self._meta_folder = os.path.join(path, '.database')
@@ -112,10 +113,12 @@ class Manager:
 
     def _repr_html_(self) -> str:
         html_string = pkgutil.get_data(__name__, 'html/manager.html').decode()
+        icon = pkgutil.get_data(__name__, 'html/icon.txt').decode()
         return (html_string
-                .replace('db_path', self.path)
-                .replace('db_uid', self.UID)
-                .replace('db_size', str(len(self)))
+                .replace('$ICON', icon)
+                .replace('$db_path', self.path)
+                .replace('$db_uid', self.UID)
+                .replace('$db_size', str(len(self)))
                 )
 
     def __len__(self) -> int:

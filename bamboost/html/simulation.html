@@ -9,39 +9,20 @@
             position: relative;
             height: 100%;
             width: 100%;
-            display: flex;
             gap: 5%;
-            justify-content: flex-start;
-            align-items: center;
-            flex-direction: row;
             overflow: hidden;
         }
-        .content {
-            position: relative;
-            align-items: center;
-        }
-        .rectangle {
-            position: absolute;
-            left: 0%;
-            top: 0%;
-            bottom: 0%;
-            right: 80%;
-            background: linear-gradient(90deg, #846ba277, #ffffff00);
-            border-width: 0px;
-            border-style: solid;
-        }
-        .container .logo {
-            position: relative;
+        .header {
             display: flex;
+            position: relative;
+            height: 3em;
+            padding: .5em;
+            padding-left: 1em;
             flex-direction: row;
-            scale: 2;
-            justify-content: center;
-            height: 80%;
-            max-height: 160px;
-            max-width: 200px;
-            filter: grayscale() drop-shadow(10px 10px 20px #00000099);
+            justify-content: space-between;
+            border: solid 1px #939ab7ff;
         }
-        .uid {
+        .header .uid {
             position: relative;
             align-items: center;
             text-align: center;
@@ -49,37 +30,52 @@
             flex-direction: column;
             justify-content: space-between;
             align-self: center;
-            /* filter: drop-shadow(10px 10px 20px #00000099); */
+        }
+        .header .logo {
+            scale: 1;
+            position: relative;
+            right: 0;
+            height: 150%;
+            max-width: 80px;
+            filter: grayscale(0) drop-shadow(10px 10px 20px #00000099);
+        }
+        .note {
+            background-color: #939ab7ff;
+            color: black;
+            padding: 1em;
+            border-bottom-right-radius: 10px;
+        }
+        .content {
+            position: relative;
+            display: flex;
+            gap: 5%;
+            padding-top: 1em;
+            justify-content: space-around;
+            align-items: center;
         }
     </style>
 </head>
 <body>
     <div class="container">
-        <!-- <div style="rotate: -0deg; scale: 4; font-size: x-large; text-transform: uppercase;">🐼</div> -->
-        <!-- <div class="svg">
-            $ICON
-        </div> -->
-        <div class="logo">
-            <img src="https://www.svgrepo.com/show/227124/bamboo.svg">
-        </div>
-        <div class="uid">
-            <h1>
-                $UID
-            </h1> 
-            <!-- <p >
-                $TREE 
-            </p> -->
-            <div class="content">
-                <table>
-                    <tbody>
-                        $META
-                    </tbody>
-                </table>
+        <div class="header">
+            <div class="uid">
+                <h1>
+                    $UID
+                </h1> 
+            </div>            
+            <div class="logo">
+                <img src="data:image/png;base64,$ICON" alt="Icon">
             </div>
-        </div>            
+        </div>
+        <div class="note">
+            $NOTE
+        </div>
         <div class="content">
-            <!-- <div class="rectangle"></div> -->
-            <!-- <p style="rotate: -90deg; text-transform: uppercase; font-size: large;">parameters</p> -->
+            <table>
+                <tbody>
+                    $META
+                </tbody>
+            </table>
             <table >
                 <tbody >
                     $TABLE

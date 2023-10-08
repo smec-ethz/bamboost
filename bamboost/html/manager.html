@@ -6,27 +6,26 @@
             background-color: #846ba255;
         }
         .manager {
-            height: 200px;
+            height: 10em;
             width: 100%;
             display: flex;
-            /* justify-content: space-around; */
-            justify-content: flex-start;
+            justify-content: space-around;
             gap: 5%;
             align-items: center;
             flex-direction: row;
         }
-        .m_content {
+        .manager_table {
             text-align: center;
             flex-direction: row;
         }
         .logo {
             position: relative;
             display: flex;
-            flex-direction: row;
+            flex-direction: column;
             justify-content: center;
-            height: 80%;
-            max-width: 200px;
-            filter: grayscale() drop-shadow(10px 10px 20px #00000099);
+            width: auto;
+            max-width: 8em;
+            filter: grayscale(0) drop-shadow(10px 10px 20px #00000099);
         }
         .m_id {
             align-items: center;
@@ -37,30 +36,26 @@
 <body>
     <div class='manager'>
         <div class="logo">
-            <img src="https://www.svgrepo.com/show/227124/bamboo.svg">
+            <img src="data:image/png;base64,$ICON" alt="Icon">
         </div>
         <div class="m_id">
-            <h1>BAMBOOST / db_uid</h1><br />
+            <h1>BAMBOOST / db_uid</h1>
         </div>
-        <div class='m_content' >
+        <div class='manager_table' >
             <table >
                 <tbody>
                     <tr>
                         <td>Database</td>
-                        <td>db_path</td>
+                        <td>$db_path</td>
                     </tr>
                     <tr>
                         <td>UID</td>
-                        <td>db_uid</td>
+                        <td>$db_uid</td>
                     </tr>
                     <tr>
                         <td>Size</td>
-                        <td>db_size</td>
+                        <td>$db_size</td>
                     </tr>
-                    <!-- <tr> -->
-                    <!--     <td>Created</td> -->
-                    <!--     <td>{database_dateofcreation}</td> -->
-                    <!-- </tr> -->
                 </tbody>
             </table>
         </div>

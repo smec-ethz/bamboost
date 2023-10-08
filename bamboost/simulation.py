@@ -115,7 +115,8 @@ class Simulation:
 
     def _repr_html_(self) -> str:
         html_string = pkgutil.get_data(__name__, 'html/simulation.html').decode()
-        # icon_svg = pkgutil.get_data(__name__, 'html/icon.svg').decode()
+        icon = pkgutil.get_data(__name__, 'html/icon.txt').decode()
+
         table_string = ""
         for key, value in self.parameters.items():
             if isinstance(value, Iterable) and not isinstance(value, str) and len(value)>5: value = '...'
@@ -126,18 +127,24 @@ class Simulation:
             </tr>
             '''
         table_meta = ""
-        for key, value in self.metadata.items():
+        metadata = self.metadata
+        for key, value in metadata.items():
+            if key=='notes':
+                continue
             table_meta += f'''
             <tr>
                 <td>{key}</td>
                 <td>{value}</td>
             </tr>
             '''
+        note = metadata['notes']
+
         html_string = (html_string.replace('$UID', self.uid)
+                       .replace('$ICON', icon)
                        .replace('$TREE', self.show_files(printit=False).replace('\n', '<br>')) 
                        .replace('$TABLE', table_string)
                        .replace('$META', table_meta)
-                       # .replace('$ICON', icon_svg)
+                       .replace('$NOTE', note)
         )
         return html_string
 
