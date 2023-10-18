@@ -15,7 +15,6 @@ import os
 import subprocess
 import numpy as np
 import pandas as pd
-import h5py
 import logging
 from mpi4py import MPI
 from typing import Tuple
@@ -33,6 +32,11 @@ log = logging.getLogger(__name__)
 
 
 class Links(hdf_pointer.MutableGroup):
+    """Link group. Used to create and access links.
+
+    I don't know how to distribute this to its own file in the accessors
+    directory, due to circular imports.
+    """
 
     def __init__(self, file_handler: FileHandler) -> None:
         super().__init__(file_handler, path_to_data='links')
@@ -41,18 +45,25 @@ class Links(hdf_pointer.MutableGroup):
         return tuple(self.all_links().keys())
 
     def __getitem__(self, key) -> Any:
+        """Returns the linked simulation object."""
         return Simulation.fromUID(self.all_links()[key])
 
     def __setitem__(self, key, newvalue):
+        """Creates the link."""
         return self.update_attrs({key: newvalue})
 
     def __delitem__(self, key):
+        """Delete a link."""
         with self._file('a'):
             del self.obj.attrs[key]
 
     @with_file_open('r')
     def __repr__(self) -> str:
         return repr(pd.DataFrame.from_dict(self.all_links(), orient='index', columns=['UID']))
+
+    @with_file_open('r')
+    def _repr_html_(self) -> str:
+        return pd.DataFrame.from_dict(self.all_links(), orient='index', columns=['UID'])._repr_html_()
     
     @with_file_open('r')
     def all_links(self) -> dict:

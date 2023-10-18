@@ -6,6 +6,8 @@
 # Copyright 2023 Flavio Lorez and contributors
 #
 # There is no warranty for this code
+"""Module to manage the database index and its ID's."""
+
 from __future__ import annotations
 
 import os
@@ -14,6 +16,7 @@ import logging
 import json
 
 log = logging.getLogger(__name__)
+
 
 # Define directories
 # ------------------
@@ -38,6 +41,7 @@ if not os.path.isfile(KNOWN_PATHS):
 # ----------------------
 
 def get_index_dict() -> dict:
+    """Returns a dictionary of all known databases."""
     with open(DATABASE_INDEX, 'r') as file:
         try:
             return json.loads(file.read())
@@ -46,6 +50,7 @@ def get_index_dict() -> dict:
 
 
 def _write_index_dict(index: dict) -> None:
+    """Write the database index."""
     with open(DATABASE_INDEX, 'w') as file:
         file.write(json.dumps(index, indent=4))
 
@@ -56,7 +61,7 @@ def get_known_paths() -> list:
 
 
 def _find_posix(uid, root_dir) -> list:
-    """Find using system `find` on linux."""
+    """Find function using system `find` on linux."""
     completed_process = subprocess.run(['find', root_dir, '-iname', uid2(uid),
                                         '-not', '-path', '*/\.git/*'],
                                        capture_output=True)
@@ -65,7 +70,10 @@ def _find_posix(uid, root_dir) -> list:
 
 
 def _find_python(uid, root_dir) -> list:
-    """Some find function for Windows or other if `find` is not working."""
+    """Some find function for Windows or other if `find` is not working.
+
+    TODO: to be implemented
+    """
     pass
 
 

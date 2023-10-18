@@ -73,6 +73,12 @@ class Manager:
             a new database will be created.
         comm (`MPI.Comm`): MPI communicator
         uid: UID of the database
+
+    Attributes:
+        FIX_DF: If False, the dataframe of the database is reconstructed every
+            time it is accessed.
+        fromUID: Access a database by its UID
+        fromName: Access a database by its path/name
     """
     FIX_DF = True
     fromUID = ManagerFromUID()
@@ -112,6 +118,9 @@ class Manager:
             return self.sim(self.df.loc[key, 'id'])
 
     def _repr_html_(self) -> str:
+        """HTML repr for ipython/notebooks. Uses string replacement to fill the
+        template code.
+        """
         html_string = pkgutil.get_data(__name__, 'html/manager.html').decode()
         icon = pkgutil.get_data(__name__, 'html/icon.txt').decode()
         return (html_string
