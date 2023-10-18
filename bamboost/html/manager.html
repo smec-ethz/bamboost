@@ -1,0 +1,66 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <style>
+        tr:hover{
+            background-color: #846ba255;
+        }
+        .jp-RenderedHTMLCommon tbody tr:hover {
+          background-color: #939ab777;
+        }
+        .manager {
+            height: 10em;
+            width: 100%;
+            display: flex;
+            justify-content: space-around;
+            gap: 5%;
+            align-items: center;
+            flex-direction: row;
+        }
+        .manager_table {
+            text-align: center;
+            flex-direction: row;
+        }
+        .logo {
+            position: relative;
+            display: flex;
+            flex-direction: column;
+            justify-content: center;
+            width: auto;
+            max-width: 8em;
+            filter: grayscale(0) drop-shadow(10px 10px 20px #00000099);
+        }
+        .m_id {
+            align-items: center;
+            text-align: center;
+        }
+    </style>
+</head>
+<body>
+    <div class='manager'>
+        <div class="logo">
+            <img src="data:image/png;base64,$ICON" alt="Icon">
+        </div>
+        <div class="m_id">
+            <h1>BAMBOOST / $db_uid</h1>
+        </div>
+        <div class='manager_table' >
+            <table >
+                <tbody>
+                    <tr>
+                        <td>Database</td>
+                        <td>$db_path</td>
+                    </tr>
+                    <tr>
+                        <td>UID</td>
+                        <td>$db_uid</td>
+                    </tr>
+                    <tr>
+                        <td>Size</td>
+                        <td>$db_size</td>
+                    </tr>
+                </tbody>
+            </table>
+        </div>
+</body>
+</html>

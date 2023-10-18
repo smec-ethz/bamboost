@@ -1,0 +1,90 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <style>
+        tr:hover {
+            background-color: #846ba255;
+        }
+        .jp-RenderedHTMLCommon tbody tr:hover {
+          background-color: #939ab777;
+        }
+        .container {
+            position: relative;
+            height: 100%;
+            width: 100%;
+            gap: 5%;
+            overflow: hidden;
+        }
+        .header {
+            display: flex;
+            position: relative;
+            height: 3em;
+            padding: .5em;
+            padding-left: 1em;
+            flex-direction: row;
+            justify-content: space-between;
+            border: solid 1px #939ab7ff;
+        }
+        .header .uid {
+            position: relative;
+            align-items: center;
+            text-align: center;
+            display: flex;
+            flex-direction: column;
+            justify-content: space-between;
+            align-self: center;
+        }
+        .header .logo {
+            scale: 1;
+            position: relative;
+            right: 0;
+            height: 150%;
+            max-width: 80px;
+            filter: grayscale(0) drop-shadow(10px 10px 20px #00000099);
+        }
+        .note {
+            background-color: #939ab7ff;
+            color: black;
+            padding: 1em;
+            border-bottom-right-radius: 10px;
+        }
+        .content {
+            position: relative;
+            display: flex;
+            gap: 5%;
+            padding-top: 1em;
+            justify-content: space-around;
+            align-items: center;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <div class="header">
+            <div class="uid">
+                <h1>
+                    $UID
+                </h1> 
+            </div>            
+            <div class="logo">
+                <img src="data:image/png;base64,$ICON" alt="Icon">
+            </div>
+        </div>
+        <div class="note">
+            $NOTE
+        </div>
+        <div class="content">
+            <table>
+                <tbody>
+                    $META
+                </tbody>
+            </table>
+            <table >
+                <tbody >
+                    $TABLE
+                </tbody>
+            </table>
+        </div>
+    </div>
+</body>
+</html>

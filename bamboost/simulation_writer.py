@@ -48,7 +48,6 @@ class SimulationWriter(Simulation):
         else:
             self.change_status('Finished')
 
-
     def initialize(self) -> SimulationWriter:
         """Create a new file for this simlation.
         This deletes an existing h5 file of the simulation and creates an empty new one

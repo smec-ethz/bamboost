@@ -6,9 +6,12 @@
 # Copyright 2023 Flavio Lorez and contributors
 #
 # There is no warranty for this code
+from __future__ import annotations
 
 import os
 import shutil
+import logging
+import pkgutil
 from typing import Union
 import uuid
 import h5py
@@ -19,6 +22,9 @@ from mpi4py import MPI
 from .simulation_writer import SimulationWriter
 from .simulation import Simulation
 from .common.file_handler import open_h5file
+from . import index
+
+log = logging.getLogger(__name__)
 
 
 META_INFO = """
@@ -29,6 +35,35 @@ HDF5 file format.
 https://gitlab.ethz.ch/compmechmat/research/libs/dbmanager
 """
 
+# Setup Manager getters
+# ---------------------
+
+class ManagerFromUID(object):
+    def __init__(self) -> None:
+        ids = index.get_index_dict()
+        self.completion_keys = tuple(
+                [f'{key} - {"..."+val[-25:] if len(val)>=25 else val}' for key, val in ids.items()]
+                )
+
+    def _ipython_key_completions_(self):
+        return self.completion_keys
+
+    def __getitem__(self, key) -> Manager:
+        key = key.split()[0]  # take only uid
+        return Manager(uid=key, create_if_not_exist=False)
+
+
+class ManagerFromName(object):
+    def __init__(self) -> None:
+        self.completion_keys = tuple(index.get_index_dict().values())
+
+    def _ipython_key_completions_(self):
+        return self.completion_keys
+
+    def __getitem__(self, key) -> Manager:
+        return Manager(key, create_if_not_exist=False)
+
+    
 
 class Manager:
     """View of database.
@@ -37,20 +72,36 @@ class Manager:
         path (`str`): path to the directory of the database. If doesn't exist,
             a new database will be created.
         comm (`MPI.Comm`): MPI communicator
-    """
-    FIX_DF = False
+        uid: UID of the database
 
-    def __init__(self, path: str, comm: MPI.Comm = MPI.COMM_WORLD):
+    Attributes:
+        FIX_DF: If False, the dataframe of the database is reconstructed every
+            time it is accessed.
+        fromUID: Access a database by its UID
+        fromName: Access a database by its path/name
+    """
+    FIX_DF = True
+    fromUID = ManagerFromUID()
+    fromName = ManagerFromName()
+
+    def __init__(self, path: str = None, comm: MPI.Comm = MPI.COMM_WORLD,
+                 uid: str = None, create_if_not_exist: bool = True):
+        if uid is not None:
+            path = index.get_path(uid.upper())
         self.path = path
         self.comm = comm
-        os.makedirs(self.path, exist_ok=True)
 
-        self._meta_folder = os.path.join(path, '.database')
-        if not os.path.isdir(self._meta_folder):
-            self._init_meta_folder()
-
-        self.all_uids = self._get_uids()
+        # check if path exists
+        if not os.path.isdir(path):
+            if not create_if_not_exist:
+                raise NotADirectoryError('Specified path is not a valid path.')
+            log.info(f'Created new database ({path})')
+            self._make_new(path)
+        self.UID = self._retrieve_uid()
+        self._store_uid_in_index()
+        self._all_uids = self._get_uids()
         self._dataframe: pd.DataFrame = None
+        self._meta_folder = os.path.join(path, '.database')
 
     def __getitem__(self, key: Union[str, int]) -> Simulation:
         """Returns the simulation in the specified row of the dataframe.
@@ -66,20 +117,68 @@ class Manager:
         else:
             return self.sim(self.df.loc[key, 'id'])
 
+    def _repr_html_(self) -> str:
+        """HTML repr for ipython/notebooks. Uses string replacement to fill the
+        template code.
+        """
+        html_string = pkgutil.get_data(__name__, 'html/manager.html').decode()
+        icon = pkgutil.get_data(__name__, 'html/icon.txt').decode()
+        return (html_string
+                .replace('$ICON', icon)
+                .replace('$db_path', self.path)
+                .replace('$db_uid', self.UID)
+                .replace('$db_size', str(len(self)))
+                )
+
     def __len__(self) -> int:
-        return len(self._get_uids())
+        return len(self.all_uids)
 
     def __iter__(self) -> list:
         for sim in self.sims():
             yield sim
 
     def _ipython_key_completions_(self):
-        return self._get_uids()
+        return self.all_uids
+
+    def _retrieve_uid(self) -> str:
+        """Get the UID of this database from the file tree."""
+        for file in os.listdir(self.path):
+            if file.startswith('.BAMBOOST'):
+                return file.split('-')[1]
+        log.warning('Database exists but no UID found. Generating new UID.')
+        return self._make_new(self.path)
+
+    def _make_new(self, path) -> str:
+        """Initialize a new database."""
+        from datetime import datetime
+        # Create directory for database
+        os.makedirs(path, exist_ok=True)
+
+        # Assign a unique id to the database
+        self.UID = f'{uuid.uuid4().hex[:10]}'.upper()
+        uid_file = os.path.join(path, f'.BAMBOOST-{self.UID}')
+        with open(uid_file, 'a') as f:
+            f.write(self.UID + '\n')
+            f.write(f'Date of creation: {datetime.now().strftime("%d/%m/%Y %H:%M:%S")}')
+        os.chmod(uid_file, 0o444)  # read only for uid file
+        log.info(f'Registered new database (uid = {self.UID})')
+        self._store_uid_in_index()
+        return self.UID
+
+    def _store_uid_in_index(self) -> None:
+        """Stores the UID of this database with the current path."""
+        index.record_database(self.UID, os.path.abspath(self.path))
 
     def _init_meta_folder(self) -> None:
         os.makedirs(self._meta_folder, exist_ok=True)
         with open(os.path.join(self._meta_folder, 'README.txt'), 'w') as f:
             f.write(META_INFO)
+
+    @property
+    def all_uids(self) -> set:
+        if self.FIX_DF:
+            return self._all_uids
+        return self._get_uids()
 
     @property
     def df(self) -> pd.DataFrame:
@@ -98,7 +197,7 @@ class Manager:
         Returns:
             :class:`pd.DataFrame`
         """
-        all_uids = self._get_uids()
+        all_uids = self.all_uids
         data = list()
 
         for uid in all_uids:
@@ -129,7 +228,7 @@ class Manager:
             :class:`pd.DataFrame`
         """
         data = list()
-        for uid in self._get_uids():
+        for uid in self.all_uids:
             h5file_for_uid = os.path.join(self.path, uid, f'{uid}.h5')
             with open_h5file(h5file_for_uid, 'r') as file:
                 tmp_dict = dict()
@@ -148,7 +247,7 @@ class Manager:
         Returns:
             :class:`~bamboost.simulation.Simulation`
         """
-        if uid not in self._get_uids():
+        if uid not in self.all_uids:
             raise KeyError('The simulation id is not valid.')
         if return_writer:
             return SimulationWriter(uid, self.path, self.comm)
@@ -172,7 +271,7 @@ class Manager:
         if select is not None:
             id_list = self.df[select]['id'].values
         else:
-            id_list = self._get_uids()
+            id_list = self.all_uids
         if exclude is not None:
             exclude = list([exclude]) if isinstance(exclude, str) else exclude
             id_list = [id for id in id_list if id not in exclude]
@@ -254,7 +353,7 @@ class Manager:
         """
         duplicates = list()
 
-        for _uid in self._get_uids():
+        for _uid in self.all_uids:
             with open_h5file(os.path.join(os.path.join(self.path, _uid),
                                         f'{_uid}.h5'), 'r') as f:
                 if 'parameters' not in f.keys():
@@ -303,10 +402,8 @@ class Manager:
         Returns:
             New uid string
         """
-        uid_list = [uid for uid in self._get_uids() if uid.startswith(uid_base)]
+        uid_list = [uid for uid in self.all_uids if uid.startswith(uid_base)]
         subiterator = max([int(id.split('.')[1]) for id in uid_list if len(id.split('.'))>1] + [0])
         return f'{uid_base}.{subiterator+1}'
 
-
-        
 

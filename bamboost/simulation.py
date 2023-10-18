@@ -8,26 +8,66 @@
 # There is no warranty for this code
 
 from __future__ import annotations
+import pkgutil
+from typing import Any, Iterable
 
 import os
 import subprocess
 import numpy as np
 import pandas as pd
-import h5py
 import logging
 from mpi4py import MPI
 from typing import Tuple
 
+
 from .xdmf import XDMFWriter
 from .common.job import Job
 from .common.file_handler import FileHandler, with_file_open
-from .common.utilities import flatten_dict, unflatten_dict
-from .common import hdf_pointer
+from .common import hdf_pointer, utilities
+from . import index
 from .accessors.meshes import MeshGroup
 from .accessors.fielddata import DataGroup
 
 log = logging.getLogger(__name__)
 
+
+class Links(hdf_pointer.MutableGroup):
+    """Link group. Used to create and access links.
+
+    I don't know how to distribute this to its own file in the accessors
+    directory, due to circular imports.
+    """
+
+    def __init__(self, file_handler: FileHandler) -> None:
+        super().__init__(file_handler, path_to_data='links')
+
+    def _ipython_key_completions_(self):
+        return tuple(self.all_links().keys())
+
+    def __getitem__(self, key) -> Any:
+        """Returns the linked simulation object."""
+        return Simulation.fromUID(self.all_links()[key])
+
+    def __setitem__(self, key, newvalue):
+        """Creates the link."""
+        return self.update_attrs({key: newvalue})
+
+    def __delitem__(self, key):
+        """Delete a link."""
+        with self._file('a'):
+            del self.obj.attrs[key]
+
+    @with_file_open('r')
+    def __repr__(self) -> str:
+        return repr(pd.DataFrame.from_dict(self.all_links(), orient='index', columns=['UID']))
+
+    @with_file_open('r')
+    def _repr_html_(self) -> str:
+        return pd.DataFrame.from_dict(self.all_links(), orient='index', columns=['UID'])._repr_html_()
+    
+    @with_file_open('r')
+    def all_links(self) -> dict:
+        return dict(self.obj.attrs)
 
 
 class Simulation:
@@ -61,6 +101,18 @@ class Simulation:
         self.meshes = MeshGroup(self._file)
         self.data = DataGroup(self._file, self.meshes)
         self.userdata = hdf_pointer.MutableGroup(self._file, '/userdata')
+        self.links = Links(self._file)
+
+    @classmethod
+    def fromUID(cls, full_uid: str) -> Simulation:
+        """Return the `Simulation` with given UID.
+
+        Args:
+            full_uid: the full id (Database uid : simulation uid)
+        """
+        db_uid, sim_uid = full_uid.split(':')
+        db_path = index.get_path(db_uid)
+        return cls(sim_uid, db_path)
 
     @with_file_open()
     def __getitem__(self, key) -> hdf_pointer.BasePointer:
@@ -72,6 +124,41 @@ class Simulation:
         new_pointer = hdf_pointer.get_best_pointer(self._file.file_object[key])
         return new_pointer(self._file, key)
 
+    def _repr_html_(self) -> str:
+        html_string = pkgutil.get_data(__name__, 'html/simulation.html').decode()
+        icon = pkgutil.get_data(__name__, 'html/icon.txt').decode()
+
+        table_string = ""
+        for key, value in self.parameters.items():
+            if isinstance(value, Iterable) and not isinstance(value, str) and len(value)>5: value = '...'
+            table_string += f'''
+            <tr>
+                <td>{key}</td>
+                <td>{value}</td>
+            </tr>
+            '''
+        table_meta = ""
+        metadata = self.metadata
+        for key, value in metadata.items():
+            if key=='notes':
+                continue
+            table_meta += f'''
+            <tr>
+                <td>{key}</td>
+                <td>{value}</td>
+            </tr>
+            '''
+        note = metadata['notes']
+
+        html_string = (html_string.replace('$UID', self.uid)
+                       .replace('$ICON', icon)
+                       .replace('$TREE', self.show_files(printit=False).replace('\n', '<br>')) 
+                       .replace('$TABLE', table_string)
+                       .replace('$META', table_meta)
+                       .replace('$NOTE', note)
+        )
+        return html_string
+
     @property
     def parameters(self):
         tmp_dict = dict()
@@ -81,7 +168,7 @@ class Simulation:
                 for key in self._file['parameters'].keys():
                     tmp_dict.update({key: self._file[f'parameters/{key}'][()]})
 
-        tmp_dict = unflatten_dict(tmp_dict)
+        tmp_dict = utilities.unflatten_dict(tmp_dict)
 
         tmp_dict = self._comm.bcast(tmp_dict, root=0)
         return tmp_dict
@@ -94,6 +181,33 @@ class Simulation:
                 tmp_dict.update(file.attrs)
         tmp_dict = self._comm.bcast(tmp_dict, root=0)
         return tmp_dict
+
+    def show_files(self, level=-1, limit_to_directories=False,
+                   length_limit=1000, printit=True) -> str:
+        """Show the file tree of the simulation directory.
+
+        Args:
+            level: how deep to print the tree
+            limit_to_directories: only print directories
+            length_limit: cutoff
+        """
+        tree_string = utilities.tree(self.path, level, limit_to_directories, length_limit)
+        if printit:
+            print(tree_string)
+        else:
+            return tree_string
+
+    def open_in_file_explorer(self) -> None:
+        """Open the simulation directory. Uses `xdg-open` on linux systems."""
+        if os.name=='nt':  # should work on Windows
+            os.startfile(self.path)
+        else:
+            subprocess.run(['xdg-open', self.path])
+
+    def get_full_uid(self) -> str:
+        """Returns the full uid of the simulation (including the one of the database)"""
+        database_uid = index.get_uid_from_path(self.path_database)
+        return f'{database_uid}:{self.uid}'
 
     @with_file_open('a')
     def change_status(self, status: str) -> None:
@@ -298,14 +412,11 @@ class Simulation:
                                     self.data[field].at_step(step))
 
     @with_file_open()
-    def print_hdf5_file_structure(self, print_datasets: bool = False):
-        """Print data structure in file to screen."""
-        def print_hdf5_item(name, obj):
-            if isinstance(obj, h5py.Group):
-                print(f"Group: {name}")
-            elif isinstance(obj, h5py.Dataset) and print_datasets:
-                print(f"Dataset: {name}")
-        self._file.visititems(print_hdf5_item)
+    def show_h5tree(self) -> None:
+        """Print the tree inside the h5 file."""
+        # print('\U00002B57 ' + os.path.basename(self.h5file))
+        print('\U0001F43C ' + os.path.basename(self.h5file))
+        utilities.h5_tree(self._file.file_object)
 
 
 
