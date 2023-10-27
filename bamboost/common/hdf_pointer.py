@@ -79,6 +79,11 @@ class BasePointer:
     def __setitem__(self, slice, newvalue):
         self.obj.__setitem__(slice, newvalue)
 
+    @property
+    @with_file_open()
+    def attrs(self):
+        return dict(self.obj.attrs)
+
 
 
 class Group(BasePointer):
