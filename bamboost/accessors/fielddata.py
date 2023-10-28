@@ -88,6 +88,9 @@ class FieldData(hdf_pointer.Group):
         non_field_keys = set({self._vds_key, self._times_key})
         return len(self.keys() - non_field_keys)
 
+    def _repr_html_(self):
+        return None
+
     @property
     @with_file_open('r')
     def shape(self) -> tuple:

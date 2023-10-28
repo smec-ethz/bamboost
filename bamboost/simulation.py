@@ -121,8 +121,7 @@ class Simulation:
         Returns:
             :class:`~bamboost.common.file_handler.BasePointer`
         """
-        new_pointer = hdf_pointer.get_best_pointer(self._file.file_object[key])
-        return new_pointer(self._file, key)
+        return hdf_pointer.BasePointer.new_pointer(self._file, key)
 
     def _repr_html_(self) -> str:
         html_string = pkgutil.get_data(__name__, 'html/simulation.html').decode()

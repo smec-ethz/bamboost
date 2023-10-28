@@ -1,0 +1,84 @@
+<!DOCTYPE html>
+<html>
+    <head>
+        <style>
+            tr:hover{
+                background-color: #846ba255;
+            }
+            .jp-RenderedHTMLCommon tbody tr:hover {
+                background-color: #939ab777;
+            }
+            table th {
+                font-style: italic;
+                background-color: #939ab777;
+            }
+            #head {
+                font-style: normal;
+                font-size: large;
+                text-align: center;
+                background-color: transparent;
+                padding-bottom: 20px;
+            }
+            .info_container {
+                display: flex;
+                justify-content: flex-start;
+                gap: 40px;
+                align-items: flex-start;
+                height: 100%;
+            }
+            .info_container .logo {
+                scale: 1;
+                z-index: 0;
+                height: 100%;
+                max-width: 80px;
+                align-self: center;
+            }
+            .name {
+                position: relative;
+                height: 100%;
+                display: flex;
+                flex-direction: column;
+            }
+        </style>
+    </head>
+    <body>
+        <div class="info_container">
+            <div class="name">
+                <h2 style="text-align: center;">$NAME</h2>
+                <img class="logo" src="data:image/png;base64,$ICON" alt="Icon">
+            </div>
+            <div style="background-color: white; width: 2px; height: 100%;"></div>
+            <table>
+                <tbody>
+                    <th colspan="2" id="head">Attributes</th>
+                    <tr>
+                        <th>Attribute</th>
+                        <th>Value</th>
+                    </tr>
+                    $attrs
+                </tbody>
+            </table>
+            <table>
+                <tbody>
+                    <th colspan="2" id="head">Groups</th>
+                    <tr>
+                        <th>Name</th>
+                        <th>Members</th>
+                    </tr>
+                    $groups
+                </tbody>
+            </table>
+            <table>
+                <tbody>
+                    <th colspan="3" id="head">Datasets</th>
+                    <tr>
+                        <th>Name</th>
+                        <th>dtype</th>
+                        <th>shape</th>
+                    </tr>
+                    $datasets
+                </tbody>
+            </table>
+        </div>
+    </body>
+</html>

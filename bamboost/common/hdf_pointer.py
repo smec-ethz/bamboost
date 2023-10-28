@@ -11,25 +11,15 @@ from __future__ import annotations
 
 from typing import Any
 import h5py
+import pkgutil
+import pandas as pd
 import numpy as np
 import logging
 
+import bamboost
 from .file_handler import FileHandler, with_file_open
 
 log = logging.getLogger(__name__)
-
-
-
-def get_best_pointer(value: Any) -> BasePointer:
-    """Returns pointer based on h5py object type."""
-    if isinstance(value, h5py.Group):
-        return Group
-    if isinstance(value, h5py.Dataset):
-        return Dataset
-    if isinstance(value, h5py._hl.base.HLObject):
-        return BasePointer
-    else:
-        return None
 
 
 class BasePointer:
@@ -41,6 +31,21 @@ class BasePointer:
         file_handler: file this belongs to
         path_to_data: infile path to object
     """
+
+    @classmethod
+    def new_pointer(cls, file_handler: FileHandler, path_to_data: str) -> BasePointer:
+        """Returns a new pointer object."""
+        with file_handler('r') as f:
+            obj = f.file_object[path_to_data]
+            if isinstance(obj, h5py.Group):
+                if issubclass(cls, Group):
+                    return cls(file_handler, path_to_data)
+                else:
+                    return Group(file_handler, path_to_data)
+            elif isinstance(obj, h5py.Dataset):
+                return Dataset(file_handler, path_to_data)
+            else:
+                return BasePointer(file_handler, path_to_data)
 
     def __init__(self, file_handler: FileHandler, path_to_data: str) -> None:
         self._file = file_handler
@@ -69,11 +74,8 @@ class BasePointer:
 
     @with_file_open('r')
     def __getitem__(self, key):
-        value = self.obj[key]
-        new_pointer = get_best_pointer(value)
-        if new_pointer is None:
-            return value
-        return new_pointer(self._file, f'{self.path_to_data}/{key}')
+        new_path = f'{self.path_to_data}/{key}'
+        return self.new_pointer(self._file, new_path)
 
     @with_file_open('a')
     def __setitem__(self, slice, newvalue):
@@ -85,7 +87,6 @@ class BasePointer:
         return dict(self.obj.attrs)
 
 
-
 class Group(BasePointer):
 
     def __init__(self, file_handler: FileHandler, path_to_data: str) -> None:
@@ -94,9 +95,61 @@ class Group(BasePointer):
     def _ipython_key_completions_(self):
         return self.keys()
 
+    def __iter__(self):
+        for key in self.keys():
+            yield self.__getitem__(key)
+
     @with_file_open('r')
     def keys(self) -> set:
         return set(self.obj.keys())
+
+    @with_file_open('r')
+    def groups(self) -> set:
+        return {key for key in self.keys() if isinstance(self.obj[key], h5py.Group)}
+
+    @with_file_open('r')
+    def datasets(self) -> set:
+        return {key for key in self.keys() if isinstance(self.obj[key], h5py.Dataset)}
+
+    @with_file_open('r')
+    def _repr_html_(self):
+        """Repr showing the content of the group."""
+        html_string = pkgutil.get_data(bamboost.__name__, 'html/group_info.html').decode()
+        icon = pkgutil.get_data(bamboost.__name__, 'html/icon.txt').decode()
+
+        attrs_html = ""
+        for key, val in self.attrs.items():
+            attrs_html += f'''
+            <tr>
+                <td>{key}</td>
+                <td>{val}</td>
+            </tr>
+            '''
+        groups_html = ""
+        for key in self.groups():
+            groups_html += f'''
+            <tr>
+                <td>{key}</td>
+                <td>{len(self.obj[key])}</td>
+            </tr>
+            '''
+        ds_html = ""
+        for key in self.datasets():
+            obj = self.obj[key]
+            ds_html += f'''
+            <tr>
+                <td>{key}</td>
+                <td>{obj.dtype}</td>
+                <td>{obj.shape}</td>
+            </tr>
+            '''
+        return (html_string
+                .replace('$NAME', self.path_to_data)
+                .replace('$ICON', icon)
+                .replace('$attrs', attrs_html)
+                .replace('$groups', groups_html)
+                .replace('$datasets', ds_html)
+                )
 
 
 class MutableGroup(Group):
@@ -108,14 +161,42 @@ class MutableGroup(Group):
         with self._file('a', driver='mpio'):
             self._file.file_object.require_group(path_to_data)
 
+    def _ipython_key_completions_(self):
+        return self.keys().union(set(self.attrs.keys()))
+
     @with_file_open('r')
     def __getitem__(self, key) -> Any:
         """Used to access datasets (:class:`~bamboost.common.hdf_pointer.Dataset`)
         or groups inside this group (:class:`~bamboost.common.hdf_pointer.MutableGroup`)
         """
-        if isinstance(self.obj[key], h5py.Group):
-            return MutableGroup(self._file, f'{self.path_to_data}/{key}')
+        try:
+            return super().__getitem__(key)
+        except KeyError:
+            pass
+
+        try:
+            return self.obj.attrs[key]
+        except KeyError:
+            pass
+
         return super().__getitem__(key)
+
+    @with_file_open('a')
+    def __setitem__(self, key, newvalue):
+        """Used to set an attribute.
+        Will be written as an attribute to the group.
+        """
+        if isinstance(newvalue, (int, float, bytes, str)):
+            self.update_attrs({key: newvalue})
+        elif isinstance(newvalue, (list, np.ndarray, tuple)):
+            self.add_dataset(key, np.array(newvalue))
+        else:
+            raise TypeError('New value has unsupported type.')
+
+    @with_file_open('a')
+    def __delitem__(self, key) -> None:
+        """Deletes an item."""
+        del self.obj[key]
 
     @with_file_open('a')
     def update_attrs(self, attrs: dict) -> None:
@@ -171,6 +252,10 @@ class Dataset(BasePointer):
 
     def __init__(self, file_handler: FileHandler, path_to_data: str) -> None:
         super().__init__(file_handler, path_to_data)
+
+    @with_file_open('r')
+    def __getitem__(self, slice):
+        return self.obj[slice]
 
     @property
     @with_file_open()
