@@ -10,6 +10,7 @@ from __future__ import annotations
 from collections import deque
 
 from functools import wraps
+import os
 import time
 from typing import Any, Union
 import h5py
@@ -90,6 +91,7 @@ class FileHandler:
     def __init__(self, file_name: str, _comm: MPI.Comm = MPI.COMM_WORLD) -> None:
         self.file_object: h5py.File = None
         self.file_name = file_name
+        self.simulation_uid = os.path.basename(file_name)
         self._lock = 0
         self._mode = 'r'
         self._driver = None

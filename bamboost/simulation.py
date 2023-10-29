@@ -136,25 +136,28 @@ class Simulation:
                 <td>{value}</td>
             </tr>
             '''
-        table_meta = ""
+
         metadata = self.metadata
-        for key, value in metadata.items():
-            if key=='notes':
-                continue
-            table_meta += f'''
-            <tr>
-                <td>{key}</td>
-                <td>{value}</td>
-            </tr>
-            '''
-        note = metadata['notes']
+        status_options = {
+                'Finished': '<div class="status" style="background-color: var(--bb-green);">Finished</div>',
+                'Failed': '<div class="status" style="background-color: var(--bb-red);">Failed</div>',
+                'Initiated': '<div class="status" style="background-color: var(--bb-grey);">Initiated</div>',
+                }
+        submitted_options = {
+                True: '<div class="status" style="background-color: var(--bb-green);">Submitted</div>',
+                False: '<div class="status" style="background-color: var(--bb-grey);">Not submitted</div>',
+                }
+
 
         html_string = (html_string.replace('$UID', self.uid)
                        .replace('$ICON', icon)
                        .replace('$TREE', self.show_files(printit=False).replace('\n', '<br>')) 
                        .replace('$TABLE', table_string)
-                       .replace('$META', table_meta)
-                       .replace('$NOTE', note)
+                       .replace('$NOTE', metadata['notes'])
+                       .replace('$STATUS', status_options.get(metadata['status'],
+                            f'<div class="status">{metadata["status"]}</div>'))
+                       .replace('$SUBMITTED', submitted_options[metadata.get('submitted', False)])
+                       .replace('$TIMESTAMP', metadata['time_stamp'])
         )
         return html_string
 

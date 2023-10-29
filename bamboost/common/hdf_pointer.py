@@ -77,10 +77,6 @@ class BasePointer:
         new_path = f'{self.path_to_data}/{key}'
         return self.new_pointer(self._file, new_path)
 
-    @with_file_open('a')
-    def __setitem__(self, slice, newvalue):
-        self.obj.__setitem__(slice, newvalue)
-
     @property
     @with_file_open()
     def attrs(self):
@@ -114,7 +110,7 @@ class Group(BasePointer):
     @with_file_open('r')
     def _repr_html_(self):
         """Repr showing the content of the group."""
-        html_string = pkgutil.get_data(bamboost.__name__, 'html/group_info.html').decode()
+        html_string = pkgutil.get_data(bamboost.__name__, 'html/hdf5_group.html').decode()
         icon = pkgutil.get_data(bamboost.__name__, 'html/icon.txt').decode()
 
         attrs_html = ""
@@ -143,12 +139,17 @@ class Group(BasePointer):
                 <td>{obj.shape}</td>
             </tr>
             '''
+        path = self.path_to_data
+        if not path.startswith('/'):
+            path = f'/{path}'
         return (html_string
-                .replace('$NAME', self.path_to_data)
+                .replace('$NAME', path)
+                .replace('$UID', self._file.simulation_uid)
                 .replace('$ICON', icon)
                 .replace('$attrs', attrs_html)
                 .replace('$groups', groups_html)
                 .replace('$datasets', ds_html)
+                .replace('$version', bamboost.__version__)
                 )
 
 
@@ -196,7 +197,10 @@ class MutableGroup(Group):
     @with_file_open('a')
     def __delitem__(self, key) -> None:
         """Deletes an item."""
-        del self.obj[key]
+        if key in self.attrs.keys():
+            del self.obj.attrs[key]
+        else:
+            del self.obj[key]
 
     @with_file_open('a')
     def update_attrs(self, attrs: dict) -> None:
