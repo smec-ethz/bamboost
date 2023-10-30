@@ -138,14 +138,17 @@ class Simulation:
             '''
 
         metadata = self.metadata
+        def get_pill_div(text: str, color: str):
+            return (f'<div class="status" style="background-color:'
+                    f'var(--bb-{color});">{text}</div>')
         status_options = {
-                'Finished': '<div class="status" style="background-color: var(--bb-green);">Finished</div>',
-                'Failed': '<div class="status" style="background-color: var(--bb-red);">Failed</div>',
-                'Initiated': '<div class="status" style="background-color: var(--bb-grey);">Initiated</div>',
+                'Finished': get_pill_div('Finished', 'green'),
+                'Failed': get_pill_div('Failed', 'red'),
+                'Initiated': get_pill_div('Initiated', 'grey'),
                 }
         submitted_options = {
-                True: '<div class="status" style="background-color: var(--bb-green);">Submitted</div>',
-                False: '<div class="status" style="background-color: var(--bb-grey);">Not submitted</div>',
+                True: get_pill_div('Submitted', 'green'),
+                False: get_pill_div('Not submitted', 'grey'),
                 }
 
 
