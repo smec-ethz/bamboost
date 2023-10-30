@@ -18,18 +18,23 @@ will totally break if you load it heavily. Just kidding, bamboo can fully carry 
 </div>
 
 
-<!-- <div align="center"> -->
-<!--     <img src="./assets/header_readme.svg" width="100%" alt="Header"/><br/> -->
-<!-- </div> -->
-
 ## Installation
-Clone the repository, navigate into it and install it using pip:
+Install the latest release from the Package repository:
 ```
+pip install bamboost
+```
+> :information: If you're system runs into problems installing `mpi4py`, make sure python header files are installed. Quickly google what you need (something like `python3-dev`, `libpython3.8-dev`, etc.). 
+
+
+Install the package in editable mode for more flexibility, $e.g.$ if you plan to make changes yourself:
+```
+git clone git@gitlab.com:cmbm-ethz/bamboost.git
+cd bamboost
 pip install -e .
 ```
-The option `-e` installs a project in editable mode from a local path. This way,
-you won't need to reinstall when pulling a new version or changing something in the
-package.
+> :information: The option `-e` installs a project in editable mode from a local path. This way,
+> you won't need to reinstall when pulling a new version or changing something in the
+> package.
 
 ### h5py with parallel support
 For mpi support, `h5py` must be installed with parallel support. Otherwise, eachp
@@ -45,35 +50,36 @@ pip install --force-reinstall --no-deps --no-binary=h5py h5py
 
 ## Requirements
 
-> `python 3.x` (if you're version is too low, it's very likely only because of typehints.
+> `python > 3.7` (if you're version is too low, it's very likely only because of typehints.
 Please report and we can remove/change it)
 
-`bamboost` depends only on following packages:
+`bamboost` depends on the following packages:
 
-- `numpy>?`
+- `numpy`
 - `pandas`
-- `h5py>?`
+- `h5py`
 - `mpi4py`
-
+    
 ## Usage
 
 ### Manager
 The main object of `bamboost` is the `Manager`. It manages the database located in the directory
 specified during construction. It can display the parametric space, create new simulations, remove simulations
 select a specific simulation based on it's `uid` or on conditions of it's parameters.
+Every database that is created is assigned a unique identifier (UID).
 ```python
 from bamboost import Manager
 
-db = Manager(path)
+db = Manager('path/to/db')
 ```
 
-`pandas` is used to display the database:
+`pandas.DataFrame` is used to display the database. The dataframe is convenient and fast to filter or sort your entries:
 ```python
 db.df
 ```
 
-A simulation within a database can be viewed, retrieved and modified with the `Simulation` object.
-There are various ways to get the `Simulation` object:
+An entry (from now on called *simulation*) within a database can be viewed, retrieved and modified with the `Simulation` object.
+To get the `Simulation` object, access it with it's identifier or location (index) in the dataframe:
 ```python
 sim = db['uid']
 sim = db[index]
@@ -81,24 +87,37 @@ sim = db.sim('uid')
 ```
 
 All simulations can be returned as a (sorted) list. The argument `select` can be used to
-filter the simulations:
+filter the simulations. 
 ```python
 sims = db.sims()  # returns all
 sims = db.sims(select=(db.df.eps==1))  # returns all where eps is 1
 sims = db.sims(sort='parameter1', reverse=False)  # returns all, sorrted by parameter1
 ```
+:information: Note that this creates objects for every simulation and the sorting is not optimized. Using pandas to select and sort is much faster. Check their documentation for how to manipulate pandas dataframes.
 
-### Manage databases
-Will be added in the future. All opened databases will be remembered, giving you 
-easy access to your databases wherever they may be on the disk. Because it's likely our
-brilliance makes us forget where we put our stuff.
+### Database index
+Every database created will be assigned a unique identifier (UID). 
+The database path is stored with the UID in an index maintained at `~.config/bamboost` in your home directory. If it is not known, `bamboost` will try to find it on your disk (you can add paths to search in `~.config/bamboost/known_paths.json`).
+You can obtain a Manager object of any database from anywhere with it's UID. In notebooks, key completion will show you all known databases:
+```python
+db = Manager.fromUID['UID']
+``` 
+
+The unique id makes refering to data safe. The full identifier of a simulation is considered to be `'(database id):(simulation id)'`. It is encouraged to use the identifiers (instead of the path) to link from one simulation to a different one.
+```python
+# add a link to a different simulation (e.g. the mesh)
+sim.links['mesh_to_use'] = 'DATABASE-ID:simulation-id'
+
+# the full id of a simulation is accessible as such
+uid = sim.get_full_uid()
+```
 
 
 ### Write data
 You can use `bamboost` to write simulation or experimental data.
 Use the `Manager` to create a new simulation (or access an existing one).
 Say you have (or want to create) a database at `data_path`.
-The code sample below shows the main functionality. 
+The code samples below shows the main functionality. 
 
 ```python
 from bamboost import Manager
@@ -125,7 +144,7 @@ with writer:
         writer.finish_step()  # this increases the step counter
 ```
 
-If you have an existing dataset. Do the following. You will need to pass the path and the uid to the script (best use `argparse`).
+If you have an existing dataset, $e.g.$ because you created the simulation before and it holds the input parameters or similar. Do the following: You will need to pass the path and the uid to the script (best use `argparse`).
 ```python
 from bamboost import SimulationWriter
 
@@ -133,6 +152,36 @@ with SimulationWriter(path, uid) as writer:
 
     # Do anything
 ```
+
+#### Userdata (Data not related to time and/or space)
+The above functionality should be used for ordered data, such as timeseries of spatial data related to a mesh.
+For anything else, there is the `userdata` category. You can use it to store (almost) anything in the simulation file structured how you would like it. This is also useful to store computed values during postprocessing or plotting.
+Internally, Userdata is an object handling a specific group ('/userdata') of the hdf5 file. To show the content of the group, display the object:
+```python
+sim.userdata
+```
+
+ You can create a subgroup, which will return a self-similar object for the new group ($e.g.$ '/userdata/plots'):
+```python
+plot_grp = sim.userdata.require_group('plots')
+```
+
+Writing something to the file (group) is as easy as:
+```python
+sim.userdata['avg_T'] = 34.56256
+sim.userdata['traction_profile'] = np.array([...])
+```
+
+And reading:
+```python
+# read avg_T
+sim.userdata['avg_T']
+# read dataset traction_profile
+sim.userdata['traction_profile']  
+# note that this returns an object Dataset. To actually read the array, you will need to slice it
+sim.userdata['traction_profile'][:]
+```
+
 
 ### Read data
 The key purpose is convenient access to data. I recommend an interactive session (notebooks).
@@ -156,9 +205,17 @@ sims = db.sims((db.df.param1==2) & (db.df.param2>0), sort='param2')  # will retu
 ```
 
 
-**Show data stored:** This displays the stored fields and its sizes.
+**Show data stored:** 
+Display content of the data, userdata, globals groups:
+```
+sim.data
+sim.userdata
+sim.globals
+```
+
+This displays the stored fields and its sizes.
 ```python
-sim.data_info
+sim.data.info
 ```
 **Access a mesh:** Directly access a tuple where [0] is the coordinates, [1] is the connectivity.
 ```python
@@ -177,7 +234,7 @@ mesh1.get_tuple()  # gives both the above
 `sim.data` acts as an accessor for all field data.
 ```python
 field1 = sim.data['field1']
-field1[:], field1[0, :]  # slice the dataset and you get numpy arrays
+field1[:], field1[0, :]  # slice the dataset and you get numpy arrays (time, *spatial)
 field1.at_step(-1)  # similar for access of one step
 field1.mesh  # returns the linked mesh object (see above)
 field1.msh  # returns a tuple of the mesh (coordinates, connectivity)
@@ -197,6 +254,8 @@ kinetic_energy = sim.globals.kinetic_energy
 All methods internally open the HDF5 file and make sure that it is closed again. Sometimes
 it's useful to keep the file open (i.e. to directly change something in the file manually).
 To do so, you are encouraged to use the following.
+
+> :warning: Do not open the file in write mode (`'w'`) as this truncates the file.
 ```python
 with sim.open(mode='r+') as file:
     # do anything

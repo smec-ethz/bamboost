@@ -2,6 +2,14 @@ Developer's Guide
 =================
 
 
+bamboost.index module
+------------------------
+
+.. automodule:: bamboost.index
+   :members:
+   :undoc-members:
+   :show-inheritance:
+
 bamboost.manager module
 ------------------------
 
@@ -21,7 +29,7 @@ bamboost.simulation module
 bamboost.reader module
 ------------------------------
 
-.. automodule:: bamboost.reader
+.. automodule:: bamboost.simulation_writer
    :members:
    :undoc-members:
    :show-inheritance:
