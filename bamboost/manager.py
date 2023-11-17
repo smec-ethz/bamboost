@@ -14,6 +14,7 @@ import logging
 import pkgutil
 from typing import Union
 import uuid
+import numbers
 import h5py
 import pandas as pd
 from ctypes import ArgumentError
@@ -98,7 +99,7 @@ class Manager:
             log.info(f'Created new database ({path})')
             self._make_new(path)
         self.UID = self._retrieve_uid()
-        self._store_uid_in_index()
+        # self._store_uid_in_index()
         self._all_uids = self._get_uids()
         self._dataframe: pd.DataFrame = None
         self._meta_folder = os.path.join(path, '.database')
@@ -406,4 +407,37 @@ class Manager:
         subiterator = max([int(id.split('.')[1]) for id in uid_list if len(id.split('.'))>1] + [0])
         return f'{uid_base}.{subiterator+1}'
 
+    def global_fields_in_all(self) -> list:
+        """Get a list of all global fields in all simulations.
 
+        Returns:
+            List of global fields
+        """
+        fields = set()
+        for sim in self:
+            try:
+                fields.update(sim.globals.columns)
+            except KeyError:
+                continue
+
+        return fields
+
+    def get_parameters(self) -> dict:
+        """Get the parameters used in this database.
+
+        Returns:
+            Dictionary of parameters with it's count, range, and type. Sorted by count.
+        """
+        parameters = dict()
+        for sim in self:
+            for key, val in sim.parameters.items():
+                if key not in parameters:
+                    range = (val, val) if isinstance(val, numbers.Number) else None
+                    parameters[key] = {'range': range, 'count': 1, 'type': type(val)}
+                else:
+                    if isinstance(val, numbers.Number):
+                        parameters[key]['range'] = (min(parameters[key]['range'][0], val),
+                                                    max(parameters[key]['range'][1], val))
+                    parameters[key]['count'] += 1
+                    parameters[key]['type'] = type(val)
+        return dict(sorted(parameters.items(), key=lambda x: x[1]['count'], reverse=True))

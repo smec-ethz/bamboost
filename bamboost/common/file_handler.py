@@ -69,6 +69,17 @@ def with_file_open(mode: str = 'r', driver=None, comm=None):
     return decorator
 
 
+def capture_key_error(method):
+    @wraps(method)
+    def inner(self, *args, **kwargs):
+        try:
+            return method(self, *args, **kwargs)
+        except KeyError as e:
+            raise KeyError(f'[uid: {self.simulation_uid.split(".")[0]}] content not in file: {self.file_name}') from e
+            
+    return inner
+
+
 class FileHandler:
     """File handler for an hdf5 file with the purpose of handling opening and closing
     of the file. We use the concept of composition to include an object of this type
@@ -106,12 +117,15 @@ class FileHandler:
         self._comm = comm if comm is not None else self._comm
         return self
 
+    @capture_key_error
     def __getitem__(self, key) -> Any:
         return self.file_object[key]
 
+    @capture_key_error
     def __delitem__(self, key) -> None:
         del self.file_object[key]
 
+    @capture_key_error
     def __getattr__(self, __name: str) -> Any:
         try:
             return self.file_object.__getattribute__(__name)
