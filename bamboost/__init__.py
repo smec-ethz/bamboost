@@ -6,7 +6,6 @@ __version__ = '0.4.1'
 import logging
 import os
 
-from . import frontend
 from .manager import Manager
 from .simulation import Simulation
 from .simulation_writer import SimulationWriter
