@@ -8,9 +8,9 @@
 # There is no warranty for this code
 
 import os
-import h5py
 import xml.etree.ElementTree as ET
 
+import h5py
 
 # `numpy_to_xdmf_dtype` from `meshio.xdmf.common`
 numpy_to_xdmf_dtype = {
@@ -37,10 +37,10 @@ class XDMFWriter:
     def __init__(self, filename: str, h5file: str):
         self.filename = filename
         self.h5file = h5file
-        self.xdmf_file = ET.Element('Xdmf', Version='3.0')
+        self.xdmf_file = ET.Element("Xdmf", Version="3.0")
         self.domain = ET.SubElement(self.xdmf_file, "Domain")
-        ET.register_namespace('xi', "https://www.w3.org/2001/XInclude/")
-        self.mesh_name = 'mesh'
+        ET.register_namespace("xi", "https://www.w3.org/2001/XInclude/")
+        self.mesh_name = "mesh"
 
     def write_file(self):
         tree = ET.ElementTree(self.xdmf_file)
@@ -53,34 +53,40 @@ class XDMFWriter:
             points (str): String to geometry/nodes in h5 file
             cells (str): String to topology/cells in h5 file
         """
-        grid = ET.SubElement(self.domain, 'Grid', Name=self.mesh_name, GridType='Uniform')
+        grid = ET.SubElement(
+            self.domain, "Grid", Name=self.mesh_name, GridType="Uniform"
+        )
         self._points(grid, points_location)
         self._cells(grid, cells_location)
 
-
     def _points(self, grid: ET.Element, points_location: str):
         geometry_type = "XY"
-        with h5py.File(self.h5file, 'r') as f:
+        with h5py.File(self.h5file, "r") as f:
             points = f[points_location]
             geo = ET.SubElement(grid, "Geometry", GeometryType=geometry_type)
             dt, prec = numpy_to_xdmf_dtype[points.dtype.name]
             dim = "{} {}".format(*points.shape)
             data_item = ET.SubElement(
-                    geo,
-                    "DataItem",
-                    DataType=dt,
-                    Dimensions=dim,
-                    Format='HDF',
-                    Precision=prec,
-                    )
+                geo,
+                "DataItem",
+                DataType=dt,
+                Dimensions=dim,
+                Format="HDF",
+                Precision=prec,
+            )
             h5file_name = os.path.split(self.h5file)[1]
-            data_item.text = f'{h5file_name}:/{points_location}'
+            data_item.text = f"{h5file_name}:/{points_location}"
 
     def _cells(self, grid: ET.Element, cells_location: str):
-        with h5py.File(self.h5file, 'r') as f:
+        with h5py.File(self.h5file, "r") as f:
             cells = f[cells_location]
             nb_cells = cells.shape[0]
-            topo = ET.SubElement(grid, 'Topology', TopologyType='Triangle', NumberOfElements=str(nb_cells))
+            topo = ET.SubElement(
+                grid,
+                "Topology",
+                TopologyType="Triangle",
+                NumberOfElements=str(nb_cells),
+            )
             dim = "{} {}".format(*cells.shape)
             dt, prec = numpy_to_xdmf_dtype[cells.dtype.name]
             data_item = ET.SubElement(
@@ -88,16 +94,19 @@ class XDMFWriter:
                 "DataItem",
                 DataType=dt,
                 Dimensions=dim,
-                Format='HDF',
+                Format="HDF",
                 Precision=prec,
             )
             h5file_name = os.path.split(self.h5file)[1]
-            data_item.text = f'{h5file_name}:/{cells_location}'
+            data_item.text = f"{h5file_name}:/{cells_location}"
 
     def add_timeseries(self, steps: int, fields: list):
-
         collection = ET.SubElement(
-            self.domain, 'Grid', Name='TimeSeries', GridType='Collection', CollectionType='Temporal',
+            self.domain,
+            "Grid",
+            Name="TimeSeries",
+            GridType="Collection",
+            CollectionType="Temporal",
         )
 
         for i in range(steps):
@@ -111,35 +120,38 @@ class XDMFWriter:
             data_location (str): String to data in h5 file
             name (str): Name for the field in the Xdmf file
         """
-        with h5py.File(self.h5file, 'r') as f: 
-            grid = ET.SubElement(collection, 'Grid')
+        with h5py.File(self.h5file, "r") as f:
+            grid = ET.SubElement(collection, "Grid")
             ptr = f'xpointer(//Grid[@Name="{self.mesh_name}"]/*[self::Topology or self::Geometry])'
 
-            ET.SubElement(grid, "{http://www.w3.org/2003/XInclude}include", xpointer=ptr)
+            ET.SubElement(
+                grid, "{http://www.w3.org/2003/XInclude}include", xpointer=ptr
+            )
 
-            t = f[f'data/{fields[0]}/{step}'].attrs.get('t', step)
+            t = f[f"data/{fields[0]}/{step}"].attrs.get("t", step)
             ET.SubElement(grid, "Time", Value=str(t))
 
             for name in fields:
                 self.write_attribute(grid, name, name, step)
 
-
-    def write_attribute(self, grid: ET.Element, field_name: str, name: str, step: int) -> None:
+    def write_attribute(
+        self, grid: ET.Element, field_name: str, name: str, step: int
+    ) -> None:
         """Write an attribute/field."""
-        with h5py.File(self.h5file, 'r') as f:
-            data = f[f'data/{field_name}/{step}']
+        with h5py.File(self.h5file, "r") as f:
+            data = f[f"data/{field_name}/{step}"]
             try:
                 shape = data.shape[1]
             except IndexError:
                 shape = 1
-            att_type = {1: 'Scalar', 2: 'Vector', 3: 'Tensor'}.get(shape, 'Scalar')
+            att_type = {1: "Scalar", 2: "Vector", 3: "Tensor"}.get(shape, "Scalar")
 
             att = ET.SubElement(
                 grid,
                 "Attribute",
                 Name=name,
                 AttributeType=att_type,
-                Center='Node',
+                Center="Node",
             )
 
             dt, prec = numpy_to_xdmf_dtype[data.dtype.name]
@@ -153,19 +165,8 @@ class XDMFWriter:
                 "DataItem",
                 DataType=dt,
                 Dimensions=dim,
-                Format='HDF',
+                Format="HDF",
                 Precision=prec,
             )
             h5file_name = os.path.split(self.h5file)[1]
-            data_item.text = f'{h5file_name}:/data/{field_name}/{step}'
-            
-
-
-
-
-
-
-
-
-
-
+            data_item.text = f"{h5file_name}:/data/{field_name}/{step}"

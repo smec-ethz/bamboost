@@ -8,41 +8,49 @@
 # There is no warranty for this code
 
 from __future__ import annotations
-from typing import Tuple
-import logging
 
+import logging
+from typing import Tuple
+
+import h5py
 import numpy as np
 import pandas as pd
-import h5py
 
 from ..common import hdf_pointer
 from ..common.file_handler import FileHandler, with_file_open
-from .meshes import MeshGroup, Mesh
+from .meshes import Mesh, MeshGroup
 
 log = logging.getLogger(__name__)
 
 
 # -----------------------------------------------------------------------------
 
+
 class DataGroup(hdf_pointer.Group):
-    """This pointer points to the data directory. Item accessor returns the 
+    """This pointer points to the data directory. Item accessor returns the
     individual data fields. `meshes` is passed to here for access of linked
     meshes.
     """
-    def __init__(self, file_handler: FileHandler, meshes: MeshGroup,
-                 path_to_data: str = '/data', **kwargs) -> None:
+
+    def __init__(
+        self,
+        file_handler: FileHandler,
+        meshes: MeshGroup,
+        path_to_data: str = "/data",
+        **kwargs,
+    ) -> None:
         super().__init__(file_handler, path_to_data, **kwargs)
         self.meshes = meshes
 
     def __getitem__(self, key) -> FieldData:
-        return FieldData(self._file, f'{self.path_to_data}/{key}', meshes=self.meshes)
+        return FieldData(self._file, f"{self.path_to_data}/{key}", meshes=self.meshes)
 
     def __iter__(self) -> FieldData:
         for key in self.keys():
             yield self.__getitem__(key)
 
     @property
-    @with_file_open('r')
+    @with_file_open("r")
     def info(self) -> pd.Dataframe:
         """View the data stored.
 
@@ -52,9 +60,13 @@ class DataGroup(hdf_pointer.Group):
         tmp_dictionary = dict()
         for data in self:
             steps = len(data)
-            shape = data.obj['0'].shape
-            dtype = data.obj['0'].dtype
-            tmp_dictionary[data._name] = {'dtype': dtype, 'shape': shape, 'steps': steps}
+            shape = data.obj["0"].shape
+            dtype = data.obj["0"].dtype
+            tmp_dictionary[data._name] = {
+                "dtype": dtype,
+                "shape": shape,
+                "steps": steps,
+            }
         return pd.DataFrame.from_dict(tmp_dictionary)
 
 
@@ -63,16 +75,19 @@ class FieldData(hdf_pointer.Group):
     for access of linked meshes.
     """
 
-    _vds_key = '__vds'  # We create a virtual dataset for slicing across all steps
-    _times_key = '__times'  # We store the time of steps in a seperate dataset for performance
+    _vds_key = "__vds"  # We create a virtual dataset for slicing across all steps
+    _times_key = (
+        "__times"  # We store the time of steps in a seperate dataset for performance
+    )
 
-    def __init__(self, file_handler: FileHandler, path_to_data: str,
-                 meshes: MeshGroup) -> None:
+    def __init__(
+        self, file_handler: FileHandler, path_to_data: str, meshes: MeshGroup
+    ) -> None:
         super().__init__(file_handler, path_to_data)
         self.meshes = meshes
-        self._name = path_to_data.split('/')[-1]
+        self._name = path_to_data.split("/")[-1]
 
-    @with_file_open('r')
+    @with_file_open("r")
     def __getitem__(self, key) -> np.ndarray:
         return self._get_full_data()[key]
 
@@ -83,7 +98,7 @@ class FieldData(hdf_pointer.Group):
             self._create_vds()
             return self.obj[self._vds_key]
 
-    @with_file_open('r')
+    @with_file_open("r")
     def __len__(self) -> int:
         non_field_keys = set({self._vds_key, self._times_key})
         return len(self.keys() - non_field_keys)
@@ -92,12 +107,12 @@ class FieldData(hdf_pointer.Group):
         return None
 
     @property
-    @with_file_open('r')
+    @with_file_open("r")
     def shape(self) -> tuple:
         return self._get_full_data().shape
 
     @property
-    @with_file_open('r')
+    @with_file_open("r")
     def dtype(self) -> type:
         return self._get_full_data().dtype
 
@@ -112,10 +127,10 @@ class FieldData(hdf_pointer.Group):
         """
         data = list()
         for step in steps:
-            if step<0:
+            if step < 0:
                 step = len(self) + step
             data.append(self.obj[str(step)][()])
-        if len(data)<=1:
+        if len(data) <= 1:
             return data[0]
         else:
             return data
@@ -140,9 +155,9 @@ class FieldData(hdf_pointer.Group):
         Returns:
             :class:`tuple[np.ndarray, np.ndarray]`
         """
-        mesh_name = self.obj['0'].attrs.get('mesh', self.meshes._default_mesh)
+        mesh_name = self.obj["0"].attrs.get("mesh", self.meshes._default_mesh)
         return self.meshes[mesh_name]
-         
+
     @property
     def coordinates(self) -> np.ndarray:
         """Wrapper for mesh.coordinates"""
@@ -166,11 +181,9 @@ class FieldData(hdf_pointer.Group):
         self._create_times()
         self._create_vds()
 
-    @with_file_open('r+')
+    @with_file_open("r+")
     def _create_times(self) -> None:
-        times = [self.obj[str(step)].attrs.get('t', step)
-                 for step in range(len(self))
-                 ]
+        times = [self.obj[str(step)].attrs.get("t", step) for step in range(len(self))]
         if self._times_key in self.obj.keys():
             del self.obj[self._times_key]
         self.obj.create_dataset(self._times_key, data=np.array(times))
@@ -179,20 +192,18 @@ class FieldData(hdf_pointer.Group):
         """Create virtual dataset of the full timeseries of a field.
         Requires HDF5 > 1.10 !
         """
-        with self._file('r'):
+        with self._file("r"):
             length = len(self)
-            ds_shape = self.obj['0'].shape
-            ds_dtype = self.obj['0'].dtype
+            ds_shape = self.obj["0"].shape
+            ds_dtype = self.obj["0"].dtype
 
             layout = h5py.VirtualLayout(shape=(length, *ds_shape), dtype=ds_dtype)
-            
+
             for step in range(length):
                 vsource = h5py.VirtualSource(self.obj[str(step)])
                 layout[step] = vsource
 
-        with self._file('r+'):
+        with self._file("r+"):
             if self._vds_key in self.obj.keys():
                 del self.obj[self._vds_key]
             self.obj.create_virtual_dataset(self._vds_key, layout)
-
-

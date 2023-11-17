@@ -8,22 +8,23 @@
 # There is no warranty for this code
 from __future__ import annotations
 
-import os
-import shutil
 import logging
-import pkgutil
-from typing import Union
-import uuid
 import numbers
+import os
+import pkgutil
+import shutil
+import uuid
+from ctypes import ArgumentError
+from typing import Union
+
 import h5py
 import pandas as pd
-from ctypes import ArgumentError
 from mpi4py import MPI
 
-from .simulation_writer import SimulationWriter
-from .simulation import Simulation
-from .common.file_handler import open_h5file
 from . import index
+from .common.file_handler import open_h5file
+from .simulation import Simulation
+from .simulation_writer import SimulationWriter
 
 log = logging.getLogger(__name__)
 
@@ -39,12 +40,16 @@ https://gitlab.ethz.ch/compmechmat/research/libs/dbmanager
 # Setup Manager getters
 # ---------------------
 
+
 class ManagerFromUID(object):
     def __init__(self) -> None:
         ids = index.get_index_dict()
         self.completion_keys = tuple(
-                [f'{key} - {"..."+val[-25:] if len(val)>=25 else val}' for key, val in ids.items()]
-                )
+            [
+                f'{key} - {"..."+val[-25:] if len(val)>=25 else val}'
+                for key, val in ids.items()
+            ]
+        )
 
     def _ipython_key_completions_(self):
         return self.completion_keys
@@ -64,7 +69,6 @@ class ManagerFromName(object):
     def __getitem__(self, key) -> Manager:
         return Manager(key, create_if_not_exist=False)
 
-    
 
 class Manager:
     """View of database.
@@ -81,12 +85,18 @@ class Manager:
         fromUID: Access a database by its UID
         fromName: Access a database by its path/name
     """
+
     FIX_DF = True
     fromUID = ManagerFromUID()
     fromName = ManagerFromName()
 
-    def __init__(self, path: str = None, comm: MPI.Comm = MPI.COMM_WORLD,
-                 uid: str = None, create_if_not_exist: bool = True):
+    def __init__(
+        self,
+        path: str = None,
+        comm: MPI.Comm = MPI.COMM_WORLD,
+        uid: str = None,
+        create_if_not_exist: bool = True,
+    ):
         if uid is not None:
             path = index.get_path(uid.upper())
         self.path = path
@@ -95,14 +105,14 @@ class Manager:
         # check if path exists
         if not os.path.isdir(path):
             if not create_if_not_exist:
-                raise NotADirectoryError('Specified path is not a valid path.')
-            log.info(f'Created new database ({path})')
+                raise NotADirectoryError("Specified path is not a valid path.")
+            log.info(f"Created new database ({path})")
             self._make_new(path)
         self.UID = self._retrieve_uid()
         # self._store_uid_in_index()
         self._all_uids = self._get_uids()
         self._dataframe: pd.DataFrame = None
-        self._meta_folder = os.path.join(path, '.database')
+        self._meta_folder = os.path.join(path, ".database")
 
     def __getitem__(self, key: Union[str, int]) -> Simulation:
         """Returns the simulation in the specified row of the dataframe.
@@ -116,20 +126,20 @@ class Manager:
         if isinstance(key, str):
             return self.sim(key)
         else:
-            return self.sim(self.df.loc[key, 'id'])
+            return self.sim(self.df.loc[key, "id"])
 
     def _repr_html_(self) -> str:
         """HTML repr for ipython/notebooks. Uses string replacement to fill the
         template code.
         """
-        html_string = pkgutil.get_data(__name__, 'html/manager.html').decode()
-        icon = pkgutil.get_data(__name__, 'html/icon.txt').decode()
-        return (html_string
-                .replace('$ICON', icon)
-                .replace('$db_path', self.path)
-                .replace('$db_uid', self.UID)
-                .replace('$db_size', str(len(self)))
-                )
+        html_string = pkgutil.get_data(__name__, "html/manager.html").decode()
+        icon = pkgutil.get_data(__name__, "html/icon.txt").decode()
+        return (
+            html_string.replace("$ICON", icon)
+            .replace("$db_path", self.path)
+            .replace("$db_uid", self.UID)
+            .replace("$db_size", str(len(self)))
+        )
 
     def __len__(self) -> int:
         return len(self.all_uids)
@@ -144,25 +154,26 @@ class Manager:
     def _retrieve_uid(self) -> str:
         """Get the UID of this database from the file tree."""
         for file in os.listdir(self.path):
-            if file.startswith('.BAMBOOST'):
-                return file.split('-')[1]
-        log.warning('Database exists but no UID found. Generating new UID.')
+            if file.startswith(".BAMBOOST"):
+                return file.split("-")[1]
+        log.warning("Database exists but no UID found. Generating new UID.")
         return self._make_new(self.path)
 
     def _make_new(self, path) -> str:
         """Initialize a new database."""
         from datetime import datetime
+
         # Create directory for database
         os.makedirs(path, exist_ok=True)
 
         # Assign a unique id to the database
-        self.UID = f'{uuid.uuid4().hex[:10]}'.upper()
-        uid_file = os.path.join(path, f'.BAMBOOST-{self.UID}')
-        with open(uid_file, 'a') as f:
-            f.write(self.UID + '\n')
+        self.UID = f"{uuid.uuid4().hex[:10]}".upper()
+        uid_file = os.path.join(path, f".BAMBOOST-{self.UID}")
+        with open(uid_file, "a") as f:
+            f.write(self.UID + "\n")
             f.write(f'Date of creation: {datetime.now().strftime("%d/%m/%Y %H:%M:%S")}')
         os.chmod(uid_file, 0o444)  # read only for uid file
-        log.info(f'Registered new database (uid = {self.UID})')
+        log.info(f"Registered new database (uid = {self.UID})")
         self._store_uid_in_index()
         return self.UID
 
@@ -172,7 +183,7 @@ class Manager:
 
     def _init_meta_folder(self) -> None:
         os.makedirs(self._meta_folder, exist_ok=True)
-        with open(os.path.join(self._meta_folder, 'README.txt'), 'w') as f:
+        with open(os.path.join(self._meta_folder, "README.txt"), "w") as f:
             f.write(META_INFO)
 
     @property
@@ -202,13 +213,13 @@ class Manager:
         data = list()
 
         for uid in all_uids:
-            h5file_for_uid = os.path.join(self.path, uid, f'{uid}.h5')
-            with open_h5file(h5file_for_uid, 'r') as f:
+            h5file_for_uid = os.path.join(self.path, uid, f"{uid}.h5")
+            with open_h5file(h5file_for_uid, "r") as f:
                 tmp_dict = dict()
-                if 'parameters' in f.keys():
-                    tmp_dict.update(f['parameters'].attrs)
-                if 'additionals' in f.keys():
-                    tmp_dict.update({'additionals': f['additionals'].attrs})
+                if "parameters" in f.keys():
+                    tmp_dict.update(f["parameters"].attrs)
+                if "additionals" in f.keys():
+                    tmp_dict.update({"additionals": f["additionals"].attrs})
                 tmp_dict.update(f.attrs)
                 data.append(tmp_dict)
 
@@ -217,8 +228,9 @@ class Manager:
             return df
 
         # Sort dataframe columns
-        self._dataframe = df[['id', 'notes', 'status',
-                              *df.columns.difference(['id', 'notes', 'status'])]]
+        self._dataframe = df[
+            ["id", "notes", "status", *df.columns.difference(["id", "notes", "status"])]
+        ]
         return self._dataframe
 
     @property
@@ -230,11 +242,17 @@ class Manager:
         """
         data = list()
         for uid in self.all_uids:
-            h5file_for_uid = os.path.join(self.path, uid, f'{uid}.h5')
-            with open_h5file(h5file_for_uid, 'r') as file:
+            h5file_for_uid = os.path.join(self.path, uid, f"{uid}.h5")
+            with open_h5file(h5file_for_uid, "r") as file:
                 tmp_dict = dict()
-                tmp_dict = {key: (len(file[f'data/{key}']), file[f'data/{key}/0'].shape,
-                                  file[f'data/{key}/0'].dtype) for key in file['data'].keys()}
+                tmp_dict = {
+                    key: (
+                        len(file[f"data/{key}"]),
+                        file[f"data/{key}/0"].shape,
+                        file[f"data/{key}/0"].dtype,
+                    )
+                    for key in file["data"].keys()
+                }
                 data.append(tmp_dict)
         return pd.DataFrame.from_records(data)
 
@@ -249,13 +267,19 @@ class Manager:
             :class:`~bamboost.simulation.Simulation`
         """
         if uid not in self.all_uids:
-            raise KeyError('The simulation id is not valid.')
+            raise KeyError("The simulation id is not valid.")
         if return_writer:
             return SimulationWriter(uid, self.path, self.comm)
         return Simulation(uid, self.path, self.comm)
-            
-    def sims(self, select: pd.Series = None, sort: str = None, reverse: bool = False,
-             exclude: set = None, return_writer: bool = False) -> list:
+
+    def sims(
+        self,
+        select: pd.Series = None,
+        sort: str = None,
+        reverse: bool = False,
+        exclude: set = None,
+        return_writer: bool = False,
+    ) -> list:
         """Get all simulations in a list. Optionally, get all simulations matching the
         given selection using pandas.
 
@@ -270,7 +294,7 @@ class Manager:
             A list of `:class:~bamboost.simulation.Simulation` objects
         """
         if select is not None:
-            id_list = self.df[select]['id'].values
+            id_list = self.df[select]["id"].values
         else:
             id_list = self.all_uids
         if exclude is not None:
@@ -282,10 +306,16 @@ class Manager:
         if sort is None:
             return existing_sims
         else:
-            return sorted(existing_sims, key=lambda s: s.parameters[sort], reverse=reverse)
+            return sorted(
+                existing_sims, key=lambda s: s.parameters[sort], reverse=reverse
+            )
 
-    def create_simulation(self, uid: str = None, parameters: dict = None,
-                          skip_duplicate_check: bool = False) -> SimulationWriter:
+    def create_simulation(
+        self,
+        uid: str = None,
+        parameters: dict = None,
+        skip_duplicate_check: bool = False,
+    ) -> SimulationWriter:
         """Get a writer object for a new simulation. This is written for paralell use
         as it is likely that this may be used in an executable, creating multiple runs
         for a parametric space, which may be run in paralell.
@@ -293,8 +323,8 @@ class Manager:
         Args:
             uid (`str`): The name/uid for the simulation. If not specified, a random id
                 will be assigned.
-            parameters (`dict`): Parameter dictionary. If provided, the parameters will be 
-                checked against the existing sims for duplication. Otherwise, they may be 
+            parameters (`dict`): Parameter dictionary. If provided, the parameters will be
+                checked against the existing sims for duplication. Otherwise, they may be
                 specified later with :func:`~bamboost.simulation.SimulationWriter.add_parameters`.
             skip_duplicate_check (`bool`): if True, the duplicate check is skipped.
         Returns:
@@ -303,23 +333,23 @@ class Manager:
         if parameters and not skip_duplicate_check:
             go_on, uid = self._check_duplicate(parameters, uid)
             if not go_on:
-                print('Aborting by user desire...')
+                print("Aborting by user desire...")
                 return None
 
-        if self.comm.rank==0:
+        if self.comm.rank == 0:
             if not uid:
                 uid = uuid.uuid4().hex[:8]  # Assign random unique identifier
         uid = self.comm.bcast(uid, root=0)
 
         # Create directory and h5 file
-        if self.comm.rank==0:
+        if self.comm.rank == 0:
             os.makedirs(os.path.join(self.path, uid), exist_ok=True)
-            path_to_h5_file = os.path.join(self.path, uid, f'{uid}.h5')
+            path_to_h5_file = os.path.join(self.path, uid, f"{uid}.h5")
             if os.path.exists(path_to_h5_file):
                 os.remove(path_to_h5_file)
-            h5py.File(path_to_h5_file, 'a').close()  # create file
+            h5py.File(path_to_h5_file, "a").close()  # create file
 
-        new_sim = SimulationWriter(uid, self.path, self.comm)            
+        new_sim = SimulationWriter(uid, self.path, self.comm)
         new_sim.initialize()  # sets metadata and status
         if parameters is None:
             parameters = dict()
@@ -337,8 +367,10 @@ class Manager:
     def _get_uids(self) -> list:
         """Get all simulation names in the database."""
         all_uids = list()
-        for dir in [i for i in os.listdir(self.path) if not i.startswith('.')]:
-            if any([i.endswith('.h5') for i in os.listdir(os.path.join(self.path, dir))]):
+        for dir in [i for i in os.listdir(self.path) if not i.startswith(".")]:
+            if any(
+                [i.endswith(".h5") for i in os.listdir(os.path.join(self.path, dir))]
+            ):
                 all_uids.append(dir)
         return all_uids
 
@@ -355,44 +387,51 @@ class Manager:
         duplicates = list()
 
         for _uid in self.all_uids:
-            with open_h5file(os.path.join(os.path.join(self.path, _uid),
-                                        f'{_uid}.h5'), 'r') as f:
-                if 'parameters' not in f.keys():
+            with open_h5file(
+                os.path.join(os.path.join(self.path, _uid), f"{_uid}.h5"), "r"
+            ) as f:
+                if "parameters" not in f.keys():
                     continue
 
                 tmp_dict = dict()
-                tmp_dict.update(f['parameters'].attrs)
+                tmp_dict.update(f["parameters"].attrs)
 
-                if tmp_dict==parameters:
-                    duplicates.append((_uid, 'equal'))
+                if tmp_dict == parameters:
+                    duplicates.append((_uid, "equal"))
                     continue
 
-                shared_keys = (tmp_dict.keys() & parameters.keys())
-                if ({key: tmp_dict[key] for key in shared_keys}
-                    =={key: parameters[key] for key in shared_keys}):
-                    duplicates.append((_uid, 'shared_equal'))
+                shared_keys = tmp_dict.keys() & parameters.keys()
+                if {key: tmp_dict[key] for key in shared_keys} == {
+                    key: parameters[key] for key in shared_keys
+                }:
+                    duplicates.append((_uid, "shared_equal"))
                     continue
 
         if not duplicates:
             return True, uid
 
         # What should be done?
-        print(f"The parameter space may already exist. Here are the duplicates:", flush=True)
-        print(self.df[self.df['id'].isin([i[0] for i in duplicates])], flush=True)
-        
-        prompt = input("Replace first duplicate ('r'), Create with altered uid (`c`), "
-                       + "Create new with new id (`n`), Abort (`a`): ")
-        if prompt=='r':
+        print(
+            f"The parameter space may already exist. Here are the duplicates:",
+            flush=True,
+        )
+        print(self.df[self.df["id"].isin([i[0] for i in duplicates])], flush=True)
+
+        prompt = input(
+            "Replace first duplicate ('r'), Create with altered uid (`c`), "
+            + "Create new with new id (`n`), Abort (`a`): "
+        )
+        if prompt == "r":
             self.remove(duplicates[0][0])
             return True, uid
-        if prompt=='a':
+        if prompt == "a":
             return False, uid
-        if prompt=='n':
+        if prompt == "n":
             return True, uid
-        if prompt=='c':
-            return True, self._generate_subuid(duplicates[0][0].split('.')[0])
+        if prompt == "c":
+            return True, self._generate_subuid(duplicates[0][0].split(".")[0])
 
-        raise ArgumentError('Answer not valid! Aborting')
+        raise ArgumentError("Answer not valid! Aborting")
 
     def _generate_subuid(self, uid_base: str) -> str:
         """Return a new sub uid for the base uid.
@@ -404,8 +443,10 @@ class Manager:
             New uid string
         """
         uid_list = [uid for uid in self.all_uids if uid.startswith(uid_base)]
-        subiterator = max([int(id.split('.')[1]) for id in uid_list if len(id.split('.'))>1] + [0])
-        return f'{uid_base}.{subiterator+1}'
+        subiterator = max(
+            [int(id.split(".")[1]) for id in uid_list if len(id.split(".")) > 1] + [0]
+        )
+        return f"{uid_base}.{subiterator+1}"
 
     def global_fields_in_all(self) -> list:
         """Get a list of all global fields in all simulations.
@@ -433,11 +474,15 @@ class Manager:
             for key, val in sim.parameters.items():
                 if key not in parameters:
                     range = (val, val) if isinstance(val, numbers.Number) else None
-                    parameters[key] = {'range': range, 'count': 1, 'type': type(val)}
+                    parameters[key] = {"range": range, "count": 1, "type": type(val)}
                 else:
                     if isinstance(val, numbers.Number):
-                        parameters[key]['range'] = (min(parameters[key]['range'][0], val),
-                                                    max(parameters[key]['range'][1], val))
-                    parameters[key]['count'] += 1
-                    parameters[key]['type'] = type(val)
-        return dict(sorted(parameters.items(), key=lambda x: x[1]['count'], reverse=True))
+                        parameters[key]["range"] = (
+                            min(parameters[key]["range"][0], val),
+                            max(parameters[key]["range"][1], val),
+                        )
+                    parameters[key]["count"] += 1
+                    parameters[key]["type"] = type(val)
+        return dict(
+            sorted(parameters.items(), key=lambda x: x[1]["count"], reverse=True)
+        )

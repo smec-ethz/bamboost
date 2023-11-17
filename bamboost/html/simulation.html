@@ -1,135 +1,147 @@
 <!doctype html>
 <html>
-<head>
+  <head>
     <style>
-        :root {
-            --bb-green: #2b6b53;
-            --bb-red: #eb6f92;
-            --bb-grey: #4e4e4e;
-            --bb-bg: #939ab7ff;
-            --bb-bg50: #939ab77f;
-        }
-        tr:hover {
-            background-color: var(--bb-bg50);
-        }
-        .jp-renderedhtmlcommon tbody tr:hover {
-          background-color: var(--bb-bg50);
-        }
-        .container {
-            position: relative;
-            display: inline-flex;
-            justify-content: flex-start;
-            gap: 3rem;
-            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
-        }
-        .first-col {
-            position: relative;
-            display: flex;
-            flex-direction: column;
-            justify-content: space-between;
-            align-self: stretch;
-            width: 40%;
-            max-width: 100%;
-        }
-        .first-col .uid {
-            display: flex;
-            flex-direction: column;
-            justify-content: flex-end;
-            align-items: flex-start;
-            padding: 1em;
-            font-weight: bold;
-            font-size: larger;
-            /* border: solid 1px var(--bb-bg50); */
-            border-bottom: none;
-            /* height: calc(2rem - 1px); */
-            height: 2rem;
-        }
-        .second-col .logo, .first-col .logo {
-            position: absolute;
-            right: 1rem;
-            top: 1rem;
-            height: calc(3rem + 2em);
-            width: calc(3rem + 2em);
-            filter: drop-shadow(2px 2px 10px #00000044) blur(4px);
-        }
-        .first-col .bottombox {
-            position: relative;
-            padding: 1em;
-            display: flex;
-            flex-direction: column;
-            justify-content: space-between;
-            gap: 1em;
-            flex: 1;
-            border-top: solid 1px var(--bb-bg50);
-            background-color: var(--bb-bg50);
-            border-bottom-right-radius: 10px;
-        }
-        .first-col .bottombox #text {
-            mix-blend-mode: normal;
-        }
-        .first-col .infoboxes {
-            display: inline-flex;
-            z-index: 1;
-            gap: 1rem;
-            align-items: flex-end;
-            flex-wrap: wrap;
-            align-items: flex-start;
-        }
-        .first-col .status {
-            padding: .5rem;
-            border-radius: 9999px;
-            background-color: var(--bb-grey);
-            filter: drop-shadow(2px 2px 10px #00000044);
-            text-align: center;
-        }
-        .first-col .timestamp {
-            flex: 1;
-            text-align: right;
-            padding: .5rem;
-        }
-        .second-col {
-            position: relative;
-            display: flex;
-            flex-direction: column;
-        }
-        .second-col .head {
-            display: flex;
-            flex-direction: column;
-            justify-content: flex-end;
-            padding: 1em;
-            padding-left: 3rem;
-            margin-left: -3rem;
-            font-weight: bold;
-            font-size: larger;
-            border-bottom: solid 1px var(--bb-bg50);
-            height: 2rem;
-        }
+      :root {
+        --bb-green: #2b6b53;
+        --bb-red: #eb6f92;
+        --bb-grey: #4e4e4e;
+        --bb-bg: #939ab7ff;
+        --bb-bg50: #939ab77f;
+      }
+
+      tr:hover {
+        background-color: var(--bb-bg50);
+      }
+
+      .jp-renderedhtmlcommon tbody tr:hover {
+        background-color: var(--bb-bg50);
+      }
+
+      .container {
+        position: relative;
+        display: inline-flex;
+        justify-content: flex-start;
+        gap: 3rem;
+        font-family: "Segoe UI", Tahoma, Geneva, Verdana, sans-serif;
+      }
+
+      .first-col {
+        position: relative;
+        display: flex;
+        flex-direction: column;
+        justify-content: space-between;
+        align-self: stretch;
+        width: 40%;
+        max-width: 100%;
+      }
+
+      .first-col .uid {
+        display: flex;
+        flex-direction: column;
+        justify-content: flex-end;
+        align-items: flex-start;
+        padding: 1em;
+        font-weight: bold;
+        font-size: larger;
+        /* border: solid 1px var(--bb-bg50); */
+        border-bottom: none;
+        /* height: calc(2rem - 1px); */
+        height: 2rem;
+      }
+
+      .second-col .logo,
+      .first-col .logo {
+        position: absolute;
+        right: 1rem;
+        top: 1rem;
+        height: calc(3rem + 2em);
+        width: calc(3rem + 2em);
+        filter: drop-shadow(2px 2px 10px #00000044) blur(4px);
+      }
+
+      .first-col .bottombox {
+        position: relative;
+        padding: 1em;
+        display: flex;
+        flex-direction: column;
+        justify-content: space-between;
+        gap: 1em;
+        flex: 1;
+        border-top: solid 1px var(--bb-bg50);
+        background-color: var(--bb-bg50);
+        border-bottom-right-radius: 10px;
+      }
+
+      .first-col .bottombox #text {
+        mix-blend-mode: normal;
+      }
+
+      .first-col .infoboxes {
+        display: inline-flex;
+        z-index: 1;
+        gap: 1rem;
+        align-items: flex-end;
+        flex-wrap: wrap;
+        align-items: flex-start;
+      }
+
+      .first-col .status {
+        padding: 0.5rem;
+        border-radius: 9999px;
+        background-color: var(--bb-grey);
+        filter: drop-shadow(2px 2px 10px #00000044);
+        text-align: center;
+      }
+
+      .first-col .timestamp {
+        flex: 1;
+        text-align: right;
+        padding: 0.5rem;
+      }
+
+      .second-col {
+        position: relative;
+        display: flex;
+        flex-direction: column;
+      }
+
+      .second-col .head {
+        display: flex;
+        flex-direction: column;
+        justify-content: flex-end;
+        padding: 1em;
+        padding-left: 3rem;
+        margin-left: -3rem;
+        font-weight: bold;
+        font-size: larger;
+        border-bottom: solid 1px var(--bb-bg50);
+        height: 2rem;
+      }
     </style>
-</head>
-<body>
+  </head>
+
+  <body>
     <div class="container">
-        <div class="first-col">
-            <div class="uid">
-                $UID
-            </div>            
-            <div class="bottombox">
-            <div class="logo">
-                <img src="data:image/png;base64,$ICON" alt="icon">
-            </div>
-                <div class="infoboxes">
-                    $STATUS
-                    $SUBMITTED
-                    <div class="timestamp">time stamp: $TIMESTAMP</div>
-                </div>
-                <div id="text">$NOTE</div>
-            </div>
+      <div class="first-col">
+        <div class="uid">$UID</div>
+        <div class="bottombox">
+          <div class="logo">
+            <img src="data:image/png;base64,$ICON" alt="icon" />
+          </div>
+          <div class="infoboxes">
+            $STATUS $SUBMITTED
+            <div class="timestamp">time stamp: $TIMESTAMP</div>
+          </div>
+          <div id="text">$NOTE</div>
         </div>
-        <div class="second-col">
-            <div class="head">Parameters</div>
-            <table >
-                $TABLE
-            </table>
-        </div>
+      </div>
+      <div class="second-col">
+        <div class="head">Parameters</div>
+        <table>
+          $TABLE
+        </table>
+      </div>
     </div>
-</body>
+  </body>
 </html>

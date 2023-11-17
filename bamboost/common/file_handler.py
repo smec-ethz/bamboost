@@ -7,30 +7,30 @@
 #
 # There is no warranty for this code
 from __future__ import annotations
-from collections import deque
 
-from functools import wraps
+import logging
 import os
 import time
-from typing import Any, Union
+from functools import wraps
+from typing import Any
+
 import h5py
-import logging
 from mpi4py import MPI
 
 log = logging.getLogger(__name__)
 
-HAS_MPIO = 'mpio' in h5py.registered_drivers()
+HAS_MPIO = "mpio" in h5py.registered_drivers()
 if HAS_MPIO:
     MPI_ACTIVE = h5py.h5.get_config().mpi
 else:
     MPI_ACTIVE = False
 
 FILE_MODE_HIRARCHY = {
-        'r': 1,
-        'r+': 2,
-        'a': 2,
-        'w': 3,
-        }
+    "r": 1,
+    "r+": 2,
+    "a": 2,
+    "w": 3,
+}
 
 
 def open_h5file(file: str, mode, driver=None, comm=None):
@@ -44,28 +44,31 @@ def open_h5file(file: str, mode, driver=None, comm=None):
     """
     while True:
         try:
-            if driver=='mpio' and HAS_MPIO and MPI_ACTIVE:
+            if driver == "mpio" and HAS_MPIO and MPI_ACTIVE:
                 return h5py.File(file, mode, driver=driver, comm=comm)
             else:
                 return h5py.File(file, mode)
-            
+
         except OSError:
-            log.warning(f"File {file} not accessible, waiting") 
+            log.warning(f"File {file} not accessible, waiting")
             time.sleep(1)
 
 
-def with_file_open(mode: str = 'r', driver=None, comm=None):
+def with_file_open(mode: str = "r", driver=None, comm=None):
     """Open the file (`self._file`) before function
     Close the file after the function call
 
     Works on classes containing the member `_file` of type :class:`~bamboost.common.file_handler.FileHandler`
     """
+
     def decorator(method):
         @wraps(method)
         def wrapper(self, *args, **kwargs):
             with self._file(mode, driver, comm):
                 return method(self, *args, **kwargs)
+
         return wrapper
+
     return decorator
 
 
@@ -75,8 +78,10 @@ def capture_key_error(method):
         try:
             return method(self, *args, **kwargs)
         except KeyError as e:
-            raise KeyError(f'[uid: {self.simulation_uid.split(".")[0]}] content not in file: {self.file_name}') from e
-            
+            raise KeyError(
+                f'[uid: {self.simulation_uid.split(".")[0]}] content not in file: {self.file_name}'
+            ) from e
+
     return inner
 
 
@@ -92,7 +97,7 @@ class FileHandler:
         file_object: the h5py file object (accessible if open)
         _lock: lock is kind of a stack. `open` increases the stack. `close` decreases
             the stack. file_object is only closed if the stack is at 0. Ensures consecutive
-            method calls works. Would be a problem if the file is closed after each 
+            method calls works. Would be a problem if the file is closed after each
             sub-operation.
         _mode: file mode
         _driver: file driver
@@ -104,11 +109,11 @@ class FileHandler:
         self.file_name = file_name
         self.simulation_uid = os.path.basename(file_name)
         self._lock = 0
-        self._mode = 'r'
+        self._mode = "r"
         self._driver = None
         self._comm = _comm
 
-    def __call__(self, mode: str = 'r', driver=None, comm=None) -> FileHandler:
+    def __call__(self, mode: str = "r", driver=None, comm=None) -> FileHandler:
         """Used to set the options for file opening.
         Example: `with sim._file('a', driver='mpio') as file:`
         """
@@ -139,8 +144,8 @@ class FileHandler:
     def __exit__(self, *args):
         self.close()
 
-    def open(self, mode: str = 'r', driver=None, comm=None):
-        if self._lock==0:
+    def open(self, mode: str = "r", driver=None, comm=None):
+        if self._lock == 0:
             log.debug(f"[{id(self)}] Open {self.file_name}")
             self.file_object = open_h5file(self.file_name, mode, driver, comm)
 
@@ -153,15 +158,14 @@ class FileHandler:
 
     def close(self):
         self._lock -= 1
-        if self._lock==0:
+        if self._lock == 0:
             log.debug(f"[{id(self)}] Close {self.file_name}")
             self.file_object.close()
         log.debug(f"[{id(self)}] Lock stack {self._lock}")
 
     def change_file_mode(self, mode: str, driver=None, comm=None):
-        log.info(f"Forced closing and reopening to change file mode [{self.file_name}].")
+        log.info(
+            f"Forced closing and reopening to change file mode [{self.file_name}]."
+        )
         self.file_object.close()
         self.file_object = open_h5file(self.file_name, mode, driver, comm)
-        
-
-
