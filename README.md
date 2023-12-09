@@ -1,7 +1,7 @@
 <div align="center">
 
 <h3 align="center">
-	<img src="./assets/bamboost_icon.png" width="150" alt="Logo"/><br/>
+	<img src="https://gitlab.com/cmbm-ethz/bamboost/-/raw/main/assets/bamboost_icon.png?ref_type=heads" width="150" alt="Logo"/><br/>
         <br/>
 	BAMBOOST <br/>
 
@@ -23,7 +23,7 @@ Install the latest release from the Package repository:
 ```
 pip install bamboost
 ```
-> :information: If you're system runs into problems installing `mpi4py`, make sure python header files are installed. Quickly google what you need (something like `python3-dev`, `libpython3.8-dev`, etc.). 
+> :warning: If you're system runs into problems installing `mpi4py`, make sure python header files are installed. Quickly google what you need (something like `python3-dev`, `libpython3.8-dev`, etc.). 
 
 
 Install the package in editable mode for more flexibility, $e.g.$ if you plan to make changes yourself:
@@ -32,7 +32,7 @@ git clone git@gitlab.com:cmbm-ethz/bamboost.git
 cd bamboost
 pip install -e .
 ```
-> :information: The option `-e` installs a project in editable mode from a local path. This way,
+> :warning: The option `-e` installs a project in editable mode from a local path. This way,
 > you won't need to reinstall when pulling a new version or changing something in the
 > package.
 
@@ -93,7 +93,7 @@ sims = db.sims()  # returns all
 sims = db.sims(select=(db.df.eps==1))  # returns all where eps is 1
 sims = db.sims(sort='parameter1', reverse=False)  # returns all, sorrted by parameter1
 ```
-:information: Note that this creates objects for every simulation and the sorting is not optimized. Using pandas to select and sort is much faster. Check their documentation for how to manipulate pandas dataframes.
+:warning: Note that this creates objects for every simulation and the sorting is not optimized. Using pandas to select and sort is much faster. Check their documentation for how to manipulate pandas dataframes.
 
 ### Database index
 Every database created will be assigned a unique identifier (UID). 
