@@ -19,6 +19,8 @@ from mpi4py import MPI
 
 log = logging.getLogger(__name__)
 
+__all__ = ["open_h5file", "FileHandler", "with_file_open", "capture_key_error"]
+
 HAS_MPIO = "mpio" in h5py.registered_drivers()
 if HAS_MPIO:
     MPI_ACTIVE = h5py.h5.get_config().mpi

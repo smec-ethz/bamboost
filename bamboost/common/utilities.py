@@ -16,6 +16,8 @@ from pathlib import Path
 
 import h5py
 
+__all__ = ["flatten_dict", "unflatten_dict", "tree", "h5_tree"]
+
 space = "    "
 branch = "│   "
 tee = "├── "

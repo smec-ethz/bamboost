@@ -26,6 +26,8 @@ from .common.file_handler import open_h5file
 from .simulation import Simulation
 from .simulation_writer import SimulationWriter
 
+__all__ = ["Manager", "ManagerFromUID", "ManagerFromName"]
+
 log = logging.getLogger(__name__)
 
 
@@ -42,6 +44,7 @@ https://gitlab.ethz.ch/compmechmat/research/libs/dbmanager
 
 
 class ManagerFromUID(object):
+    """Get a database by its UID. This is used for autocompletion in ipython."""
     def __init__(self) -> None:
         ids = index.get_index_dict()
         self.completion_keys = tuple(
@@ -60,6 +63,7 @@ class ManagerFromUID(object):
 
 
 class ManagerFromName(object):
+    """Get a database by its path/name. This is used for autocompletion in ipython."""
     def __init__(self) -> None:
         self.completion_keys = tuple(index.get_index_dict().values())
 
@@ -87,8 +91,8 @@ class Manager:
     """
 
     FIX_DF = True
-    fromUID = ManagerFromUID()
-    fromName = ManagerFromName()
+    fromUID: ManagerFromUID = ManagerFromUID()
+    fromName: ManagerFromName = ManagerFromName()
 
     def __init__(
         self,
@@ -118,10 +122,9 @@ class Manager:
         """Returns the simulation in the specified row of the dataframe.
 
         Args:
-            row (`str`): return the simulation with the specified uid
-            row (int): return the simulation with index specified by row
+            key: The simulation identifier (`str`) or the row index (`int`).
         Returns:
-            :class:`~bamboost.reader.Simulation`
+            The selected simulation object.
         """
         if isinstance(key, str):
             return self.sim(key)
@@ -144,7 +147,7 @@ class Manager:
     def __len__(self) -> int:
         return len(self.all_uids)
 
-    def __iter__(self) -> list:
+    def __iter__(self) -> Simulation:
         for sim in self.sims():
             yield sim
 

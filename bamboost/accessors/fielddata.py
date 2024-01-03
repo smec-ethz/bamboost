@@ -20,6 +20,8 @@ from ..common import hdf_pointer
 from ..common.file_handler import FileHandler, with_file_open
 from .meshes import Mesh, MeshGroup
 
+__all__ = ["DataGroup", "FieldData"]
+
 log = logging.getLogger(__name__)
 
 

@@ -12,6 +12,8 @@ import xml.etree.ElementTree as ET
 
 import h5py
 
+__all__ = ["XDMFWriter"]
+
 # `numpy_to_xdmf_dtype` from `meshio.xdmf.common`
 numpy_to_xdmf_dtype = {
     "int8": ("Int", "1"),

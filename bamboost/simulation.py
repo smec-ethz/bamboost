@@ -27,6 +27,8 @@ from .common.file_handler import FileHandler, with_file_open
 from .common.job import Job
 from .xdmf import XDMFWriter
 
+__all__ = ["Simulation", "Links"]
+
 log = logging.getLogger(__name__)
 
 
@@ -86,11 +88,11 @@ class Simulation:
     _default_mesh = "mesh"
 
     def __init__(self, uid: str, path: str, comm: MPI.Comm = MPI.COMM_WORLD):
-        self.uid = uid
-        self.path_database = os.path.abspath(path)
-        self.path = os.path.abspath(os.path.join(path, uid))
-        self.h5file = os.path.join(self.path, f"{self.uid}.h5")
-        self.xdmffile = os.path.join(self.path, f"{self.uid}.xdmf")
+        self.uid: str = uid
+        self.path_database: str = os.path.abspath(path)
+        self.path: str = os.path.abspath(os.path.join(path, uid))
+        self.h5file: str = os.path.join(self.path, f"{self.uid}.h5")
+        self.xdmffile: str = os.path.join(self.path, f"{self.uid}.xdmf")
         os.makedirs(self.path, exist_ok=True)
 
         # MPI information
@@ -102,10 +104,10 @@ class Simulation:
         self._file = FileHandler(self.h5file)
 
         # Initialize groups to meshes, data and userdata. Create groups.
-        self.meshes = MeshGroup(self._file)
-        self.data = DataGroup(self._file, self.meshes)
-        self.userdata = hdf_pointer.MutableGroup(self._file, "/userdata")
-        self.links = Links(self._file)
+        self.meshes: MeshGroup = MeshGroup(self._file)
+        self.data: DataGroup = DataGroup(self._file, self.meshes)
+        self.userdata: hdf_pointer.MutableGroup = hdf_pointer.MutableGroup(self._file, "/userdata")
+        self.links: Links = Links(self._file)
 
     @classmethod
     def fromUID(cls, full_uid: str) -> Simulation:
@@ -183,7 +185,7 @@ class Simulation:
         return html_string
 
     @property
-    def parameters(self):
+    def parameters(self) -> dict:
         tmp_dict = dict()
         if self._prank == 0:
             with self._file("r"):
@@ -197,7 +199,7 @@ class Simulation:
         return tmp_dict
 
     @property
-    def metadata(self):
+    def metadata(self) -> dict:
         tmp_dict = dict()
         if self._prank == 0:
             with self._file("r") as file:
@@ -381,7 +383,7 @@ class Simulation:
         return self._file(mode, driver, comm)
 
     @property
-    def mesh(self):
+    def mesh(self) -> Tuple[np.ndarray, np.ndarray]:
         """Return coordinates and connectivity of default mesh.
 
         Returns:

@@ -9,6 +9,8 @@
 
 import subprocess
 
+__all__ = ["GitStateGetter"]
+
 
 class GitStateGetter:
     def __init__(self) -> None:

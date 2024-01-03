@@ -10,6 +10,8 @@
 import argparse
 import os
 
+__all__ = ["Job"]
+
 
 class Job:
     def __init__(self):

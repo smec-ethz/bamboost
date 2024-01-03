@@ -17,6 +17,8 @@ import numpy as np
 from ..common import hdf_pointer
 from ..common.file_handler import FileHandler, with_file_open
 
+__all__ = ["MeshGroup", "Mesh"]
+
 log = logging.getLogger(__name__)
 
 

@@ -22,6 +22,8 @@ from .common.git_utility import GitStateGetter
 from .common.utilities import flatten_dict
 from .simulation import Simulation
 
+__all__ = ["SimulationWriter"]
+
 log = logging.getLogger(__name__)
 
 
@@ -37,7 +39,7 @@ class SimulationWriter(Simulation):
 
     def __init__(self, uid: str, path: str, comm: MPI.Comm = MPI.COMM_WORLD):
         super().__init__(uid, path, comm)
-        self.step = 0
+        self.step: int = 0
 
     def __enter__(self):
         self.change_status("Running")

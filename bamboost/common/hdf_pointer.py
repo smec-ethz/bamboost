@@ -21,6 +21,8 @@ import bamboost
 
 from .file_handler import FileHandler, with_file_open
 
+__all__ = ["BasePointer", "Group", "MutableGroup", "Dataset"]
+
 log = logging.getLogger(__name__)
 
 
