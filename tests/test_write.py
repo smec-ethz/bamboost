@@ -1,0 +1,42 @@
+import os
+import time
+
+import numpy as np
+from mpi4py import MPI
+
+from bamboost import Manager
+from bamboost.simulation_writer import SimulationWriter
+
+test_manager_name = "test.writing"
+
+
+def create_test_run(
+    db: Manager, nb_processes: int = 1, array_size: int = 10000
+) -> None:
+    """Create a test run for given number of processes and array sizes."""
+    params = {"nb_processes": nb_processes, "array_size": array_size}
+    script_file = "script.py"
+    sim = db.create_simulation(parameters=params, skip_duplicate_check=True)
+    mpicommand = "" if nb_processes == 1 else f"mpirun -n {nb_processes}"
+    commands = [
+        f"{mpicommand} python3 {os.path.abspath(os.path.join(sim.path, script_file))} --path {sim.path_database} --uid {sim.uid}"
+    ]
+    sim.create_batch_script(commands, ntasks=nb_processes, euler=False)
+    sim.copy_file(script_file)
+
+
+
+def main():
+    manager = Manager(test_manager_name)
+
+    for nb_processes in [1, 2, 4, 8]:
+        array_size = 10000
+        create_test_run(manager, nb_processes, array_size)
+
+    manager = Manager(test_manager_name)
+    for sim in manager:
+        sim.submit()
+
+
+if __name__ == "__main__":
+    main()
