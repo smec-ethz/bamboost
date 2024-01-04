@@ -7,7 +7,7 @@ from mpi4py import MPI
 from bamboost import Manager
 from bamboost.simulation_writer import SimulationWriter
 
-test_manager_name = "test"
+test_manager_name = "test_1_big_array"
 
 
 def create_test_run(
@@ -16,7 +16,7 @@ def create_test_run(
     """Create a test run for given number of processes and array sizes."""
     params = {
         "nb_processes": nb_processes,
-        "array_size": array_size,
+        "array_size": (array_size, array_size),
         "nb_steps": nb_steps,
     }
     script_file = "script.py"
@@ -33,8 +33,8 @@ def main():
     manager = Manager(test_manager_name)
 
     for nb_processes in [1, 2, 4, 8]:
-        array_size = 200000
-        nb_steps = 1000
+        array_size = 20000
+        nb_steps = 1
         create_test_run(manager, nb_processes, array_size, nb_steps)
 
 

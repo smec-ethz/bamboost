@@ -15,8 +15,8 @@ def run_test(path: str, uid: str) -> None:
     array_size = sim.parameters["array_size"]
     nb_processes = sim.parameters["nb_processes"]
     nb_steps = sim.parameters["nb_steps"]
-    array_size_per_process = array_size // nb_processes
-    dim = 3
+    array_size_per_process = array_size[0] // nb_processes
+    dim = array_size[1]
 
     # Start time
     sim._comm.Barrier()

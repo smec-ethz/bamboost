@@ -1,6 +1,8 @@
 #!/bin/bash
 
-for dir in test/*; do
+out_dir="out"
+
+for dir in $out_dir/*; do
     if [ -d "$dir" ]; then
         base_name=$(basename "$dir")
         start_time=$(date +%s.%N)
@@ -10,3 +12,5 @@ for dir in test/*; do
         echo "$base_name: $elapsed_time"
     fi
 done
+
+
