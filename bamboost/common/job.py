@@ -74,6 +74,7 @@ class Job:
             mpicommand = f"mpirun -n {ntasks}"
 
         script = f"#!/bin/bash\n\n"
+        script += 'SCRIPT_DIR=$( cd -- "$( dirname -- "${BASH_SOURCE[0]}" )" &> /dev/null && pwd )\n\n'
 
         # user defined commands
         for cmd in commands:
