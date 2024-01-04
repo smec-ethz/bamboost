@@ -7,7 +7,7 @@ from mpi4py import MPI
 from bamboost import Manager
 from bamboost.simulation_writer import SimulationWriter
 
-test_manager_name = "test_1_big_array"
+test_manager_name = "out"
 
 
 def create_test_run(
@@ -20,10 +20,11 @@ def create_test_run(
         "nb_steps": nb_steps,
     }
     script_file = "script.py"
-    sim = db.create_simulation(f"{array_size}_{nb_processes:02d}", parameters=params)
+    sim = db.create_simulation(f"{array_size}_{nb_processes:02d}", parameters=params, skip_duplicate_check=True)
     mpicommand = "" if nb_processes == 1 else f"mpirun -n {nb_processes}"
+
     commands = [
-        f"{mpicommand} python3 {os.path.abspath(os.path.join(sim.path, script_file))} --path {sim.path_database} --uid {sim.uid}"
+        f"{mpicommand} python3 $SCRIPT_DIR/{script_file} --path $SCRIPT_DIR/.. --uid {sim.uid}"
     ]
     sim.create_batch_script(commands, ntasks=nb_processes, euler=False)
     sim.copy_file(script_file)

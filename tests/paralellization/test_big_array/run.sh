@@ -1,6 +1,8 @@
 #!/bin/bash
 
-for dir in test_1_big_array/*; do
+out_dir="out"
+
+for dir in $out_dir/*; do
     if [ -d "$dir" ]; then
         base_name=$(basename "$dir")
         start_time=$(date +%s.%N)

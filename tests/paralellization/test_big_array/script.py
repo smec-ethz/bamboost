@@ -33,11 +33,13 @@ def run_test(path: str, uid: str) -> None:
 
     # Store time
     sim.userdata["write_time_total"] = end - start
-    # mpi_data = sim.userdata.require_group("MPI")
-    # with sim.open("a", driver="mpio"):
-    #     obj: h5py._h5py.Group = mpi_data.obj
-    #     ds = obj.require_dataset("times", (MPI.COMM_WORLD.Get_size(),), float)
-    #     ds[MPI.COMM_WORLD.Get_rank()] = end_p - start_p
+
+    # Print result:
+    if sim._comm.rank == 0:
+        print(
+            f"Writing {nb_steps} steps of {array_size_per_process}x{dim} "
+            f"arrays with {nb_processes} processes took {end - start:.3f} seconds."
+        )
 
 
 if __name__ == "__main__":
