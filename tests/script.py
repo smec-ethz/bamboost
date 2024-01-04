@@ -14,6 +14,7 @@ def run_test(path: str, uid: str) -> None:
 
     array_size = sim.parameters["array_size"]
     nb_processes = sim.parameters["nb_processes"]
+    nb_steps = sim.parameters["nb_steps"]
     array_size_per_process = array_size // nb_processes
     dim = 3
 
@@ -22,7 +23,7 @@ def run_test(path: str, uid: str) -> None:
     start = MPI.Wtime()
 
     with sim:
-        for _ in range(300):
+        for _ in range(nb_steps):
             sim.add_field("test", np.random.randn(array_size_per_process, dim))
             sim.finish_step()
 
