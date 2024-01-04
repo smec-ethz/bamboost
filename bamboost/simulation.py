@@ -264,7 +264,7 @@ class Simulation:
         """
         if self._prank == 0:
             with self._file("a") as file:
-                file["parameters"].attrs.update(update_dict)
+                file["parameters"].attrs.update(utilities.flatten_dict(update_dict))
 
     def create_xdmf_file(self, fields: list = None, nb_steps: int = None) -> None:
         """Create the xdmf file to read in paraview.
