@@ -16,7 +16,7 @@ def create_test_run(
     """Create a test run for given number of processes and array sizes."""
     params = {"nb_processes": nb_processes, "array_size": array_size}
     script_file = "script.py"
-    sim = db.create_simulation(parameters=params)
+    sim = db.create_simulation(f'{array_size}_{nb_processes:02d}', parameters=params)
     mpicommand = "" if nb_processes == 1 else f"mpirun -n {nb_processes}"
     commands = [
         f"{mpicommand} python3 {os.path.abspath(os.path.join(sim.path, script_file))} --path {sim.path_database} --uid {sim.uid}"
