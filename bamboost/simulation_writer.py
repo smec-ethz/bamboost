@@ -15,6 +15,7 @@ import os
 import shutil
 from typing import Union
 
+import h5py
 import numpy as np
 from mpi4py import MPI
 
@@ -189,9 +190,11 @@ class SimulationWriter(Simulation):
             vec = grp.require_dataset(str(self.step), shape=(length, dim), dtype="f")
             vec[idx_start:idx_end, :] = vector
 
-            vec.attrs["t"] = time  # add time as attribute to dataset
-            vec.attrs["mesh"] = mesh  # add link to mesh as attribute
-            vec.flush()
+        if self._prank == 0:
+            with self._file("a"):
+                vec = self._file["data"][name][str(self.step)]
+                vec.attrs["t"] = time  # add time as attribute to dataset
+                vec.attrs["mesh"] = mesh  # add link to mesh as attribute
 
     def add_global_field(self, name: str, value: float) -> None:
         """Add a gobal field. These are stored at `gloals/` as an array in a
