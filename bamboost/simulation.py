@@ -237,7 +237,6 @@ class Simulation:
         database_uid = index.get_uid_from_path(self.path_database)
         return f"{database_uid}:{self.uid}"
 
-    @with_file_open("a")
     def change_status(self, status: str) -> None:
         """Change status of simulation.
 
@@ -245,7 +244,9 @@ class Simulation:
             status (str): new status
         """
         if self._prank == 0:
+            self._file.open('a')
             self._file.attrs["status"] = status
+            self._file.close()
 
     def update_metadata(self, update_dict: dict) -> None:
         """Update the metadata attributes.
@@ -356,8 +357,13 @@ class Simulation:
 
     def submit(self) -> None:
         """Submit the job for this simulation."""
-        batch_script = os.path.abspath(os.path.join(self.path, f"sbatch_{self.uid}.sh"))
-        subprocess.Popen(["sbatch", f"{batch_script}"])
+        if f'sbatch_{self.uid}.sh' in os.listdir(self.path):
+            batch_script = os.path.abspath(os.path.join(self.path, f"sbatch_{self.uid}.sh"))
+            subprocess.Popen(["sbatch", f"{batch_script}"])
+        if f'{self.uid}.sh' in os.listdir(self.path):
+            bash_script = os.path.abspath(os.path.join(self.path, f"{self.uid}.sh"))
+            subprocess.Popen(["bash", f"{bash_script}"])
+
         print(f"Simulation {self.uid} submitted!")
 
         with self._file("a") as file:

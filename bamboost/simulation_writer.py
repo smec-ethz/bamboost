@@ -42,7 +42,8 @@ class SimulationWriter(Simulation):
         self.step: int = 0
 
     def __enter__(self):
-        self.change_status("Running")
+        self.change_status("Running")  # change status to running (process 0 only)
+        self._comm.Barrier()  # wait for change status to be written
         return self
 
     def __exit__(self, exc_type, exc_val, exc_tb):
@@ -50,6 +51,7 @@ class SimulationWriter(Simulation):
             self.change_status("Failed")
         else:
             self.change_status("Finished")
+        self._comm.Barrier()
 
     def initialize(self) -> SimulationWriter:
         """Create a new file for this simlation.
@@ -187,9 +189,11 @@ class SimulationWriter(Simulation):
             vec = grp.require_dataset(str(self.step), shape=(length, dim), dtype="f")
             vec[idx_start:idx_end, :] = vector
 
-            vec.attrs["t"] = time  # add time as attribute to dataset
-            vec.attrs["mesh"] = mesh  # add link to mesh as attribute
-            vec.flush()
+        if self._prank == 0:
+            with self._file("a"):
+                vec = self._file["data"][name][str(self.step)]
+                vec.attrs["t"] = time  # add time as attribute to dataset
+                vec.attrs["mesh"] = mesh  # add link to mesh as attribute
 
     def add_global_field(self, name: str, value: float) -> None:
         """Add a gobal field. These are stored at `gloals/` as an array in a
