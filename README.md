@@ -18,6 +18,32 @@ will totally break if you load it heavily. Just kidding, bamboo can fully carry 
 </div>
 
 
+<div align="center">
+<a href="https://bamboost.ch">
+    <img src="https://img.shields.io/badge/Docs-bamboost.ch-blue" alt="Website">
+</a>
+<!-- <a href="https://gitlab.com/cmbm-ethz/bamboost/-/commits/main"> -->
+<!--     <img src="https://gitlab.com/cmbm-ethz/bamboost/badges/main/pipeline.svg" alt="pipeline status"> -->
+<!-- </a> -->
+<!-- <a href="https://gitlab.com/cmbm-ethz/bamboost/-/commits/main"> -->
+<!--     <img src="https://gitlab.com/cmbm-ethz/bamboost/badges/main/coverage.svg" alt="coverage report"> -->
+<!-- </a> -->
+<a href="https://badge.fury.io/py/bamboost">
+    <img src="https://badge.fury.io/py/bamboost.svg" alt="PyPI version">
+</a>
+<a href="https://pypistats.org/packages/bamboost">
+    <img src="https://img.shields.io/pypi/dm/bamboost" alt="PyPI - Downloads">
+</a>
+<a href="https://pypi.org/project/bamboost/">
+    <img src="https://img.shields.io/pypi/pyversions/bamboost" alt="PyPI - Python Version">
+</a>
+<a href="https://gitlab.com/cmbm-ethz/bamboost/-/blob/main/LICENSE">
+    <img src="https://img.shields.io/pypi/l/bamboost" alt="PyPI - License">
+</a>
+</div>
+
+## Documentation
+
 ## Installation
 Install the latest release from the Package repository:
 ```
