@@ -1,6 +1,14 @@
 #!/bin/bash
 
-out_dir="out"
+# Check if output directory provided
+if [ $# -eq 0 ]; then
+    echo "No output directory provided"
+    exit 1
+fi
+
+out_dir="$1"
+
+python3 ./create_test_sims.py $out_dir
 
 for dir in $out_dir/*; do
     if [ -d "$dir" ]; then
@@ -12,3 +20,6 @@ for dir in $out_dir/*; do
         echo "$base_name: $elapsed_time"
     fi
 done
+
+
+

@@ -1,13 +1,6 @@
-import os
-import time
-
-import numpy as np
-from mpi4py import MPI
+import sys
 
 from bamboost import Manager
-from bamboost.simulation_writer import SimulationWriter
-
-test_manager_name = "out"
 
 
 def create_test_run(
@@ -30,7 +23,7 @@ def create_test_run(
     sim.copy_file(script_file)
 
 
-def main():
+def main(test_manager_name: str = "out"):
     manager = Manager(test_manager_name)
 
     for nb_processes in [1, 2, 4, 8]:
@@ -40,4 +33,5 @@ def main():
 
 
 if __name__ == "__main__":
+    test_manager_name = sys.argv[1]
     main()
