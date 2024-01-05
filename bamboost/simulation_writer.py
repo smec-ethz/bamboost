@@ -15,7 +15,6 @@ import os
 import shutil
 from typing import Union
 
-import h5py
 import numpy as np
 from mpi4py import MPI
 
