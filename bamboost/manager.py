@@ -318,6 +318,7 @@ class Manager:
         uid: str = None,
         parameters: dict = None,
         skip_duplicate_check: bool = False,
+        prefix: str = None,
     ) -> SimulationWriter:
         """Get a writer object for a new simulation. This is written for paralell use
         as it is likely that this may be used in an executable, creating multiple runs
@@ -330,6 +331,7 @@ class Manager:
                 checked against the existing sims for duplication. Otherwise, they may be
                 specified later with :func:`~bamboost.simulation.SimulationWriter.add_parameters`.
             skip_duplicate_check (`bool`): if True, the duplicate check is skipped.
+            prefix (`str`): Prefix for the uid. If not specified, no prefix is used.
         Returns:
             sim (:class:`~bamboost.simulation.SimulationWriter`)
         """
@@ -342,6 +344,8 @@ class Manager:
         if self.comm.rank == 0:
             if not uid:
                 uid = uuid.uuid4().hex[:8]  # Assign random unique identifier
+            if isinstance(prefix, str):
+                uid = "_".join([prefix, uid])
         uid = self.comm.bcast(uid, root=0)
 
         # Create directory and h5 file
