@@ -229,10 +229,12 @@ class Manager:
         df = pd.DataFrame.from_records(data)
         if df.empty:
             return df
+        df['time_stamp'] = pd.to_datetime(df['time_stamp'])
 
         # Sort dataframe columns
+        columns_start = ["id", "notes", "status", "time_stamp"]
         self._dataframe = df[
-            ["id", "notes", "status", *df.columns.difference(["id", "notes", "status"])]
+            [*columns_start, *df.columns.difference(columns_start)]
         ]
         return self._dataframe
 
