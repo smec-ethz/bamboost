@@ -7,7 +7,6 @@ before_script:
   - apt-get update
   - apt-get install -y openmpi-bin libopenmpi-dev
   - apt-get install -y python3 python3-pip
-  - pip3 install mpi4py
 
 pages:
   stage: deploy
@@ -16,6 +15,9 @@ pages:
       - node_modules/
       - .cache/
   script:
+    - python3 -m venv .venv
+    - source .venv/bin/activate
+    - pip3 install mpi4py
     - pip3 install .
     - pip3 install docstring-parser pdoc
     - git clone https://gitlab.com/zrlf/bamboost-docs.git
