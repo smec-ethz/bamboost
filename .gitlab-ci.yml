@@ -35,4 +35,4 @@ pages:
     paths:
       - public
   only:
-    - main
+    - tags
