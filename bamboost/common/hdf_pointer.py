@@ -219,7 +219,7 @@ class MutableGroup(Group):
         """
         self.obj.attrs.update(attrs)
 
-    def add_dataset(self, name: str, vector: np.ndarray, attrs: dict = None) -> None:
+    def add_dataset(self, name: str, vector: np.ndarray, attrs: dict = None, dtype: str = None) -> None:
         """Add a dataset to the group. Error is thrown if attempting to overwrite
         with different shape than before. If same shape, data is overwritten
         (this is inherited from h5py -> require_dataset)
@@ -228,6 +228,7 @@ class MutableGroup(Group):
             name: Name for the dataset
             vector: Data to write (max 2d)
             attrs: Optional. Attributes of dataset.
+            dtype: Optional. dtype of dataset. If not specified, uses dtype of inpyt array
         """
         if attrs is None:
             attrs = {}
@@ -242,7 +243,7 @@ class MutableGroup(Group):
         idx_end = idx_start + length_local
 
         with self._file("a", driver="mpio"):
-            dataset = self.obj.require_dataset(name, shape=vec_shape, dtype="f")
+            dataset = self.obj.require_dataset(name, shape=vec_shape, dtype=dtype if dtype else vector.dtype)
             dataset[idx_start:idx_end] = vector
             for key, item in attrs.items():
                 dataset.attrs[key] = item
