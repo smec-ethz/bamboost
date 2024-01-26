@@ -1,34 +1,28 @@
 image: dhna/mpi4py
 
 stages:
-  - build
   - deploy
-
-generate_documentation:
-  stage: build
-  script:
-    - echo $(python -V)
-    - pip install .
-    - pip install docstring-parser pdoc
-    - git clone https://gitlab.com/zrlf/bamboost-docs.git
-    - cd bamboost-docs/extract-docs
-    - python autodoc_bamboost.py
-  only:
-    - dev
 
 deploy:pages:
   stage: deploy
-  image: node:latest
   cache:
     paths:
       - node_modules/
       - .cache/
   script:
-    - cd bamboost-docs/
+    - echo $(python -V)
+    - curl -sL https://deb.nodesource.com/setup_14.x | bash -
+    - apt-get install -y nodejs
+    - pip install .
+    - pip install docstring-parser pdoc
+    - git clone https://gitlab.com/zrlf/bamboost-docs.git
+    - cd bamboost-docs/extract-docs
+    - python autodoc_bamboost.py
+    - cd ../
     - npm install
     - npm run build
     - rm -rf ./public
-    - mv ./build ./public
+    - mv ./build ../public
   artifacts:
     paths:
       - public
