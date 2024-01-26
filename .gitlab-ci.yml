@@ -3,6 +3,12 @@ image: dhna/mpi4py
 stages:
   - deploy
 
+before_script:
+  - apt-get update
+  - apt-get install -y curl
+  - curl -sL https://deb.nodesource.com/setup_14.x | bash -
+  - apt-get install -y nodejs
+
 deploy:pages:
   stage: deploy
   cache:
@@ -10,9 +16,6 @@ deploy:pages:
       - node_modules/
       - .cache/
   script:
-    - echo $(python -V)
-    - curl -sL https://deb.nodesource.com/setup_14.x | bash -
-    - apt-get install -y nodejs
     - pip install .
     - pip install docstring-parser pdoc
     - git clone https://gitlab.com/zrlf/bamboost-docs.git
