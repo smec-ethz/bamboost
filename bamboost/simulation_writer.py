@@ -151,7 +151,7 @@ class SimulationWriter(Simulation):
             conn.flush()
 
     def add_field(
-        self, name: str, vector: np.array, time: float = None, mesh: str = None
+        self, name: str, vector: np.array, time: float = None, mesh: str = None, dtype: str = None
     ) -> None:
         """Add a dataset to the file. The data is stored at `data/`.
 
@@ -160,6 +160,7 @@ class SimulationWriter(Simulation):
             vector: Dataset
             time: Optional. time
             mesh: Optional. Linked mesh for this data
+            dtype: Optional. Numpy style datatype, see h5py documentation, defaults to the dtype of
         """
         if mesh is None:
             mesh = self._default_mesh
@@ -186,7 +187,7 @@ class SimulationWriter(Simulation):
                 "data"
             )  # Require group data to store all point data in
             grp = data.require_group(name)
-            vec = grp.require_dataset(str(self.step), shape=(length, dim), dtype="f")
+            vec = grp.require_dataset(str(self.step), shape=(length, dim), dtype=dtype if dtype else vector.dtype)
             vec[idx_start:idx_end, :] = vector
 
         if self._prank == 0:
@@ -195,8 +196,8 @@ class SimulationWriter(Simulation):
                 vec.attrs["t"] = time  # add time as attribute to dataset
                 vec.attrs["mesh"] = mesh  # add link to mesh as attribute
 
-    def add_global_field(self, name: str, value: float) -> None:
-        """Add a gobal field. These are stored at `gloals/` as an array in a
+    def add_global_field(self, name: str, value: Union[float, int], dtype: str = None) -> None:
+        """Add a gobal field. These are stored at `globals/` as an array in a
         single dataset.
 
         Args:
@@ -208,7 +209,7 @@ class SimulationWriter(Simulation):
                 grp = f.require_group("globals")
                 if name not in grp.keys():
                     vec = grp.create_dataset(
-                        name, shape=(1,), dtype="f", chunks=True, maxshape=(None,)
+                        name, shape=(1,), dtype=dtype if dtype else np.array(value).dtype, chunks=True, maxshape=(None,)
                     )
                     vec[0] = value
                 else:

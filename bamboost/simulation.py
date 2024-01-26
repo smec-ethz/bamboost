@@ -18,6 +18,7 @@ from typing import Any, Iterable, Tuple
 import numpy as np
 import pandas as pd
 from mpi4py import MPI
+from typing_extensions import Self
 
 from . import index
 from .accessors.fielddata import DataGroup
@@ -45,7 +46,7 @@ class Links(hdf_pointer.MutableGroup):
     def _ipython_key_completions_(self):
         return tuple(self.all_links().keys())
 
-    def __getitem__(self, key) -> Any:
+    def __getitem__(self, key) -> Simulation:
         """Returns the linked simulation object."""
         return Simulation.fromUID(self.all_links()[key])
 
@@ -106,11 +107,13 @@ class Simulation:
         # Initialize groups to meshes, data and userdata. Create groups.
         self.meshes: MeshGroup = MeshGroup(self._file)
         self.data: DataGroup = DataGroup(self._file, self.meshes)
-        self.userdata: hdf_pointer.MutableGroup = hdf_pointer.MutableGroup(self._file, "/userdata")
+        self.userdata: hdf_pointer.MutableGroup = hdf_pointer.MutableGroup(
+            self._file, "/userdata"
+        )
         self.links: Links = Links(self._file)
 
     @classmethod
-    def fromUID(cls, full_uid: str) -> Simulation:
+    def fromUID(cls, full_uid: str) -> Self:
         """Return the `Simulation` with given UID.
 
         Args:
@@ -207,6 +210,14 @@ class Simulation:
         tmp_dict = self._comm.bcast(tmp_dict, root=0)
         return tmp_dict
 
+    def files(self, filename: str) -> str:
+        """Get the path to the file.
+
+        Args:
+            filename: name of the file
+        """
+        return os.path.join(self.path, filename)
+
     def show_files(
         self, level=-1, limit_to_directories=False, length_limit=1000, printit=True
     ) -> str:
@@ -244,7 +255,7 @@ class Simulation:
             status (str): new status
         """
         if self._prank == 0:
-            self._file.open('a')
+            self._file.open("a")
             self._file.attrs["status"] = status
             self._file.close()
 
@@ -284,7 +295,9 @@ class Simulation:
                 if not nb_steps:
                     grp_name = list(f["data"].keys())[0]
                     nb_steps = list(f[f"data/{grp_name}"].keys())
-                    nb_steps = max([int(step) for step in nb_steps])
+                    nb_steps = max(
+                        [int(step) for step in nb_steps if not step.startswith("__")]
+                    )
 
             xdmf_writer = XDMFWriter(self.xdmffile, self.h5file)
             xdmf_writer.write_points_cells(
@@ -357,10 +370,12 @@ class Simulation:
 
     def submit(self) -> None:
         """Submit the job for this simulation."""
-        if f'sbatch_{self.uid}.sh' in os.listdir(self.path):
-            batch_script = os.path.abspath(os.path.join(self.path, f"sbatch_{self.uid}.sh"))
+        if f"sbatch_{self.uid}.sh" in os.listdir(self.path):
+            batch_script = os.path.abspath(
+                os.path.join(self.path, f"sbatch_{self.uid}.sh")
+            )
             subprocess.Popen(["sbatch", f"{batch_script}"])
-        if f'{self.uid}.sh' in os.listdir(self.path):
+        if f"{self.uid}.sh" in os.listdir(self.path):
             bash_script = os.path.abspath(os.path.join(self.path, f"{self.uid}.sh"))
             subprocess.Popen(["bash", f"{bash_script}"])
 

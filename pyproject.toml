@@ -6,7 +6,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "bamboost"
-version = "0.4.2"
+version = "0.4.3"
 description = "A light weight database manager using HDF5"
 readme = { file = "README.md", content-type = "text/markdown" }
 authors = [{ name = "Flavio Lorez", email = "florez@ethz.ch" }]
@@ -22,12 +22,15 @@ dependencies = [
     "h5py",
     "numpy",
     "pandas",
+    "typing_extensions",
     'tomli; python_version < "3.11"',
 ]
 requires-python = ">=3.7"
 
 [project.urls]
-Homepage = "https://gitlab.com/cmbm-ethz/bamboost"
+Homepage = "https://bamboost.ch/"
+repository = "https://gitlab.com/cmbm-ethz/bamboost"
+changelog = "https://gitlab.com/cmbm-ethz/bamboost/-/tree/main/bamboost/ChangeLog.md"
 
 [tool.setuptools.packages.find]
 include = ["bamboost", "bamboost*"]

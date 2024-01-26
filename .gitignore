@@ -2,6 +2,7 @@
 *.py~
 *.*~
 *__pycache*
+.ipynb_checkpoints/
 *build*
 make.bat
 Makefile
@@ -10,3 +11,7 @@ database*/
 *.egg-info*
 dbmanager.wiki
 *.vscode*
+dist/
+docs/
+frontend/
+extract-docs/

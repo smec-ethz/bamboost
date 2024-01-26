@@ -45,6 +45,7 @@ https://gitlab.ethz.ch/compmechmat/research/libs/dbmanager
 
 class ManagerFromUID(object):
     """Get a database by its UID. This is used for autocompletion in ipython."""
+
     def __init__(self) -> None:
         ids = index.get_index_dict()
         self.completion_keys = tuple(
@@ -64,6 +65,7 @@ class ManagerFromUID(object):
 
 class ManagerFromName(object):
     """Get a database by its path/name. This is used for autocompletion in ipython."""
+
     def __init__(self) -> None:
         self.completion_keys = tuple(index.get_index_dict().values())
 
@@ -206,8 +208,11 @@ class Manager:
             return self._dataframe
         return self.get_view()
 
-    def get_view(self) -> pd.DataFrame:
+    def get_view(self, include_linked_sims: bool = False) -> pd.DataFrame:
         """View of the database and its parametric space.
+
+        Args:
+            include_linked_sims: if True, include the parameters of linked sims
 
         Returns:
             :class:`pd.DataFrame`
@@ -217,23 +222,31 @@ class Manager:
 
         for uid in all_uids:
             h5file_for_uid = os.path.join(self.path, uid, f"{uid}.h5")
+            tmp_dict = dict()
+
             with open_h5file(h5file_for_uid, "r") as f:
-                tmp_dict = dict()
                 if "parameters" in f.keys():
                     tmp_dict.update(f["parameters"].attrs)
                 if "additionals" in f.keys():
                     tmp_dict.update({"additionals": f["additionals"].attrs})
                 tmp_dict.update(f.attrs)
-                data.append(tmp_dict)
+
+            if include_linked_sims:
+                for linked, full_uid in self.sim(uid).links.attrs.items():
+                    sim = Simulation.fromUID(full_uid)
+                    tmp_dict.update(
+                        {f"{linked}.{key}": val for key, val in sim.parameters.items()}
+                    )
+            data.append(tmp_dict)
 
         df = pd.DataFrame.from_records(data)
         if df.empty:
             return df
+        df["time_stamp"] = pd.to_datetime(df["time_stamp"])
 
         # Sort dataframe columns
-        self._dataframe = df[
-            ["id", "notes", "status", *df.columns.difference(["id", "notes", "status"])]
-        ]
+        columns_start = ["id", "notes", "status", "time_stamp"]
+        self._dataframe = df[[*columns_start, *df.columns.difference(columns_start)]]
         return self._dataframe
 
     @property
@@ -358,6 +371,7 @@ class Manager:
 
         new_sim = SimulationWriter(uid, self.path, self.comm)
         new_sim.initialize()  # sets metadata and status
+        self.all_uids.append(new_sim.uid)
         if parameters is None:
             parameters = dict()
         new_sim.add_parameters(parameters)
