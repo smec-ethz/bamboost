@@ -1,4 +1,4 @@
-image: python:latest
+image: dhna/mpi4py
 
 stages:
   - prepare
@@ -8,12 +8,13 @@ stages:
 install_dependencies:
   stage: prepare
   script:
+    - echo $(python -V)
     - pip install .
   only:
     - dev
 
 generate_documentation:
-  stage: prepare
+  stage: build
   script:
     - git clone https://gitlab.com/zrlf/bamboost-docs.git
     - cd bamboost-docs/extract-docs
