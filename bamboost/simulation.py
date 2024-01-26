@@ -14,11 +14,11 @@ import os
 import pkgutil
 import subprocess
 from typing import Any, Iterable, Tuple
-from typing_extensions import Self
 
 import numpy as np
 import pandas as pd
 from mpi4py import MPI
+from typing_extensions import Self
 
 from . import index
 from .accessors.fielddata import DataGroup
@@ -295,7 +295,9 @@ class Simulation:
                 if not nb_steps:
                     grp_name = list(f["data"].keys())[0]
                     nb_steps = list(f[f"data/{grp_name}"].keys())
-                    nb_steps = max([int(step) for step in nb_steps])
+                    nb_steps = max(
+                        [int(step) for step in nb_steps if not step.startswith("__")]
+                    )
 
             xdmf_writer = XDMFWriter(self.xdmffile, self.h5file)
             xdmf_writer.write_points_cells(
