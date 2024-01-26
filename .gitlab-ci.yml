@@ -1,0 +1,44 @@
+image: python:latest
+
+stages:
+  - prepare
+  - build
+  - deploy
+
+install_dependencies:
+  stage: prepare
+  script:
+    - pip install .
+  only:
+    - dev
+
+generate_documentation:
+  stage: prepare
+  script:
+    - git clone https://gitlab.com/zrlf/bamboost-docs.git
+    - cd bamboost-docs/extract-docs
+    - python autodoc_bamboost.py
+  only:
+    - dev
+
+deploy:pages:
+  stage: deploy
+  image: node:latest
+  cache:
+    paths:
+      - node_modules/
+      - .cache/
+  script:
+    - cd bamboost-docs/
+    - npm install
+    - npm run build
+    - rm -rf ./public
+    - mv ./build ./public
+  artifacts:
+    paths:
+      - public
+  only:
+    - dev
+
+
+
