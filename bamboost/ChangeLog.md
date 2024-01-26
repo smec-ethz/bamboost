@@ -1,15 +1,25 @@
 Change log for bamboost
 =======================
 
-main-4.2 (xxJan24)
+v0.4.3 (26Jan24)
 --------------
 
 #### SimulationWriter
 API: data writer functions infer dtype for input. dtype can also be imposed
 
 
+v0.4.2 (xxJan24)
+--------------
 
-main-0.4.1
+FIX: Fixes for paralell writing. Writing is sped up significantly.
+TEST: Added tests for paralell writing.
+- Write 1000 steps with 1, 2, 4 and 8 threads. Timing is printed to stdout.
+  `./tests/paralellization/test_steps/run.sh out_directory`
+- Write single big array (20'000x20'000) with 1, 2, 4 and 8 threads. Timing is printed to stdout.
+  `./tests/paralellization/test_big_array/run.sh out_directory`
+
+
+v0.4.1
 ----------
 
 Added functionality for `userdata`. To show the content of it, display the object `sim.userdata`.
@@ -21,7 +31,7 @@ Added functionality for `userdata`. To show the content of it, display the objec
 Access is natural: `sim.userdata['some_name']` -> returns the stored value
 
 
-main-0.4.0
+v0.4.0
 ----------
 
 Introduced globally unique identifiers for each database. They are stored as a file in the database directory. 
