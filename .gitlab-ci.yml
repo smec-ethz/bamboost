@@ -22,7 +22,9 @@ pages:
     - pip3 install .
     - pip3 install docstring-parser pdoc
     - git clone https://gitlab.com/zrlf/bamboost-docs.git
-    - cd bamboost-docs/extract-docs
+    - cd bamboost-docs/
+    - rm -r docs/autoDocs/
+    - cd extract-docs/
     - python3 autodoc_bamboost.py
     - cd ../
     - npm install
