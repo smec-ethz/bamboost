@@ -9,6 +9,7 @@ generate_documentation:
   script:
     - echo $(python -V)
     - pip install .
+    - pip install docstring-parser pdoc
     - git clone https://gitlab.com/zrlf/bamboost-docs.git
     - cd bamboost-docs/extract-docs
     - python autodoc_bamboost.py
