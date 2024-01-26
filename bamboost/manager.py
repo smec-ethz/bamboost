@@ -371,6 +371,7 @@ class Manager:
 
         new_sim = SimulationWriter(uid, self.path, self.comm)
         new_sim.initialize()  # sets metadata and status
+        self.all_uids.append(new_sim.uid)
         if parameters is None:
             parameters = dict()
         new_sim.add_parameters(parameters)
