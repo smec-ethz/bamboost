@@ -1,0 +1,33 @@
+image: node:latest
+
+stages:
+  - deploy
+
+before_script:
+  - apt-get update
+  - apt-get install -y openmpi-bin libopenmpi-dev
+  - apt-get install -y python3 python3-pip
+  - pip3 install mpi4py
+
+pages:
+  stage: deploy
+  cache:
+    paths:
+      - node_modules/
+      - .cache/
+  script:
+    - pip3 install .
+    - pip3 install docstring-parser pdoc
+    - git clone https://gitlab.com/zrlf/bamboost-docs.git
+    - cd bamboost-docs/extract-docs
+    - python3 autodoc_bamboost.py
+    - cd ../
+    - npm install
+    - npm run build
+    - rm -rf ./public
+    - mv ./build ../public
+  artifacts:
+    paths:
+      - public
+  only:
+    - main
