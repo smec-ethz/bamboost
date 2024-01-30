@@ -16,12 +16,15 @@ build_doc_source:
     - pip install pdoc docstring-parser
   script:
     - pip install .
+    # Clone docs repo and update reference docs
     - git clone git@gitlab.com:zrlf/bamboost-docs.git
     - cd bamboost-docs/
     - rm -r docs/autoDocs/
     - cd extract-docs/
     - python autodoc_bamboost.py
     - cd ..
+    # Push to docs repo
+    - git config --global user.email "${CI_EMAIL}" && git config --global user.name "${CI_USERNAME}"
     - git commit -m "CI_REF_GUIDE_UPDATE:$(python -c "import bamboost; print(bamboost.__version__)")"
     - git push
   only:
