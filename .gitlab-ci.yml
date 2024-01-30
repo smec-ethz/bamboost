@@ -25,6 +25,7 @@ build_doc_source:
     - cd ..
     # Push to docs repo
     - git config --global user.email "${CI_EMAIL}" && git config --global user.name "${CI_USERNAME}"
+    - git add .
     - git commit -m "CI_REF_GUIDE_UPDATE:$(python -c "import bamboost; print(bamboost.__version__)")"
     - git push
   only:
