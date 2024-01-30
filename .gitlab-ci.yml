@@ -1,38 +1,27 @@
-image: node:latest
-
 stages:
-  - deploy
+  - docs
 
-before_script:
-  - apt-get update
-  - apt-get install -y openmpi-bin libopenmpi-dev
-  - apt-get install -y python3 python3-pip
-  - apt-get install -y python3.11-venv
-
-pages:
-  stage: deploy
-  cache:
-    paths:
-      - node_modules/
-      - .cache/
+build_doc_source:
+  stage: docs
+  image: dhna/mpi4py
+  before_script:
+    - 'which ssh-agent || ( apt-get update -qy && apt-get install openssh-client -qqy )'
+    - eval `ssh-agent -s`
+    - echo "${SSH_PRIVATE_KEY}" | tr -d '\r' | ssh-add - > /dev/null
+    - pip install pdoc docstring-parser
   script:
-    - python3 -m venv .venv
-    - source .venv/bin/activate
-    - pip3 install mpi4py
-    - pip3 install .
-    - pip3 install docstring-parser pdoc
-    - git clone https://gitlab.com/zrlf/bamboost-docs.git
+    - pip install .
+    - git clone git@gitlab.com:zrlf/bamboost-docs.git
     - cd bamboost-docs/
     - rm -r docs/autoDocs/
     - cd extract-docs/
-    - python3 autodoc_bamboost.py
-    - cd ../
-    - npm install
-    - npm run build
-    - rm -rf ./public
-    - mv ./build ../public
-  artifacts:
-    paths:
-      - public
+    - python autodoc_bamboost.py
+    - cd ..
+    - git commit -m "CI_REF_GUIDE_UPDATE:$(python -c "import bamboost; print(bamboost.__version__)")"
+    - git push
   only:
-    - tags
+    - dev
+
+
+
+
