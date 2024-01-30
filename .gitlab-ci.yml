@@ -8,6 +8,11 @@ build_doc_source:
     - 'which ssh-agent || ( apt-get update -qy && apt-get install openssh-client -qqy )'
     - eval `ssh-agent -s`
     - echo "${SSH_PRIVATE_KEY}" | tr -d '\r' | ssh-add - > /dev/null
+    # Setup known ssh hosts
+    - mkdir -p ~/.ssh
+    - chmod 700 ~/.ssh
+    - ssh-keyscan gitlab.com >> ~/.ssh/known_hosts
+    - chmod 644 ~/.ssh/known_hosts
     - pip install pdoc docstring-parser
   script:
     - pip install .
