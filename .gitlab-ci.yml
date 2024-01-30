@@ -29,7 +29,7 @@ build_doc_source:
     - git commit -m "CI_REF_GUIDE_UPDATE:$(python -c "import bamboost; print(bamboost.__version__)")"
     - git push
   only:
-    - dev
+    - tags
 
 
 
