@@ -147,9 +147,6 @@ class SimulationWriter(Simulation):
             coord[idx_start:idx_end] = coordinates
             conn[idx_start_cells:idx_end_cells] = connectivity
 
-            coord.flush()
-            conn.flush()
-
     def add_field(
         self, name: str, vector: np.array, time: float = None, mesh: str = None, dtype: str = None
     ) -> None:
@@ -216,7 +213,6 @@ class SimulationWriter(Simulation):
                     vec = grp[name]
                     vec.resize((self.step + 1,))
                     vec[-1] = value
-                vec.flush()
 
     def add_additional(self, name: str, file: str) -> None:
         """Add an additional file stored elsewhere or in database directory.
