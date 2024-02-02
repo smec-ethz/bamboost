@@ -255,7 +255,7 @@ class SimulationWriter(Simulation):
             with self._file("a") as f:
                 grp = f.require_group("git")
                 repo_name = os.path.split(repo_path)[1]
-                print(f"Adding repo {repo_name}")
+                log.info(f"Adding repo {repo_name}")
                 if repo_name in grp.keys():
                     del grp[repo_name]
                 grp.create_dataset(repo_name, data=git_string)

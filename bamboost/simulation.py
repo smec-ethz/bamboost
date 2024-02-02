@@ -46,9 +46,10 @@ class Links(hdf_pointer.MutableGroup):
     def _ipython_key_completions_(self):
         return tuple(self.all_links().keys())
 
+    @with_file_open("r", driver="mpio")
     def __getitem__(self, key) -> Simulation:
         """Returns the linked simulation object."""
-        return Simulation.fromUID(self.all_links()[key])
+        return Simulation.fromUID(self.obj.attrs[key])
 
     def __setitem__(self, key, newvalue):
         """Creates the link."""
