@@ -288,7 +288,7 @@ class Simulation:
             nb_steps (int): number of steps the simulation has
         """
 
-        if self._comm.rank == 0:
+        if self._prank == 0:
             with self._file("r") as f:
                 if not fields:
                     fields = list(f["data"].keys())

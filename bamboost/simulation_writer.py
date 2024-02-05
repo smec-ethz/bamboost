@@ -43,7 +43,7 @@ class SimulationWriter(Simulation):
 
     def __enter__(self):
         self.change_status("Running")  # change status to running (process 0 only)
-        self._comm.Barrier()  # wait for change status to be written
+        self._comm.barrier()  # wait for change status to be written
         return self
 
     def __exit__(self, exc_type, exc_val, exc_tb):
@@ -51,7 +51,7 @@ class SimulationWriter(Simulation):
             self.change_status("Failed")
         else:
             self.change_status("Finished")
-        self._comm.Barrier()
+        self._comm.barrier()
 
     def initialize(self) -> SimulationWriter:
         """Create a new file for this simlation.

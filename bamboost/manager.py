@@ -357,7 +357,7 @@ class Manager:
         if self.comm.rank == 0:
             if not uid:
                 uid = uuid.uuid4().hex[:8]  # Assign random unique identifier
-            if isinstance(prefix, str):
+            if isinstance(prefix, str) and prefix != "":
                 uid = "_".join([prefix, uid])
         uid = self.comm.bcast(uid, root=0)
 
