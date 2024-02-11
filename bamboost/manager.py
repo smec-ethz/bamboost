@@ -228,7 +228,7 @@ class Manager:
                 if "parameters" in f.keys():
                     tmp_dict.update(f["parameters"].attrs)
                 if "additionals" in f.keys():
-                    tmp_dict.update({"additionals": f["additionals"].attrs})
+                    tmp_dict.update({"additionals": dict(f["additionals"].attrs)})
                 tmp_dict.update(f.attrs)
 
             if include_linked_sims:
