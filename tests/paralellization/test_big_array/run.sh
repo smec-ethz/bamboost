@@ -7,6 +7,7 @@ if [ $# -eq 0 ]; then
 fi
 
 out_dir="$1"
+cd "$(dirname "$0")"
 
 python3 ./create_test_sims.py $out_dir
 

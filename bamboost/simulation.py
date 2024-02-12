@@ -18,7 +18,7 @@ from typing import Any, Iterable, Tuple
 import numpy as np
 import pandas as pd
 from mpi4py import MPI
-from typing_extensions import Self
+from typing_extensions import Self, deprecated
 
 from . import index
 from .accessors.fielddata import DataGroup
@@ -46,9 +46,10 @@ class Links(hdf_pointer.MutableGroup):
     def _ipython_key_completions_(self):
         return tuple(self.all_links().keys())
 
+    @with_file_open("r", driver="mpio")
     def __getitem__(self, key) -> Simulation:
         """Returns the linked simulation object."""
-        return Simulation.fromUID(self.all_links()[key])
+        return Simulation.fromUID(self.obj.attrs[key])
 
     def __setitem__(self, key, newvalue):
         """Creates the link."""
@@ -287,7 +288,7 @@ class Simulation:
             nb_steps (int): number of steps the simulation has
         """
 
-        if self._comm.rank == 0:
+        if self._prank == 0:
             with self._file("r") as f:
                 if not fields:
                     fields = list(f["data"].keys())
@@ -440,6 +441,7 @@ class Simulation:
         return pd.DataFrame.from_dict(d)
 
     @property
+    @deprecated("Use `data.info` instead")
     @with_file_open("r")
     def data_info(self) -> pd.Dataframe:
         """View the data stored.

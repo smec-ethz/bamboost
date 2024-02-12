@@ -1,6 +1,15 @@
 Change log for bamboost
 =======================
 
+v0.4.4 (12Feb24)
+--------------
+
+DOC: using typing_extension deprecated to tag deprecated functions
+FEAT: added option `prefix` when creating a simulation (random id is prefixed with this string)
+FEAT: added tiny script to bump the version (no CI publishing yet)
+ENH: xdmf file is now printed with linebreaks for better readability
+FIX: tiny cleanups
+
 v0.4.3 (26Jan24)
 --------------
 

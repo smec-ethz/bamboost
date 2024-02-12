@@ -46,7 +46,23 @@ class XDMFWriter:
 
     def write_file(self):
         tree = ET.ElementTree(self.xdmf_file)
+        self._pretty_print(tree.getroot())
         tree.write(self.filename)
+
+    def _pretty_print(self, elem, level=0):
+        indent = "  "  # 4 spaces
+        if len(elem):
+            if not elem.text or not elem.text.strip():
+                elem.text = "\n" + indent * (level + 1)
+            if not elem.tail or not elem.tail.strip():
+                elem.tail = "\n" + indent * level
+            for elem in elem:
+                self._pretty_print(elem, level + 1)
+            if not elem.tail or not elem.tail.strip():
+                elem.tail = "\n" + indent * level
+        else:
+            if level and (not elem.tail or not elem.tail.strip()):
+                elem.tail = "\n" + indent * level
 
     def write_points_cells(self, points_location: str, cells_location: str):
         """Write the mesh to the xdmf file.

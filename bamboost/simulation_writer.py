@@ -14,6 +14,7 @@ import logging
 import os
 import shutil
 from typing import Union
+from typing_extensions import deprecated
 
 import numpy as np
 from mpi4py import MPI
@@ -43,7 +44,7 @@ class SimulationWriter(Simulation):
 
     def __enter__(self):
         self.change_status("Running")  # change status to running (process 0 only)
-        self._comm.Barrier()  # wait for change status to be written
+        self._comm.barrier()  # wait for change status to be written
         return self
 
     def __exit__(self, exc_type, exc_val, exc_tb):
@@ -51,7 +52,7 @@ class SimulationWriter(Simulation):
             self.change_status("Failed")
         else:
             self.change_status("Finished")
-        self._comm.Barrier()
+        self._comm.barrier()
 
     def initialize(self) -> SimulationWriter:
         """Create a new file for this simlation.
@@ -147,9 +148,6 @@ class SimulationWriter(Simulation):
             coord[idx_start:idx_end] = coordinates
             conn[idx_start_cells:idx_end_cells] = connectivity
 
-            coord.flush()
-            conn.flush()
-
     def add_field(
         self, name: str, vector: np.array, time: float = None, mesh: str = None, dtype: str = None
     ) -> None:
@@ -216,8 +214,8 @@ class SimulationWriter(Simulation):
                     vec = grp[name]
                     vec.resize((self.step + 1,))
                     vec[-1] = value
-                vec.flush()
 
+    @deprecated("Use `copy_file` instead.")
     def add_additional(self, name: str, file: str) -> None:
         """Add an additional file stored elsewhere or in database directory.
 
@@ -259,7 +257,7 @@ class SimulationWriter(Simulation):
             with self._file("a") as f:
                 grp = f.require_group("git")
                 repo_name = os.path.split(repo_path)[1]
-                print(f"Adding repo {repo_name}")
+                log.info(f"Adding repo {repo_name}")
                 if repo_name in grp.keys():
                     del grp[repo_name]
                 grp.create_dataset(repo_name, data=git_string)
@@ -281,6 +279,9 @@ class SimulationWriter(Simulation):
             source: path to file, or list of files
             destination: destination (will create intermediatory directories)
         """
+        if self._prank != 0:
+            return
+
         if isinstance(source, list):
             for item in source:
                 self.copy_file(item, destination)

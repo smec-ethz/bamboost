@@ -228,7 +228,7 @@ class Manager:
                 if "parameters" in f.keys():
                     tmp_dict.update(f["parameters"].attrs)
                 if "additionals" in f.keys():
-                    tmp_dict.update({"additionals": f["additionals"].attrs})
+                    tmp_dict.update({"additionals": dict(f["additionals"].attrs)})
                 tmp_dict.update(f.attrs)
 
             if include_linked_sims:
@@ -357,7 +357,7 @@ class Manager:
         if self.comm.rank == 0:
             if not uid:
                 uid = uuid.uuid4().hex[:8]  # Assign random unique identifier
-            if isinstance(prefix, str):
+            if isinstance(prefix, str) and prefix != "":
                 uid = "_".join([prefix, uid])
         uid = self.comm.bcast(uid, root=0)
 
