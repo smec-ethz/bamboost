@@ -14,11 +14,10 @@ import logging
 import os
 import shutil
 from typing import Union
+from typing_extensions import deprecated
 
 import numpy as np
 from mpi4py import MPI
-
-from bamboost.common.deprecation import deprecated
 
 from .common.git_utility import GitStateGetter
 from .common.utilities import flatten_dict
@@ -216,7 +215,7 @@ class SimulationWriter(Simulation):
                     vec.resize((self.step + 1,))
                     vec[-1] = value
 
-    @deprecated(alternative="copy_file")
+    @deprecated("Use `copy_file` instead.")
     def add_additional(self, name: str, file: str) -> None:
         """Add an additional file stored elsewhere or in database directory.
 

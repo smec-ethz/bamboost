@@ -18,7 +18,7 @@ from typing import Any, Iterable, Tuple
 import numpy as np
 import pandas as pd
 from mpi4py import MPI
-from typing_extensions import Self
+from typing_extensions import Self, deprecated
 
 from . import index
 from .accessors.fielddata import DataGroup
@@ -441,6 +441,7 @@ class Simulation:
         return pd.DataFrame.from_dict(d)
 
     @property
+    @deprecated("Use `data.info` instead")
     @with_file_open("r")
     def data_info(self) -> pd.Dataframe:
         """View the data stored.
