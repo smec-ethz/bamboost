@@ -19,6 +19,7 @@ import numpy as np
 from mpi4py import MPI
 
 from bamboost.common.deprecation import deprecated
+
 from .common.git_utility import GitStateGetter
 from .common.utilities import flatten_dict
 from .simulation import Simulation
@@ -279,6 +280,9 @@ class SimulationWriter(Simulation):
             source: path to file, or list of files
             destination: destination (will create intermediatory directories)
         """
+        if self._prank != 0:
+            return
+
         if isinstance(source, list):
             for item in source:
                 self.copy_file(item, destination)
