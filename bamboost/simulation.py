@@ -244,6 +244,10 @@ class Simulation:
         else:
             subprocess.run(["xdg-open", self.path])
 
+    def open_in_paraview(self) -> None:
+        """Open the xdmf file in paraview."""
+        subprocess.Popen(["paraview", self.xdmffile])
+
     def get_full_uid(self) -> str:
         """Returns the full uid of the simulation (including the one of the database)"""
         database_uid = index.get_uid_from_path(self.path_database)

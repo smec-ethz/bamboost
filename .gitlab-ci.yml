@@ -1,5 +1,16 @@
 stages:
   - docs
+  - deploy
+
+publish_to_pypi:
+  stage: deploy
+  image: python:latest
+  script:
+    - pip install twine setuptools
+    - python -m build
+    - twine upload --non-interactive --verbose --username __token__ --password $PYPY_PASSWORD dist/*
+  only:
+    - tags
 
 build_doc_source:
   stage: docs
