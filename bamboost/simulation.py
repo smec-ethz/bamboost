@@ -22,6 +22,7 @@ from typing_extensions import Self, deprecated
 
 from . import index
 from .accessors.fielddata import DataGroup
+from .accessors.globals import GlobalGroup
 from .accessors.meshes import MeshGroup
 from .common import hdf_pointer, utilities
 from .common.file_handler import FileHandler, with_file_open
@@ -108,6 +109,7 @@ class Simulation:
         # Initialize groups to meshes, data and userdata. Create groups.
         self.meshes: MeshGroup = MeshGroup(self._file)
         self.data: DataGroup = DataGroup(self._file, self.meshes)
+        self.globals: GlobalGroup = GlobalGroup(self._file, '/globals')
         self.userdata: hdf_pointer.MutableGroup = hdf_pointer.MutableGroup(
             self._file, "/userdata"
         )
@@ -427,18 +429,6 @@ class Simulation:
 
         mesh = self.meshes[mesh_name]
         return mesh.coordinates, mesh.connectivity
-
-    @property
-    @with_file_open("r")
-    def globals(self) -> pd.DataFrame:
-        """Return global data.
-
-        Returns:
-            :class:`pd.DataFrame`
-        """
-        grp = self._file["globals"]
-        d = {key: grp[key][()] for key in grp.keys()}
-        return pd.DataFrame.from_dict(d)
 
     @property
     @deprecated("Use `data.info` instead")
