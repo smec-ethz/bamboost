@@ -32,6 +32,10 @@ class SimulationWriter(Simulation):
     """The SimulationWriter is the writer object for a single simulation. It inherits
     all reading methods from :class:`Simulation`.
 
+    This class can be used as a context manager. When entering the context, the status
+    of the simulation is changed to "Started". When an exception is raised inside the
+    context, the status is changed to "Failed [Exception]".
+
     Args:
         uid: The identifier of the simulation
         path: The (parent) database path
@@ -43,15 +47,13 @@ class SimulationWriter(Simulation):
         self.step: int = 0
 
     def __enter__(self):
-        self.change_status("Running")  # change status to running (process 0 only)
+        self.change_status("Started")  # change status to running (process 0 only)
         self._comm.barrier()  # wait for change status to be written
         return self
 
     def __exit__(self, exc_type, exc_val, exc_tb):
-        if exc_type or exc_val:
-            self.change_status("Failed")
-        else:
-            self.change_status("Finished")
+        if exc_type:
+            self.change_status(f"Failed [{exc_type.__name__}]")
         self._comm.barrier()
 
     def initialize(self) -> SimulationWriter:
