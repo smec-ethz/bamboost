@@ -1,6 +1,13 @@
 Change log for bamboost
 =======================
 
+v0.4.5 (13Feb24)
+--------------
+
+API: sim.globals now returns a (hdf)Group object instead of a pandas dataframe
+to be consistent with the other data accessors (sim.data, sim.userdata,
+sim.meshes). The pandas dataframe is now accessible with `sim.globals.df`.
+
 v0.4.4 (12Feb24)
 --------------
 
