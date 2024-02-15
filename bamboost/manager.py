@@ -19,7 +19,7 @@ from typing import Union
 
 import h5py
 import pandas as pd
-from mpi4py import MPI
+from bamboost.common.mpi import MPI
 
 from . import index
 from .common.file_handler import open_h5file

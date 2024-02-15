@@ -17,7 +17,7 @@ from typing import Union
 from typing_extensions import deprecated
 
 import numpy as np
-from mpi4py import MPI
+from bamboost.common.mpi import MPI
 
 from .common.git_utility import GitStateGetter
 from .common.utilities import flatten_dict
