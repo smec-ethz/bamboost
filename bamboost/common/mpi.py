@@ -119,7 +119,7 @@ class MockMPI:
     COMM_NULL = Comm()
 
 
-if os.environ['BAMBOOST_NO_MPI'] == '1':
+if os.environ.get('BAMBOOST_NO_MPI', "0") == "1":
     MPI = MockMPI
 else:
     try:
