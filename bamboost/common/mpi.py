@@ -34,7 +34,7 @@ class MockMPI:
             return data
 
         def allgather(self, data):
-            return data
+            return [data]
 
         def allreduce(self, data, op):
             return data
