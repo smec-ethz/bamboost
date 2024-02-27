@@ -323,7 +323,7 @@ class Simulation:
         ncpus=1,
         time="04:00:00",
         mem_per_cpu=2048,
-        tmp=8000,
+        tmp=None,
         euler=True,
     ) -> None:
         """Create a batch job and put it into the folder.
