@@ -19,10 +19,10 @@ from typing import Union
 
 import h5py
 import pandas as pd
-from bamboost.common.mpi import MPI
 
 from . import index
 from .common.file_handler import open_h5file
+from .common.mpi import MPI
 from .simulation import Simulation
 from .simulation_writer import SimulationWriter
 
@@ -90,6 +90,10 @@ class Manager:
             time it is accessed.
         fromUID: Access a database by its UID
         fromName: Access a database by its path/name
+
+    Example:
+        >>> db = Manager("path/to/db")
+        >>> db.df # DataFrame of the database
     """
 
     FIX_DF = True
@@ -279,6 +283,7 @@ class Manager:
             uid (`str`): unique identifier
             return_writer: if true, return `SimulationWriter`, otherwise
                 return `Simulation`
+
         Returns:
             :class:`~bamboost.simulation.Simulation`
         """
@@ -306,8 +311,12 @@ class Manager:
             exclude (`list[str]`): sims to exclude
             return_writer: if true, return `SimulationWriter`, otherwise
                 return `Simulation`
+
         Returns:
             A list of `:class:~bamboost.simulation.Simulation` objects
+
+        Examples:
+            >>> db.sims(select=db.df["status"] == "finished", sort="time_stamp")
         """
         if select is not None:
             id_list = self.df[select]["id"].values
@@ -345,8 +354,15 @@ class Manager:
                 specified later with :func:`~bamboost.simulation.SimulationWriter.add_parameters`.
             skip_duplicate_check (`bool`): if True, the duplicate check is skipped.
             prefix (`str`): Prefix for the uid. If not specified, no prefix is used.
+
         Returns:
             sim (:class:`~bamboost.simulation.SimulationWriter`)
+
+        Examples:
+            >>> db.create_simulation(parameters={"a": 1, "b": 2})
+            apple
+
+            >>> db.create_simulation(uid="my_sim", parameters={"a": 1, "b": 2}, prefix="test")
         """
         if parameters and not skip_duplicate_check:
             go_on, uid = self._check_duplicate(parameters, uid)

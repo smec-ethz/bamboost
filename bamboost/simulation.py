@@ -437,7 +437,7 @@ class Simulation:
     @property
     @deprecated("Use `data.info` instead")
     @with_file_open("r")
-    def data_info(self) -> pd.Dataframe:
+    def data_info(self) -> pd.DataFrame:
         """View the data stored.
 
         Returns:

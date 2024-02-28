@@ -114,6 +114,9 @@ class MockMPI:
         def get_size(self):
             return 1
 
+        def Get_size(self):
+            return 1
+
     COMM_WORLD = Comm()
     COMM_SELF = Comm()
     COMM_NULL = Comm()
