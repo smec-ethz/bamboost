@@ -13,10 +13,11 @@ import datetime
 import logging
 import os
 import shutil
-from typing import Union
-from typing_extensions import deprecated
+from typing import Iterable, Union
 
 import numpy as np
+from typing_extensions import deprecated
+
 from bamboost.common.mpi import MPI
 
 from .common.git_utility import GitStateGetter
@@ -151,7 +152,14 @@ class SimulationWriter(Simulation):
             conn[idx_start_cells:idx_end_cells] = connectivity
 
     def add_field(
-        self, name: str, vector: np.array, time: float = None, mesh: str = None, dtype: str = None
+        self,
+        name: str,
+        vector: np.array,
+        time: float = None,
+        mesh: str = None,
+        dtype: str = None,
+        global_map: Iterable = None,
+        global_size: int = None,
     ) -> None:
         """Add a dataset to the file. The data is stored at `data/`.
 
@@ -160,26 +168,33 @@ class SimulationWriter(Simulation):
             vector: Dataset
             time: Optional. time
             mesh: Optional. Linked mesh for this data
-            dtype: Optional. Numpy style datatype, see h5py documentation, defaults to the dtype of
+            dtype: Optional. Numpy style datatype, see h5py documentation,
+                defaults to the dtype of the vector
+            map: Optional. Map to map the local data to a global array. From
+                parallel processes to a global array. Needed to align with mesh.
+                Indices must be increasing.
+            global_size: Optional. Size of the global array. If not given, the
+                global size is inferred from the vector sizes of each process.
         """
         if mesh is None:
             mesh = self._default_mesh
 
-        # Get dimension of vector
-        if vector.ndim <= 1:
-            vector = vector.reshape((-1, 1))
-        dim = vector.shape[1]
+        dim = vector.shape[1] if vector.ndim > 1 else None
 
         if time is None:
             time = self.step
 
         length_local = vector.shape[0]
         length_p = np.array(self._comm.allgather(length_local))
+
         length = np.sum(length_p)
+        length = length if global_size is None else global_size
 
         # global indices
-        idx_start = np.sum(length_p[self._ranks < self._prank])
-        idx_end = idx_start + length_local
+        if global_map is None:
+            idx_start = np.sum(length_p[self._ranks < self._prank])
+            idx_end = idx_start + length_local
+            global_map = slice(idx_start, idx_end)
 
         # open file
         with self._file("a", driver="mpio", comm=self._comm) as f:
@@ -187,8 +202,12 @@ class SimulationWriter(Simulation):
                 "data"
             )  # Require group data to store all point data in
             grp = data.require_group(name)
-            vec = grp.require_dataset(str(self.step), shape=(length, dim), dtype=dtype if dtype else vector.dtype)
-            vec[idx_start:idx_end, :] = vector
+            vec = grp.require_dataset(
+                str(self.step),
+                shape=(length, dim) if dim else (length,),
+                dtype=dtype if dtype else vector.dtype,
+            )
+            vec[global_map] = vector
 
         if self._prank == 0:
             with self._file("a"):
@@ -196,7 +215,9 @@ class SimulationWriter(Simulation):
                 vec.attrs["t"] = time  # add time as attribute to dataset
                 vec.attrs["mesh"] = mesh  # add link to mesh as attribute
 
-    def add_global_field(self, name: str, value: Union[float, int], dtype: str = None) -> None:
+    def add_global_field(
+        self, name: str, value: Union[float, int], dtype: str = None
+    ) -> None:
         """Add a gobal field. These are stored at `globals/` as an array in a
         single dataset.
 
@@ -209,7 +230,11 @@ class SimulationWriter(Simulation):
                 grp = f.require_group("globals")
                 if name not in grp.keys():
                     vec = grp.create_dataset(
-                        name, shape=(1,), dtype=dtype if dtype else np.array(value).dtype, chunks=True, maxshape=(None,)
+                        name,
+                        shape=(1,),
+                        dtype=dtype if dtype else np.array(value).dtype,
+                        chunks=True,
+                        maxshape=(None,),
                     )
                     vec[0] = value
                 else:
