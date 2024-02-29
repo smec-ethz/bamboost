@@ -17,7 +17,6 @@ from typing import Any, Iterable, Tuple
 
 import numpy as np
 import pandas as pd
-from bamboost.common.mpi import MPI
 from typing_extensions import Self, deprecated
 
 from . import index
@@ -27,6 +26,7 @@ from .accessors.meshes import MeshGroup
 from .common import hdf_pointer, utilities
 from .common.file_handler import FileHandler, with_file_open
 from .common.job import Job
+from .common.mpi import MPI
 from .xdmf import XDMFWriter
 
 __all__ = ["Simulation", "Links"]
@@ -109,7 +109,7 @@ class Simulation:
         # Initialize groups to meshes, data and userdata. Create groups.
         self.meshes: MeshGroup = MeshGroup(self._file)
         self.data: DataGroup = DataGroup(self._file, self.meshes)
-        self.globals: GlobalGroup = GlobalGroup(self._file, '/globals')
+        self.globals: GlobalGroup = GlobalGroup(self._file, "/globals")
         self.userdata: hdf_pointer.MutableGroup = hdf_pointer.MutableGroup(
             self._file, "/userdata"
         )
@@ -306,9 +306,17 @@ class Simulation:
                         [int(step) for step in nb_steps if not step.startswith("__")]
                     )
 
+                # temporary fix to load coordinates/geometry
+                coords_name = (
+                    "geometry"
+                    if "geometry"
+                    in f[f"{self._mesh_location}/{self._default_mesh}"].keys()
+                    else "coordinates"
+                )
+
             xdmf_writer = XDMFWriter(self.xdmffile, self.h5file)
             xdmf_writer.write_points_cells(
-                f"{self._mesh_location}/{self._default_mesh}/geometry",
+                f"{self._mesh_location}/{self._default_mesh}/{coords_name}",
                 f"{self._mesh_location}/{self._default_mesh}/topology",
             )
 
