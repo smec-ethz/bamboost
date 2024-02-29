@@ -179,7 +179,7 @@ class SimulationWriter(Simulation):
         if mesh is None:
             mesh = self._default_mesh
 
-        dim = vector.shape[1] if vector.ndim > 1 else None
+        dim = vector.shape[1:] if vector.ndim > 1 else None
 
         if time is None:
             time = self.step
@@ -204,7 +204,7 @@ class SimulationWriter(Simulation):
             grp = data.require_group(name)
             vec = grp.require_dataset(
                 str(self.step),
-                shape=(length, dim) if dim else (length,),
+                shape=(length, *dim) if dim else (length,),
                 dtype=dtype if dtype else vector.dtype,
             )
             vec[global_map] = vector
