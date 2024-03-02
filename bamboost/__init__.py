@@ -9,6 +9,7 @@ import os
 from .manager import Manager
 from .simulation import Simulation
 from .simulation_writer import SimulationWriter
+from .index import get_path, get_known_paths, get_index_dict, get_uid_from_path
 
 
 def set_log_level(level: int = 30):
