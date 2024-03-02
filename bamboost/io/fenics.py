@@ -10,13 +10,12 @@
 from __future__ import annotations
 
 from contextlib import contextmanager
-from typing import Iterable, TypedDict
+from typing import TypedDict
 
 import numpy as np
 
 from bamboost.common.file_handler import open_h5file
 from bamboost.common.mpi import MPI
-from bamboost.simulation import Simulation
 from bamboost.simulation_writer import SimulationWriter
 
 try:
@@ -108,6 +107,10 @@ class FenicsWriter(SimulationWriter):
             slicing is not continuously increasing), and the number of global
             vertices.
         """
+        assert hasattr(
+            func, "function_space"
+        ), "Input is likely an indexed coefficient. Project to it's own function space first."
+
         mesh = func.function_space().mesh()
         global_size = mesh.num_entities_global(0)
         shape = (-1, *func.ufl_shape) if func.ufl_shape else (-1,)
@@ -169,4 +172,3 @@ class FenicsWriter(SimulationWriter):
         with temporary_close_file():
             with fe.HDF5File(self._comm, self.h5file, "a") as f:
                 f.write(mesh, mesh_location)
-
