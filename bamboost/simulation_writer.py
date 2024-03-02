@@ -43,8 +43,14 @@ class SimulationWriter(Simulation):
         comm: An MPI communicator (Default: `MPI.COMM_WORLD`)
     """
 
-    def __init__(self, uid: str, path: str, comm: MPI.Comm = MPI.COMM_WORLD):
-        super().__init__(uid, path, comm)
+    def __init__(
+        self,
+        uid: str,
+        path: str,
+        comm: MPI.Comm = MPI.COMM_WORLD,
+        create_if_not_exists: bool = True,
+    ):
+        super().__init__(uid, path, comm, create_if_not_exists)
         self.step: int = 0
 
     def __enter__(self):

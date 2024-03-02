@@ -90,12 +90,22 @@ class Simulation:
     _mesh_location = "Mesh/0"
     _default_mesh = "mesh"
 
-    def __init__(self, uid: str, path: str, comm: MPI.Comm = MPI.COMM_WORLD):
+    def __init__(
+        self,
+        uid: str,
+        path: str,
+        comm: MPI.Comm = MPI.COMM_WORLD,
+        create_if_not_exists: bool = False,
+    ):
         self.uid: str = uid
         self.path_database: str = os.path.abspath(path)
         self.path: str = os.path.abspath(os.path.join(path, uid))
         self.h5file: str = os.path.join(self.path, f"{self.uid}.h5")
         self.xdmffile: str = os.path.join(self.path, f"{self.uid}.xdmf")
+        
+        if not os.path.exists(self.h5file) and not create_if_not_exists:
+            raise FileNotFoundError(f"Simulation {self.uid} does not exist in {self.path}.")
+
         os.makedirs(self.path, exist_ok=True)
 
         # MPI information
@@ -296,10 +306,12 @@ class Simulation:
 
         if self._prank == 0:
             with self._file("r") as f:
-                if not fields:
+                if 'data' not in f.keys():
+                    fields, nb_steps = [], 0
+                if fields is None:
                     fields = list(f["data"].keys())
 
-                if not nb_steps:
+                if nb_steps is None:
                     grp_name = list(f["data"].keys())[0]
                     nb_steps = list(f[f"data/{grp_name}"].keys())
                     nb_steps = max(
@@ -320,7 +332,8 @@ class Simulation:
                 f"{self._mesh_location}/{self._default_mesh}/topology",
             )
 
-            xdmf_writer.add_timeseries(nb_steps + 1, fields)
+            if fields:
+                xdmf_writer.add_timeseries(nb_steps + 1, fields)
             xdmf_writer.write_file()
 
     def create_batch_script(
