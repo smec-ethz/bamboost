@@ -11,6 +11,7 @@ import os
 import xml.etree.ElementTree as ET
 
 import h5py
+import numpy as np
 
 __all__ = ["XDMFWriter"]
 
@@ -158,11 +159,16 @@ class XDMFWriter:
         """Write an attribute/field."""
         with h5py.File(self.h5file, "r") as f:
             data = f[f"data/{field_name}/{step}"]
-            try:
-                shape = data.shape[1]
-            except IndexError:
-                shape = 1
-            att_type = {1: "Scalar", 2: "Vector", 3: "Tensor"}.get(shape, "Scalar")
+            
+            if data.ndim == 1 or data.shape[1] <= 1:
+                att_type = "Scalar"
+            elif data.ndim == 2:
+                att_type = "Vector"
+            elif data.ndim == 3 and len(set(data.shape[1:])) == 1:
+                # Square shape -> Tensor
+                att_type = "Tensor"
+            else:
+                att_type = "Matrix"
 
             att = ET.SubElement(
                 grid,
@@ -173,10 +179,7 @@ class XDMFWriter:
             )
 
             dt, prec = numpy_to_xdmf_dtype[data.dtype.name]
-            try:
-                dim = "{} {}".format(*data.shape)
-            except IndexError:
-                dim = "{}".format(data.shape[0])
+            dim = " ".join([str(i) for i in data.shape])
 
             data_item = ET.SubElement(
                 att,
