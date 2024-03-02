@@ -52,6 +52,9 @@ class Job:
             script += f"#SBATCH --tmp={tmp}\n"
         script += f"#SBATCH --output={os.path.join(path, uid)}/{uid}.out\n"
 
+        # Add SCRIPT_DIR as environment variable
+        script += 'SCRIPT_DIR=$( cd -- "$( dirname -- "${BASH_SOURCE[0]}" )" &> /dev/null && pwd )\n\n'
+
         # user defined commands
         script += "\n"
         for cmd in commands:
@@ -74,6 +77,8 @@ class Job:
             mpicommand = f"mpirun -n {ntasks}"
 
         script = f"#!/bin/bash\n\n"
+
+        # Add SCRIPT_DIR as environment variable
         script += 'SCRIPT_DIR=$( cd -- "$( dirname -- "${BASH_SOURCE[0]}" )" &> /dev/null && pwd )\n\n'
 
         # user defined commands
