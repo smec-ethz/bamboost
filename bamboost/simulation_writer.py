@@ -14,12 +14,12 @@ import logging
 import os
 import shutil
 from typing import Union
-from typing_extensions import deprecated
 
 import numpy as np
-from mpi4py import MPI
+from typing_extensions import deprecated
 
 from .common.git_utility import GitStateGetter
+from .common.mpi import MPI
 from .common.utilities import flatten_dict
 from .simulation import Simulation
 
@@ -151,7 +151,12 @@ class SimulationWriter(Simulation):
             conn[idx_start_cells:idx_end_cells] = connectivity
 
     def add_field(
-        self, name: str, vector: np.array, time: float = None, mesh: str = None, dtype: str = None
+        self,
+        name: str,
+        vector: np.array,
+        time: float = None,
+        mesh: str = None,
+        dtype: str = None,
     ) -> None:
         """Add a dataset to the file. The data is stored at `data/`.
 
@@ -187,7 +192,11 @@ class SimulationWriter(Simulation):
                 "data"
             )  # Require group data to store all point data in
             grp = data.require_group(name)
-            vec = grp.require_dataset(str(self.step), shape=(length, dim), dtype=dtype if dtype else vector.dtype)
+            vec = grp.require_dataset(
+                str(self.step),
+                shape=(length, dim),
+                dtype=dtype if dtype else vector.dtype,
+            )
             vec[idx_start:idx_end, :] = vector
 
         if self._prank == 0:
@@ -196,7 +205,9 @@ class SimulationWriter(Simulation):
                 vec.attrs["t"] = time  # add time as attribute to dataset
                 vec.attrs["mesh"] = mesh  # add link to mesh as attribute
 
-    def add_global_field(self, name: str, value: Union[float, int], dtype: str = None) -> None:
+    def add_global_field(
+        self, name: str, value: Union[float, int], dtype: str = None
+    ) -> None:
         """Add a gobal field. These are stored at `globals/` as an array in a
         single dataset.
 
@@ -209,7 +220,11 @@ class SimulationWriter(Simulation):
                 grp = f.require_group("globals")
                 if name not in grp.keys():
                     vec = grp.create_dataset(
-                        name, shape=(1,), dtype=dtype if dtype else np.array(value).dtype, chunks=True, maxshape=(None,)
+                        name,
+                        shape=(1,),
+                        dtype=dtype if dtype else np.array(value).dtype,
+                        chunks=True,
+                        maxshape=(None,),
                     )
                     vec[0] = value
                 else:
