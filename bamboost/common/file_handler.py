@@ -15,6 +15,7 @@ from functools import wraps
 from typing import Any
 
 import h5py
+
 from bamboost.common.mpi import MPI
 
 log = logging.getLogger(__name__)

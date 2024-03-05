@@ -163,8 +163,6 @@ class SimulationWriter(Simulation):
         time: float = None,
         mesh: str = None,
         dtype: str = None,
-        global_map: Iterable = None,
-        global_size: int = None,
     ) -> None:
         """Add a dataset to the file. The data is stored at `data/`.
 
@@ -175,11 +173,6 @@ class SimulationWriter(Simulation):
             mesh: Optional. Linked mesh for this data
             dtype: Optional. Numpy style datatype, see h5py documentation,
                 defaults to the dtype of the vector
-            map: Optional. Map to map the local data to a global array. From
-                parallel processes to a global array. Needed to align with mesh.
-                Indices must be increasing.
-            global_size: Optional. Size of the global array. If not given, the
-                global size is inferred from the vector sizes of each process.
         """
         if mesh is None:
             mesh = self._default_mesh
@@ -193,13 +186,10 @@ class SimulationWriter(Simulation):
         length_p = np.array(self._comm.allgather(length_local))
 
         length = np.sum(length_p)
-        length = length if global_size is None else global_size
 
         # global indices
-        if global_map is None:
-            idx_start = np.sum(length_p[self._ranks < self._prank])
-            idx_end = idx_start + length_local
-            global_map = slice(idx_start, idx_end)
+        idx_start = np.sum(length_p[self._ranks < self._prank])
+        idx_end = idx_start + length_local
 
         # open file
         with self._file("a", driver="mpio", comm=self._comm) as f:
@@ -212,7 +202,7 @@ class SimulationWriter(Simulation):
                 shape=(length, *dim) if dim else (length,),
                 dtype=dtype if dtype else vector.dtype,
             )
-            vec[global_map] = vector
+            vec[idx_start:idx_end, :] = vector
 
         if self._prank == 0:
             with self._file("a"):

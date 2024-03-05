@@ -276,14 +276,19 @@ class Manager:
                 data.append(tmp_dict)
         return pd.DataFrame.from_records(data)
 
-    def sim(self, uid, return_writer: bool = False, writer_type: SimulationWriter = SimulationWriter) -> Simulation:
+    def sim(
+        self,
+        uid,
+        return_writer: bool = False,
+        writer_type: SimulationWriter = SimulationWriter,
+    ) -> Simulation:
         """Get an existing simulation with uid. Same as accessing with `db[uid]` directly.
 
         Args:
             uid (`str`): unique identifier
             return_writer: if true, return `SimulationWriter`, otherwise
                 return `Simulation`
-            writer_type: if specified, return this type of writer
+            writer_type: Optionally, you can specify a custom writer type to return.
 
         Returns:
             :class:`~bamboost.simulation.Simulation`

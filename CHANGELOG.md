@@ -1,6 +1,16 @@
 Change log for bamboost
 =======================
 
+v0.5.1 (??)
+--------------
+
+- API: `SimulationWriter.add_field` does not reshape 1D arrays to 2D anymore.
+  Arrays are written as they are.
+- API: `SimulationWriter.add_field` now accepts arrays of any shape, not only
+  1D or 2D arrays.
+- FIX: fixed `XDMFWriter` to correctly write Tensors/Matrices.
+- FEAT: new function `sim.open_paraview`
+
 v0.5.0 (05Mar24)
 --------------
 
