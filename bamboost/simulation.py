@@ -17,7 +17,6 @@ from typing import Any, Iterable, Tuple
 
 import numpy as np
 import pandas as pd
-from mpi4py import MPI
 from typing_extensions import Self, deprecated
 
 from . import index
@@ -27,6 +26,7 @@ from .accessors.meshes import MeshGroup
 from .common import hdf_pointer, utilities
 from .common.file_handler import FileHandler, with_file_open
 from .common.job import Job
+from .common.mpi import MPI
 from .xdmf import XDMFWriter
 
 __all__ = ["Simulation", "Links"]
@@ -109,7 +109,7 @@ class Simulation:
         # Initialize groups to meshes, data and userdata. Create groups.
         self.meshes: MeshGroup = MeshGroup(self._file)
         self.data: DataGroup = DataGroup(self._file, self.meshes)
-        self.globals: GlobalGroup = GlobalGroup(self._file, '/globals')
+        self.globals: GlobalGroup = GlobalGroup(self._file, "/globals")
         self.userdata: hdf_pointer.MutableGroup = hdf_pointer.MutableGroup(
             self._file, "/userdata"
         )
