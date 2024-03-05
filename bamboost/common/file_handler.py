@@ -53,7 +53,7 @@ def open_h5file(file: str, mode, driver=None, comm=None):
 
         except OSError:
             log.warning(f"File {file} not accessible, waiting")
-            time.sleep(.1)
+            time.sleep(0.1)
 
 
 def with_file_open(mode: str = "r", driver=None, comm=None):

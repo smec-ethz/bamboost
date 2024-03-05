@@ -18,9 +18,8 @@ from typing import Iterable, Union
 import numpy as np
 from typing_extensions import deprecated
 
-from bamboost.common.mpi import MPI
-
 from .common.git_utility import GitStateGetter
+from .common.mpi import MPI
 from .common.utilities import flatten_dict
 from .simulation import Simulation
 

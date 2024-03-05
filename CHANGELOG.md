@@ -1,6 +1,19 @@
 Change log for bamboost
 =======================
 
+v0.5.0 (05Mar24)
+--------------
+
+- FEAT: Made mpi4py an optional dependency (install `bamboost[mpi]` to include
+  it). This allows to use bamboost without mpi4py, e.g. when installing
+  `openmpi` is overkill.
+- FEAT: Environment variable `BAMBOOST_NO_MPI` can be set to `1` to disable
+  mpi4py even if it is installed.
+
+If mpi4py is not used (or installed) a MockMPI class is used internally to
+bypass any MPI code. Code should always still be written with MPI in mind.
+
+
 v0.4.5 (13Feb24)
 --------------
 
