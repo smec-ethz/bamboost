@@ -53,7 +53,7 @@ class DataGroup(hdf_pointer.Group):
 
     @property
     @with_file_open("r")
-    def info(self) -> pd.Dataframe:
+    def info(self) -> pd.DataFrame:
         """View the data stored.
 
         Returns:

@@ -42,8 +42,14 @@ class SimulationWriter(Simulation):
         comm: An MPI communicator (Default: `MPI.COMM_WORLD`)
     """
 
-    def __init__(self, uid: str, path: str, comm: MPI.Comm = MPI.COMM_WORLD):
-        super().__init__(uid, path, comm)
+    def __init__(
+        self,
+        uid: str,
+        path: str,
+        comm: MPI.Comm = MPI.COMM_WORLD,
+        create_if_not_exists: bool = True,
+    ):
+        super().__init__(uid, path, comm, create_if_not_exists)
         self.step: int = 0
 
     def __enter__(self):
@@ -165,7 +171,8 @@ class SimulationWriter(Simulation):
             vector: Dataset
             time: Optional. time
             mesh: Optional. Linked mesh for this data
-            dtype: Optional. Numpy style datatype, see h5py documentation, defaults to the dtype of
+            dtype: Optional. Numpy style datatype, see h5py documentation,
+                defaults to the dtype of the vector.
         """
         if mesh is None:
             mesh = self._default_mesh

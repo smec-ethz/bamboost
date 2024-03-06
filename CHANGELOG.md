@@ -5,6 +5,8 @@ v0.5.1 (06Mar24)
 --------------
 
 - FIX: bugfix
+- FIX: initialisation of `Simulation` does not create one anymore, if it doesn't
+  exist.
 
 v0.5.0 (05Mar24)
 --------------

@@ -90,12 +90,22 @@ class Simulation:
     _mesh_location = "Mesh/0"
     _default_mesh = "mesh"
 
-    def __init__(self, uid: str, path: str, comm: MPI.Comm = MPI.COMM_WORLD):
+    def __init__(
+        self,
+        uid: str,
+        path: str,
+        comm: MPI.Comm = MPI.COMM_WORLD,
+        create_if_not_exists: bool = False,
+    ):
         self.uid: str = uid
         self.path_database: str = os.path.abspath(path)
         self.path: str = os.path.abspath(os.path.join(path, uid))
         self.h5file: str = os.path.join(self.path, f"{self.uid}.h5")
         self.xdmffile: str = os.path.join(self.path, f"{self.uid}.xdmf")
+
+        if not os.path.exists(self.h5file) and not create_if_not_exists:
+            raise FileNotFoundError(f"Simulation {self.uid} does not exist in {self.path}.")
+
         os.makedirs(self.path, exist_ok=True)
 
         # MPI information
@@ -433,7 +443,7 @@ class Simulation:
     @property
     @deprecated("Use `data.info` instead")
     @with_file_open("r")
-    def data_info(self) -> pd.Dataframe:
+    def data_info(self) -> pd.DataFrame:
         """View the data stored.
 
         Returns:

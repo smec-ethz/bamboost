@@ -8,6 +8,7 @@
 # There is no warranty for this code
 import logging
 import os
+from typing import Any, Union
 
 log = logging.getLogger(__name__)
 
@@ -29,4 +30,4 @@ def _get_mpi_module():
         log.warning("MPI is not available, using MockMPI")
         return MockMPI
 
-MPI = _get_mpi_module()
+MPI: Union[MockMPI, Any] = _get_mpi_module()
