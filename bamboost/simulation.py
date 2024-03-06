@@ -102,7 +102,7 @@ class Simulation:
         self.path: str = os.path.abspath(os.path.join(path, uid))
         self.h5file: str = os.path.join(self.path, f"{self.uid}.h5")
         self.xdmffile: str = os.path.join(self.path, f"{self.uid}.xdmf")
-        
+
         if not os.path.exists(self.h5file) and not create_if_not_exists:
             raise FileNotFoundError(f"Simulation {self.uid} does not exist in {self.path}.")
 

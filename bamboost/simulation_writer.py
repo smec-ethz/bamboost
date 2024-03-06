@@ -172,7 +172,7 @@ class SimulationWriter(Simulation):
             time: Optional. time
             mesh: Optional. Linked mesh for this data
             dtype: Optional. Numpy style datatype, see h5py documentation,
-                defaults to the dtype of the vector
+                defaults to the dtype of the vector.
         """
         if mesh is None:
             mesh = self._default_mesh

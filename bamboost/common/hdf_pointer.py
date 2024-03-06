@@ -247,7 +247,6 @@ class MutableGroup(Group):
             dataset[idx_start:idx_end] = vector
             for key, item in attrs.items():
                 dataset.attrs[key] = item
-            dataset.flush()
 
         log.info(f"Written {name} as userdata to {self._file.file_name}...")
 

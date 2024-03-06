@@ -10,20 +10,20 @@ import logging
 import os
 from typing import Any, Union
 
-from ._mock_mpi import MockMPI
-
 log = logging.getLogger(__name__)
+
+from ._mock_mpi import MockMPI
 
 MPIType = Union[MockMPI, Any]
 
-MPI_ACTIVE: bool = False if os.environ.get("BAMBOOST_NO_MPI", "0") == "1" else True
+MPI_ON: bool = False if os.environ.get("BAMBOOST_NO_MPI", "0") == "1" else True
 """Indicates the use of `mpi4py.MPI`. If `False`, the `MockMPI` class is used
 instead. Is set by reading the environment variable `BAMBOOST_NO_MPI` [0 or 1].
 """
 
 
 def _get_mpi_module():
-    if not MPI_ACTIVE:
+    if not MPI_ON:
         return MockMPI
 
     try:
@@ -34,5 +34,4 @@ def _get_mpi_module():
         log.warning("MPI is not available, using MockMPI")
         return MockMPI
 
-
-MPI: MPIType = _get_mpi_module()
+MPI: Union[MockMPI, Any] = _get_mpi_module()
