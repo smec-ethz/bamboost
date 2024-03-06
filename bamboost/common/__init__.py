@@ -6,4 +6,5 @@ __all__ = [
     "utilities",
     "git_utility",
     "hdf_pointer",
+    "mpi",
 ]
