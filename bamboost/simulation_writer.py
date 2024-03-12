@@ -202,7 +202,7 @@ class SimulationWriter(Simulation):
                 shape=(length, *dim) if dim else (length,),
                 dtype=dtype if dtype else vector.dtype,
             )
-            vec[idx_start:idx_end, :] = vector
+            vec[idx_start:idx_end] = vector
 
         if self._prank == 0:
             with self._file("a"):
