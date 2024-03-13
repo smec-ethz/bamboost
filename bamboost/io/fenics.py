@@ -10,7 +10,6 @@
 from __future__ import annotations
 
 from contextlib import contextmanager
-from typing import TypedDict
 
 import numpy as np
 
@@ -23,11 +22,6 @@ try:
 except ImportError:
     raise ImportError("FEniCS not found. Module unavailable.")
 
-
-class GlobalDofsDict(TypedDict):
-    vector: np.ndarray
-    global_map: np.ndarray
-    global_size: int
 
 
 class FenicsWriter(SimulationWriter):
@@ -94,7 +88,7 @@ class FenicsWriter(SimulationWriter):
                 vec.attrs["t"] = time  # add time as attribute to dataset
                 vec.attrs["mesh"] = mesh  # add link to mesh as attribute
 
-    def _get_global_dofs(self, func: fe.Function) -> GlobalDofsDict:
+    def _get_global_dofs(self, func: fe.Function) -> dict:
         """
         Get global dofs for a given function.
 
