@@ -13,6 +13,7 @@ import numbers
 import os
 import pkgutil
 import shutil
+import sqlite3
 import uuid
 from ctypes import ArgumentError
 from typing import Union
@@ -124,6 +125,66 @@ class Manager:
         self._all_uids = self._get_uids()
         self._dataframe: pd.DataFrame = None
 
+        self._sql_file = os.path.abspath(os.path.join(self.path, f".{self.UID}.sqlite"))
+        self.update_sql_table()
+
+    def update_sql_table(self) -> None:
+        """Update the SQL table for the database."""
+        conn = sqlite3.connect(self._sql_file, detect_types=sqlite3.PARSE_DECLTYPES)
+        cursor = conn.cursor()
+
+        # Create table if not exists
+        cursor.execute(
+            """CREATE TABLE IF NOT EXISTS checksums
+                       (id TEXT PRIMARY KEY, checksum TEXT)"""
+        )
+        cursor.execute(
+            """CREATE TABLE IF NOT EXISTS database
+                       (id TEXT PRIMARY KEY)"""
+        )
+
+        for uid in self.all_uids:
+            h5file_for_uid = os.path.join(self.path, uid, f"{uid}.h5")
+            cursor.execute("""SELECT checksum FROM checksums WHERE id = ?""", (uid,))
+            res = cursor.fetchone()
+            # calculate checksum of h5 file
+            checksum = self._calculate_checksum(h5file_for_uid)
+            if res is None or res[0] != checksum or True:
+                cursor.execute(
+                    """INSERT OR REPLACE INTO checksums (id, checksum) VALUES (?, ?)""",
+                    (uid, checksum),
+                )
+                data = self._get_parameters_for_uid(uid)
+
+                # get columns of database table
+                cursor.execute("PRAGMA table_info(database)")
+                columns = cursor.fetchall()
+                # check if column needs to be added
+                for key, val in data.items():
+                    if not any(key == column[1] for column in columns):
+                        cursor.execute(
+                            f"""ALTER TABLE database ADD COLUMN {key} {type(val).__name__}"""
+                        )
+                # insert data into database table
+                cursor.execute(
+                    f"""INSERT OR REPLACE INTO database ({", ".join(data.keys())}) VALUES ({", ".join(["?"]*len(data))})""",
+                    tuple(data.values()),
+                )
+
+
+        conn.commit()
+        conn.close()
+
+    def _calculate_checksum(self, file: str) -> str:
+        """Calculate the checksum of a file."""
+        import hashlib
+
+        checksum = hashlib.md5()
+        with open(file, "rb") as f:
+            while chunk := f.read(4096):
+                checksum.update(chunk)
+        return checksum.hexdigest()
+
     def __getitem__(self, key: Union[str, int]) -> Simulation:
         """Returns the simulation in the specified row of the dataframe.
 
@@ -207,6 +268,33 @@ class Manager:
             return self._dataframe
         return self.get_view()
 
+    def _get_parameters_for_uid(
+        self, uid: str, include_linked_sims: bool = False
+    ) -> dict:
+        """Get the parameters for a given uid.
+
+        Args:
+            uid (`str`): uid of the simulation
+            include_linked_sims (`bool`): if True, include the parameters of linked sims
+        """
+        h5file_for_uid = os.path.join(self.path, uid, f"{uid}.h5")
+        tmp_dict = dict()
+
+        with open_h5file(h5file_for_uid, "r") as f:
+            if "parameters" in f.keys():
+                tmp_dict.update(f["parameters"].attrs)
+            if "additionals" in f.keys():
+                tmp_dict.update({"additionals": dict(f["additionals"].attrs)})
+            tmp_dict.update(f.attrs)
+
+        if include_linked_sims:
+            for linked, full_uid in self.sim(uid).links.attrs.items():
+                sim = Simulation.fromUID(full_uid)
+                tmp_dict.update(
+                    {f"{linked}.{key}": val for key, val in sim.parameters.items()}
+                )
+        return tmp_dict
+
     def get_view(self, include_linked_sims: bool = False) -> pd.DataFrame:
         """View of the database and its parametric space.
 
@@ -220,22 +308,9 @@ class Manager:
         data = list()
 
         for uid in all_uids:
-            h5file_for_uid = os.path.join(self.path, uid, f"{uid}.h5")
-            tmp_dict = dict()
-
-            with open_h5file(h5file_for_uid, "r") as f:
-                if "parameters" in f.keys():
-                    tmp_dict.update(f["parameters"].attrs)
-                if "additionals" in f.keys():
-                    tmp_dict.update({"additionals": dict(f["additionals"].attrs)})
-                tmp_dict.update(f.attrs)
-
-            if include_linked_sims:
-                for linked, full_uid in self.sim(uid).links.attrs.items():
-                    sim = Simulation.fromUID(full_uid)
-                    tmp_dict.update(
-                        {f"{linked}.{key}": val for key, val in sim.parameters.items()}
-                    )
+            tmp_dict = self._get_parameters_for_uid(
+                uid, include_linked_sims=include_linked_sims
+            )
             data.append(tmp_dict)
 
         df = pd.DataFrame.from_records(data)
