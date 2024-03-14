@@ -118,11 +118,11 @@ class Manager:
                 raise NotADirectoryError("Specified path is not a valid path.")
             log.info(f"Created new database ({path})")
             self._make_new(path)
+
         self.UID = self._retrieve_uid()
         # self._store_uid_in_index()
         self._all_uids = self._get_uids()
         self._dataframe: pd.DataFrame = None
-        self._meta_folder = os.path.join(path, ".database")
 
     def __getitem__(self, key: Union[str, int]) -> Simulation:
         """Returns the simulation in the specified row of the dataframe.
@@ -189,11 +189,6 @@ class Manager:
     def _store_uid_in_index(self) -> None:
         """Stores the UID of this database with the current path."""
         index.record_database(self.UID, os.path.abspath(self.path))
-
-    def _init_meta_folder(self) -> None:
-        os.makedirs(self._meta_folder, exist_ok=True)
-        with open(os.path.join(self._meta_folder, "README.txt"), "w") as f:
-            f.write(META_INFO)
 
     @property
     def all_uids(self) -> set:
