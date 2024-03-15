@@ -13,7 +13,6 @@ import numbers
 import os
 import pkgutil
 import shutil
-import sqlite3
 import uuid
 from ctypes import ArgumentError
 from typing import Union
@@ -26,6 +25,7 @@ from .common.file_handler import open_h5file
 from .common.mpi import MPI
 from .simulation import Simulation
 from .simulation_writer import SimulationWriter
+from .io.sqlite import SQLiteInterface
 
 __all__ = ["Manager", "ManagerFromUID", "ManagerFromName"]
 
@@ -122,58 +122,21 @@ class Manager:
 
         self.UID = self._retrieve_uid()
         # self._store_uid_in_index()
-        self._all_uids = self._get_uids()
-        self._dataframe: pd.DataFrame = None
+        self.all_uids = self._get_uids()
 
-        self._sql_file = os.path.abspath(os.path.join(self.path, f".{self.UID}.sqlite"))
-        self.update_sql_table()
+        # Update the SQL table for the database
+        self._sql = SQLiteInterface(self.path, self.UID)
+        with self._sql:
+            self._sql.assert_table_exists()
+            for entry_id in self.all_uids:
+                self._update_entry_in_sql(entry_id)
 
-    def update_sql_table(self) -> None:
-        """Update the SQL table for the database."""
-        conn = sqlite3.connect(self._sql_file, detect_types=sqlite3.PARSE_DECLTYPES)
-        cursor = conn.cursor()
-
-        # Create table if not exists
-        cursor.execute(
-            """CREATE TABLE IF NOT EXISTS checksums
-                       (id TEXT PRIMARY KEY, checksum TEXT)"""
-        )
-        cursor.execute(
-            """CREATE TABLE IF NOT EXISTS database
-                       (id TEXT PRIMARY KEY)"""
-        )
-
-        for uid in self.all_uids:
-            h5file_for_uid = os.path.join(self.path, uid, f"{uid}.h5")
-            cursor.execute("""SELECT checksum FROM checksums WHERE id = ?""", (uid,))
-            res = cursor.fetchone()
-            # calculate checksum of h5 file
-            checksum = self._calculate_checksum(h5file_for_uid)
-            if res is None or res[0] != checksum or True:
-                cursor.execute(
-                    """INSERT OR REPLACE INTO checksums (id, checksum) VALUES (?, ?)""",
-                    (uid, checksum),
-                )
-                data = self._get_parameters_for_uid(uid)
-
-                # get columns of database table
-                cursor.execute("PRAGMA table_info(database)")
-                columns = cursor.fetchall()
-                # check if column needs to be added
-                for key, val in data.items():
-                    if not any(key == column[1] for column in columns):
-                        cursor.execute(
-                            f"""ALTER TABLE database ADD COLUMN {key} {type(val).__name__}"""
-                        )
-                # insert data into database table
-                cursor.execute(
-                    f"""INSERT OR REPLACE INTO database ({", ".join(data.keys())}) VALUES ({", ".join(["?"]*len(data))})""",
-                    tuple(data.values()),
-                )
-
-
-        conn.commit()
-        conn.close()
+    def _update_entry_in_sql(self, entry_id: str) -> None:
+        """Update the entry in the database."""
+        ok, mtime = self._sql.is_up_to_date(entry_id)
+        if ok:
+            return
+        self._sql.update_entry(entry_id, self._get_parameters_for_uid(entry_id), mtime)
 
     def _calculate_checksum(self, file: str) -> str:
         """Calculate the checksum of a file."""
@@ -257,6 +220,10 @@ class Manager:
             return self._all_uids
         return self._get_uids()
 
+    @all_uids.setter
+    def all_uids(self, value: set | list):
+        self._all_uids = value
+
     @property
     def df(self) -> pd.DataFrame:
         """View of the database and its parametric space.
@@ -264,6 +231,8 @@ class Manager:
         Returns:
             :class:`pd.DataFrame`
         """
+        if not hasattr(self, "_dataframe"):
+            return self.get_view()
         if self.FIX_DF and self._dataframe is not None:
             return self._dataframe
         return self.get_view()
@@ -480,7 +449,9 @@ class Manager:
     def _get_uids(self) -> list:
         """Get all simulation names in the database."""
         all_uids = list()
-        for dir in [i for i in os.listdir(self.path) if not i.startswith(".")]:
+        for dir in os.listdir(self.path):
+            if not os.path.isdir(os.path.join(self.path, dir)):
+                continue
             if any(
                 [i.endswith(".h5") for i in os.listdir(os.path.join(self.path, dir))]
             ):
