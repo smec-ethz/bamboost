@@ -79,6 +79,12 @@ class SQLTable:
     """SQLite file for a bamoost database."""
 
     DOT_REPLACEMENT = "DOT"
+    _instances = {}
+
+    def __new__(cls, db: Manager, _comm = MPI.COMM_WORLD) -> SQLTable:
+        if db.UID not in cls._instances:
+            cls._instances[db.UID] = super(SQLTable, cls).__new__(cls)
+        return cls._instances[db.UID]
 
     def __init__(
         self,
