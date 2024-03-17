@@ -131,11 +131,7 @@ class Manager:
         self.table = SQLTable(self)
         with self.table.open:
             self.table.assert_table_exists()
-            # for entry_id in self.all_uids:
-                # self._update_entry_in_sql(entry_id)
             self.table.sync()
-            # Delete entries in the database that do not exist in the file system
-            self.table.sync_entry_ids(self.all_uids)
 
     def __getitem__(self, key: Union[str, int]) -> Simulation:
         """Returns the simulation in the specified row of the dataframe.

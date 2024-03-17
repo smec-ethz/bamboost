@@ -10,6 +10,7 @@ from __future__ import annotations
 
 import ast
 import io
+import json
 import os
 import sqlite3
 from datetime import datetime
@@ -26,43 +27,24 @@ from ..manager import Manager
 
 DATA_TYPES = {
     "ARRAY": "ARRAY",
+    "JSON": "JSON",
     int: "INTEGER",
     float: "REAL",
     str: "TEXT",
 }
 
 
-# Register adapters for numpy types
-def adapt_array(arr: np.ndarray):
-    """
-    http://stackoverflow.com/a/31312102/190597 (SoulNibbler)
-    """
-    # out = io.BytesIO()
-    # np.save(out, arr)
-    # out.seek(0)
-    # return sqlite3.Binary(out.read())
-    return str(arr.tolist())
-
-
-def adapt_numpy_number(val):
-    return val.item()
-
-
-def convert_array(text):
-    out = io.BytesIO(text)
-    out.seek(0)
-    return np.load(out)
-
-
 # Converts np.array to TEXT when inserting
-sqlite3.register_adapter(np.ndarray, adapt_array)
+sqlite3.register_adapter(np.ndarray, lambda arr: json.dumps(arr.tolist()))
+
+adapt_numpy_number = lambda val: val.item()
 sqlite3.register_adapter(np.int_, adapt_numpy_number)
 sqlite3.register_adapter(np.float_, adapt_numpy_number)
 sqlite3.register_adapter(np.datetime64, adapt_numpy_number)
 
 # Converts TEXT to np.array when selecting
-# sqlite3.register_converter("ARRAY", convert_array)
-sqlite3.register_converter("ARRAY", lambda text: eval(text))
+sqlite3.register_converter("ARRAY", lambda text: np.array(json.loads(text)))
+sqlite3.register_converter("JSON", lambda text: json.loads(text))
 
 
 def with_connection(func):
@@ -70,7 +52,7 @@ def with_connection(func):
     connection is opened and closed after the function is executed."""
 
     @wraps(func)
-    def wrapper(self, *args, **kwargs):
+    def wrapper(self: SQLTable, *args, **kwargs):
         cursor: sqlite3.Cursor = self.cursor
         # check if cursor is available
         if not self._is_open or cursor is None:
@@ -85,7 +67,7 @@ def _on_rank_0(func):
     """Decorator to ensure that the function is only executed on rank 0."""
 
     @wraps(func)
-    def wrapper(self, *args, **kwargs):
+    def wrapper(self: SQLTable, *args, **kwargs):
         if self._comm.rank == 0:
             return func(self, *args, **kwargs)
         return None
@@ -261,42 +243,6 @@ class SQLTable:
         df = pd.read_sql_query("SELECT * FROM database", self.conn)
         df.rename(columns=lambda x: x.replace(self.DOT_REPLACEMENT, "."), inplace=True)
         return df
-
-    @with_connection
-    @_on_rank_0
-    def is_up_to_date(self, entry_id: str) -> Tuple[bool, float]:
-        self.cursor.execute(
-            """SELECT update_time FROM update_times WHERE id = ?""", (entry_id,)
-        )
-        res = self.cursor.fetchone()
-
-        # read modification time of h5 file
-        mtime = self._entry(entry_id).modification_time
-        if res is None or res[0] != mtime:
-            return False, mtime
-
-        return True, mtime
-
-    @with_connection
-    @_on_rank_0
-    def sync_entry_ids(self, all_ids: set | list) -> set:
-        """Compare the ids in the database with the ids in the file system.
-        Delete entries in the database that do not exist in the file system.
-
-        Returns:
-            The ids that are not in the database.
-        """
-        if isinstance(all_ids, list):
-            all_ids = set(all_ids)
-
-        self.cursor.execute("""SELECT id FROM database""")
-        res = self.cursor.fetchall()
-        for row in res:
-            try:
-                all_ids.remove(row[0])
-            except KeyError:
-                self.cursor.execute("""DELETE FROM database WHERE id = ?""", (row[0],))
-        return all_ids  # return ids that are not in the database
 
 
 class Entry:
