@@ -18,9 +18,13 @@ from typing import Iterable, Union
 import numpy as np
 from typing_extensions import deprecated
 
+from bamboost import index
+from bamboost.index import get_path
+
 from .common.git_utility import GitStateGetter
 from .common.mpi import MPI
 from .common.utilities import flatten_dict
+from .io.sqlite import SQLTable
 from .simulation import Simulation
 
 __all__ = ["SimulationWriter"]
@@ -51,6 +55,7 @@ class SimulationWriter(Simulation):
     ):
         super().__init__(uid, path, comm, create_if_not_exists)
         self.step: int = 0
+        self._sql_table = SQLTable(index.get_uid_from_path(path), path=path, comm=comm)
 
     def __enter__(self):
         self.change_status("Started")  # change status to running (process 0 only)

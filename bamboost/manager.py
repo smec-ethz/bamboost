@@ -128,7 +128,7 @@ class Manager:
         self.all_uids = self._get_uids()
 
         # Update the SQL table for the database
-        self.table = SQLTable(self)
+        self.table = SQLTable(self.UID, path=self.path, _comm=self.comm)
         with self.table.open:
             self.table.assert_table_exists()
             self.table.sync()

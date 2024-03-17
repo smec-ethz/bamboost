@@ -20,6 +20,7 @@ from typing import Tuple
 import numpy as np
 import pandas as pd
 
+from bamboost import index
 from bamboost.common.file_handler import open_h5file
 from bamboost.common.mpi import MPI
 
@@ -31,6 +32,7 @@ DATA_TYPES = {
     int: "INTEGER",
     float: "REAL",
     str: "TEXT",
+    bool: "BOOL",
 }
 
 
@@ -41,12 +43,17 @@ adapt_numpy_number = lambda val: val.item()
 sqlite3.register_adapter(np.int_, adapt_numpy_number)
 sqlite3.register_adapter(np.float_, adapt_numpy_number)
 sqlite3.register_adapter(np.datetime64, adapt_numpy_number)
+sqlite3.register_adapter(bool, lambda val: int(val))
 
 # Converts TEXT to np.array when selecting
 sqlite3.register_converter("ARRAY", lambda text: np.array(json.loads(text)))
 sqlite3.register_converter("JSON", lambda text: json.loads(text))
+sqlite3.register_converter("BOOL", lambda val: bool(val))
 
 
+# ----------------
+# DECORATORS
+# ----------------
 def with_connection(func):
     """Decorator to ensure that the cursor is available. If the cursor is not available, the
     connection is opened and closed after the function is executed."""
@@ -75,30 +82,36 @@ def _on_rank_0(func):
     return wrapper
 
 
+# ----------------
+# CLASSES
+# ----------------
 class SQLTable:
     """SQLite file for a bamoost database."""
 
     DOT_REPLACEMENT = "DOT"
     _instances = {}
 
-    def __new__(cls, db: Manager, _comm = MPI.COMM_WORLD) -> SQLTable:
-        if db.UID not in cls._instances:
-            cls._instances[db.UID] = super(SQLTable, cls).__new__(cls)
-        return cls._instances[db.UID]
+    def __new__(cls, id, **kwargs) -> SQLTable:
+        if id not in cls._instances:
+            cls._instances[id] = super(SQLTable, cls).__new__(cls)
+        return cls._instances[id]
 
     def __init__(
         self,
-        db: Manager,
+        id: str,
+        *,
+        path: str = None,
         _comm: MPI.Comm = MPI.COMM_WORLD,
     ) -> None:
-        self.db = db
+        self.id = id
+        self.path = path if path is not None else index.get_path(id)
         self._comm = _comm
         # only rank 0 will interact with the table
         if self._comm.rank != 0:
             return
 
         self.file = os.path.abspath(
-            os.path.join(self.db.path, f".{self.db.UID}.sqlite")
+            os.path.join(self.path, f".{self.id}.sqlite")
         )
         self.conn = None
         self.cursor = None
@@ -143,11 +156,23 @@ class SQLTable:
 
     def _entry(self, entry_id: str) -> Entry:
         def new_entry(entry_id):
-            entry = Entry(self.db.path, entry_id)
+            entry = Entry(self.path, entry_id)
             self._entries[entry_id] = entry
             return entry
 
         return self._entries.get(entry_id, new_entry(entry_id))
+
+    def _get_uids(self) -> list:
+        """Get all simulation names in the database."""
+        all_uids = list()
+        for dir in os.listdir(self.path):
+            if not os.path.isdir(os.path.join(self.path, dir)):
+                continue
+            if any(
+                [i.endswith(".h5") for i in os.listdir(os.path.join(self.path, dir))]
+            ):
+                all_uids.append(dir)
+        return all_uids
 
     # ----------------
     # METHODS
@@ -173,7 +198,7 @@ class SQLTable:
         self.cursor.execute("""DROP TABLE IF EXISTS update_times""")
         self.assert_table_exists()
 
-        for id in self.db._get_uids():
+        for id in self._get_uids():
             self.update_entry(
                 id,
                 self._entry(id).get_all_metadata(),
@@ -184,7 +209,7 @@ class SQLTable:
     @with_connection
     def sync(self) -> None:
         """Sync the database with the file system."""
-        all_ids = set(self.db._get_uids())
+        all_ids = set(self._get_uids())
 
         self.cursor.execute("""SELECT id, update_time FROM update_times""")
         res = self.cursor.fetchall()
