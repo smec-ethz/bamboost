@@ -20,12 +20,15 @@ from typing import Union
 import h5py
 import pandas as pd
 
+# forward declaration
+class Manager: pass
+
 from . import index
 from .common.file_handler import open_h5file
 from .common.mpi import MPI
+from .io.sqlite import SQLTable
 from .simulation import Simulation
 from .simulation_writer import SimulationWriter
-from .io.sqlite import SQLiteInterface
 
 __all__ = ["Manager", "ManagerFromUID", "ManagerFromName"]
 
@@ -125,28 +128,14 @@ class Manager:
         self.all_uids = self._get_uids()
 
         # Update the SQL table for the database
-        self._sql = SQLiteInterface(self.path, self.UID)
-        with self._sql:
-            self._sql.assert_table_exists()
-            for entry_id in self.all_uids:
-                self._update_entry_in_sql(entry_id)
-
-    def _update_entry_in_sql(self, entry_id: str) -> None:
-        """Update the entry in the database."""
-        ok, mtime = self._sql.is_up_to_date(entry_id)
-        if ok:
-            return
-        self._sql.update_entry(entry_id, self._get_parameters_for_uid(entry_id), mtime)
-
-    def _calculate_checksum(self, file: str) -> str:
-        """Calculate the checksum of a file."""
-        import hashlib
-
-        checksum = hashlib.md5()
-        with open(file, "rb") as f:
-            while chunk := f.read(4096):
-                checksum.update(chunk)
-        return checksum.hexdigest()
+        self.table = SQLTable(self)
+        with self.table.open:
+            self.table.assert_table_exists()
+            # for entry_id in self.all_uids:
+                # self._update_entry_in_sql(entry_id)
+            self.table.sync()
+            # Delete entries in the database that do not exist in the file system
+            self.table.sync_entry_ids(self.all_uids)
 
     def __getitem__(self, key: Union[str, int]) -> Simulation:
         """Returns the simulation in the specified row of the dataframe.
@@ -186,9 +175,11 @@ class Manager:
 
     def _retrieve_uid(self) -> str:
         """Get the UID of this database from the file tree."""
-        for file in os.listdir(self.path):
-            if file.startswith(".BAMBOOST"):
-                return file.split("-")[1]
+        try:
+            return index.get_uid_from_path(self.path)
+        except FileNotFoundError:
+            pass
+
         log.warning("Database exists but no UID found. Generating new UID.")
         return self._make_new(self.path)
 
@@ -215,14 +206,26 @@ class Manager:
         index.record_database(self.UID, os.path.abspath(self.path))
 
     @property
-    def all_uids(self) -> set:
-        if self.FIX_DF:
-            return self._all_uids
-        return self._get_uids()
+    def all_uids(self) -> list:
+        if not self.FIX_DF:
+            self._all_uids = self._get_uids()
+        return self._all_uids
 
     @all_uids.setter
     def all_uids(self, value: set | list):
         self._all_uids = value
+
+    def _get_uids(self) -> list:
+        """Get all simulation names in the database."""
+        all_uids = list()
+        for dir in os.listdir(self.path):
+            if not os.path.isdir(os.path.join(self.path, dir)):
+                continue
+            if any(
+                [i.endswith(".h5") for i in os.listdir(os.path.join(self.path, dir))]
+            ):
+                all_uids.append(dir)
+        return all_uids
 
     @property
     def df(self) -> pd.DataFrame:
@@ -265,15 +268,43 @@ class Manager:
         return tmp_dict
 
     def get_view(self, include_linked_sims: bool = False) -> pd.DataFrame:
-        """View of the database and its parametric space.
+        """View of the database and its parametric space. Read from the sql
+        database. If `include_linked_sims` is True, the individual h5 files are
+        scanned.
 
         Args:
             include_linked_sims: if True, include the parameters of linked sims
 
-        Returns:
-            :class:`pd.DataFrame`
+        Examples:
+            >>> db.get_view()
+            >>> db.get_view(include_linked_sims=True)
         """
-        all_uids = self.all_uids
+        if include_linked_sims:
+            return self.get_view_from_hdf_files(include_linked_sims=True)
+
+        with self.table.open:
+            self.table.sync()
+            df = self.table.read_table(include_linked_sims)
+
+        if df.empty:
+            return df
+        df["time_stamp"] = pd.to_datetime(df["time_stamp"])
+
+        # Sort dataframe columns
+        columns_start = ["id", "notes", "status", "time_stamp"]
+        self._dataframe = df[[*columns_start, *df.columns.difference(columns_start)]]
+        return self._dataframe
+
+    def get_view_from_hdf_files(
+        self, include_linked_sims: bool = False
+    ) -> pd.DataFrame:
+        """View of the database and its parametric space. Read from the h5
+        files metadata.
+
+        Args:
+            include_linked_sims: if True, include the parameters of linked sims
+        """
+        all_uids = self._get_uids()
         data = list()
 
         for uid in all_uids:
@@ -445,18 +476,6 @@ class Manager:
             uid (`str`): uid
         """
         shutil.rmtree(os.path.join(self.path, uid))
-
-    def _get_uids(self) -> list:
-        """Get all simulation names in the database."""
-        all_uids = list()
-        for dir in os.listdir(self.path):
-            if not os.path.isdir(os.path.join(self.path, dir)):
-                continue
-            if any(
-                [i.endswith(".h5") for i in os.listdir(os.path.join(self.path, dir))]
-            ):
-                all_uids.append(dir)
-        return all_uids
 
     def _check_duplicate(self, parameters: dict, uid: str) -> tuple:
         """Checking whether the parameters dictionary exists already.

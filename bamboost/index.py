@@ -185,3 +185,11 @@ def create_index() -> None:
             uid = name.split("-")[1]
             index[uid] = os.path.dirname(database)
     _write_index_dict(index)
+
+
+def get_uid_from_path(path: str) -> str:
+    """Returns the UID found in the specified path."""
+    for file in os.listdir(path):
+        if file.startswith(".BAMBOOST"):
+            return file.split("-")[1]
+    raise FileNotFoundError("No UID file found at specified path.")
