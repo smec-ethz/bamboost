@@ -27,6 +27,7 @@ from .common import hdf_pointer, utilities
 from .common.file_handler import FileHandler, with_file_open
 from .common.job import Job
 from .common.mpi import MPI
+from .io.sqlite import SYNC_TABLE, SQLTable
 from .xdmf import XDMFWriter
 
 __all__ = ["Simulation", "Links"]
@@ -105,7 +106,9 @@ class Simulation:
         self.xdmffile: str = os.path.join(self.path, f"{self.uid}.xdmf")
 
         if not os.path.exists(self.h5file) and not create_if_not_exists:
-            raise FileNotFoundError(f"Simulation {self.uid} does not exist in {self.path}.")
+            raise FileNotFoundError(
+                f"Simulation {self.uid} does not exist in {self.path}."
+            )
 
         os.makedirs(self.path, exist_ok=True)
 
@@ -277,6 +280,11 @@ class Simulation:
             self._file.attrs["status"] = status
             self._file.close()
 
+        if SYNC_TABLE:
+            SQLTable(
+                self.database_id, path=self.path_database, _comm=self._comm
+            ).update_entry(self.uid, {"status": status})
+
     def update_metadata(self, update_dict: dict) -> None:
         """Update the metadata attributes.
 
@@ -286,6 +294,11 @@ class Simulation:
         with self._file("a") as file:
             file.attrs.update(update_dict)
 
+        if SYNC_TABLE:
+            SQLTable(
+                self.database_id, path=self.path_database, _comm=self._comm
+            ).update_entry(self.uid, update_dict)
+
     def update_parameters(self, update_dict: dict) -> None:
         """Update the parameters dictionary.
 
@@ -293,8 +306,14 @@ class Simulation:
             update_dict: dictionary to push
         """
         if self._prank == 0:
+            update_dict = utilities.flatten_dict(update_dict)
             with self._file("a") as file:
-                file["parameters"].attrs.update(utilities.flatten_dict(update_dict))
+                file["parameters"].attrs.update(update_dict)
+
+            if SYNC_TABLE:
+                SQLTable(
+                    self.database_id, path=self.path_database, _comm=self._comm
+                ).update_entry(self.uid, update_dict)
 
     def create_xdmf_file(self, fields: list = None, nb_steps: int = None) -> None:
         """Create the xdmf file to read in paraview.
@@ -307,7 +326,7 @@ class Simulation:
 
         if self._prank == 0:
             with self._file("r") as f:
-                if 'data' not in f.keys():
+                if "data" not in f.keys():
                     fields, nb_steps = [], 0
                 if fields is None:
                     fields = list(f["data"].keys())
@@ -415,7 +434,13 @@ class Simulation:
 
     @with_file_open("a")
     def change_note(self, note) -> None:
-        self._file.attrs["notes"] = note
+        if self._prank == 0:
+            self._file.attrs["notes"] = note
+
+            if SYNC_TABLE:
+                SQLTable(
+                    self.database_id, path=self.path_database, _comm=self._comm
+                ).update_entry(self.uid, {"notes": note})
 
     # Ex-Simulation reader methods
     # ----------------------------

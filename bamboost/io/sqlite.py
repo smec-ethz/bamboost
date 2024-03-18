@@ -8,14 +8,13 @@
 # There is no warranty for this code
 from __future__ import annotations
 
-import ast
-import io
 import json
 import os
 import sqlite3
-from datetime import datetime
+from contextlib import contextmanager
 from functools import wraps
-from typing import Tuple
+from time import time
+from typing import Any, Callable, Generator
 
 import numpy as np
 import pandas as pd
@@ -23,8 +22,6 @@ import pandas as pd
 from bamboost import index
 from bamboost.common.file_handler import open_h5file
 from bamboost.common.mpi import MPI
-
-from ..manager import Manager
 
 DATA_TYPES = {
     "ARRAY": "ARRAY",
@@ -34,6 +31,8 @@ DATA_TYPES = {
     str: "TEXT",
     bool: "BOOL",
 }
+
+SYNC_TABLE = True
 
 
 # Converts np.array to TEXT when inserting
@@ -63,7 +62,7 @@ def with_connection(func):
         cursor: sqlite3.Cursor = self.cursor
         # check if cursor is available
         if not self._is_open or cursor is None:
-            with self.open:
+            with self.open():
                 return func(self, *args, **kwargs)
         return func(self, *args, **kwargs)
 
@@ -86,10 +85,19 @@ def _on_rank_0(func):
 # CLASSES
 # ----------------
 class SQLTable:
-    """SQLite file for a bamoost database."""
+    """SQLite table for a bamoost database.
+    Multiton pattern is used to ensure that only one instance of the class is
+    created for each database id.
 
-    DOT_REPLACEMENT = "DOT"
+    Args:
+        id (str): The id of the database.
+        path (str, optional): The path to the database. Defaults to None.
+        _comm (MPI.Comm, optional): The MPI communicator. Defaults to
+            MPI.COMM_WORLD.
+    """
+
     _instances = {}
+    DOT_REPLACEMENT = "DOT"
 
     def __new__(cls, id, **kwargs) -> SQLTable:
         if id not in cls._instances:
@@ -103,64 +111,106 @@ class SQLTable:
         path: str = None,
         _comm: MPI.Comm = MPI.COMM_WORLD,
     ) -> None:
+        # only rank 0 will interact with the table
+        if _comm.rank != 0:
+            return
+        # only initialize if not already initialized
+        if hasattr(self, "_initialized"):
+            return
+
         self.id = id
         self.path = path if path is not None else index.get_path(id)
         self._comm = _comm
-        # only rank 0 will interact with the table
-        if self._comm.rank != 0:
-            return
 
-        self.file = os.path.abspath(
-            os.path.join(self.path, f".{self.id}.sqlite")
-        )
+        self.file = os.path.abspath(os.path.join(self.path, f".{self.id}.sqlite"))
         self.conn = None
         self.cursor = None
         self._is_open = False
-        self._lock: int = 0
+        self._lock = 0
 
+        # self._connect()
         self._entries = dict()
+        self._initialized = True
+
+    @property
+    def _lock(self) -> int:
+        return self._lock_count
+
+    @_lock.setter
+    def _lock(self, value: int):
+        self._lock_count = value if value >= 0 else 0
 
     @_on_rank_0
     def _connect(self) -> None:
         """Connect to the database."""
-        self.conn = sqlite3.connect(self.file, detect_types=sqlite3.PARSE_DECLTYPES)
-        self.cursor = self.conn.cursor()
-        self._is_open = True
-
-    @_on_rank_0
-    def _close(self) -> None:
-        """Close the database."""
-        self.conn.commit()
-        self.cursor.close()
-        self.conn.close()
-        self._is_open = False
-
-    @property
-    @_on_rank_0
-    def open(self) -> SQLTable:
-        """For readability, the open method is used as a context manager."""
-        return self
-
-    @_on_rank_0
-    def __enter__(self) -> sqlite3.Cursor:
         self._lock += 1
         if not self._is_open:
-            self._connect()
-        return self.cursor
+            self.conn = sqlite3.connect(self.file, detect_types=sqlite3.PARSE_DECLTYPES)
+            self.cursor = self.conn.cursor()
+            self._is_open = True
 
     @_on_rank_0
-    def __exit__(self, exc_type, exc_value, traceback) -> None:
-        self._lock -= 1
-        if self._lock <= 0:
-            self._close()
+    def _close(self, *, force: bool = False, ensure_commit: bool = False) -> None:
+        """Commits and closes connection if the _lock_count is at 0.
+
+        Args:
+            force (bool, optional): Force the closing of the connection. Defaults to False.
+            force_commit (bool, optional): Force the commit of the connection. Defaults to False.
+        """
+        if force:
+            self._lock = 0
+        else:
+            self._lock -= 1
+
+        if self._lock <= 0 and self._is_open:
+            self.conn.commit()
+            self.cursor.close()
+            self.conn.close()
+            self._is_open = False
+            return
+
+        if ensure_commit:
+            self.conn.commit()
+
+    @_on_rank_0
+    @contextmanager
+    def open(self, *, ensure_commit: bool = False) -> Generator[SQLTable]:
+        """The open method is used as a context manager.
+
+        Args:
+            ensure_commit (bool, optional): Ensure that the connection is committed. Defaults to False.
+
+        Example:
+            >>> with db.table.open() as table:
+            >>>     table.cursor.execute("SELECT * FROM database")
+        """
+        self._connect()
+        yield self
+        self._close(ensure_commit=ensure_commit)
+
+    def commit_once(self, func) -> Callable:
+        """Decorator to bundle changes to a single commit.
+
+        Example:
+            >>> @db.table.commit_once
+            >>> def create_a_bunch_of_simulations():
+            >>>     for i in range(1000):
+            >>>         db.create_simulation(parameters={...})
+            >>>
+            >>> create_a_bunch_of_simulations()
+        """
+
+        def wrapper(*args, **kwargs):
+            with self.open(ensure_commit=True):
+                return func(*args, **kwargs)
+
+        return wrapper
 
     def _entry(self, entry_id: str) -> Entry:
-        def new_entry(entry_id):
+        if entry_id not in self._entries:
             entry = Entry(self.path, entry_id)
             self._entries[entry_id] = entry
-            return entry
-
-        return self._entries.get(entry_id, new_entry(entry_id))
+        return self._entries[entry_id]
 
     def _get_uids(self) -> list:
         """Get all simulation names in the database."""
@@ -202,7 +252,6 @@ class SQLTable:
             self.update_entry(
                 id,
                 self._entry(id).get_all_metadata(),
-                self._entry(id).modification_time,
             )
 
     @_on_rank_0
@@ -224,25 +273,24 @@ class SQLTable:
             # update entries that have been modified
             all_ids.remove(id)
             mtime = self._entry(id).modification_time
-            if mtime != last_up_time:
-                self.update_entry(id, self._entry(id).get_all_metadata(), mtime)
+            if mtime > last_up_time:
+                self.update_entry(id, self._entry(id).get_all_metadata())
 
         # add new entries
         for id in all_ids:
             self.update_entry(
                 id,
                 self._entry(id).get_all_metadata(),
-                self._entry(id).modification_time,
             )
 
     @with_connection
     @_on_rank_0
-    def update_entry(self, id: str, data: dict, modification_time: float) -> None:
+    def update_entry(self, id: str, data: dict) -> None:
         """Update the entry in the database."""
 
         self.cursor.execute(
             """INSERT OR REPLACE INTO update_times (id, update_time) VALUES (?, ?)""",
-            (id, modification_time),
+            (id, time()),
         )
 
         # get columns of database table
@@ -263,10 +311,14 @@ class SQLTable:
                 )
 
         # insert data into database table
-        self.cursor.execute(
-            f"""INSERT OR REPLACE INTO database ({", ".join([i.replace('.', self.DOT_REPLACEMENT) for i in data.keys()])}) VALUES ({", ".join(["?"]*len(data))})""",
-            tuple(data.values()),
-        )
+        data.pop("id", None)
+        sql = f"""
+        INSERT INTO database (id, {", ".join(data.keys())}) 
+        VALUES (:id, {", ".join(f":{key}" for key in data.keys())})
+        ON CONFLICT(id) DO UPDATE SET {", ".join(f"{key} = excluded.{key}" for key in data.keys())}
+        """
+        data["id"] = id
+        self.cursor.execute(sql, data)
 
     @with_connection
     @_on_rank_0

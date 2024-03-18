@@ -13,6 +13,7 @@ import datetime
 import logging
 import os
 import shutil
+from time import time
 from typing import Iterable, Union
 
 import numpy as np
@@ -24,7 +25,7 @@ from bamboost.index import get_path
 from .common.git_utility import GitStateGetter
 from .common.mpi import MPI
 from .common.utilities import flatten_dict
-from .io.sqlite import SQLTable
+from .io.sqlite import SQLTable, SYNC_TABLE
 from .simulation import Simulation
 
 __all__ = ["SimulationWriter"]
@@ -55,7 +56,10 @@ class SimulationWriter(Simulation):
     ):
         super().__init__(uid, path, comm, create_if_not_exists)
         self.step: int = 0
-        self._sql_table = SQLTable(index.get_uid_from_path(path), path=path, comm=comm)
+        if SYNC_TABLE:
+            self._sql_table = SQLTable(
+                index.get_uid_from_path(path), path=path, _comm=comm
+            )
 
     def __enter__(self):
         self.change_status("Started")  # change status to running (process 0 only)
@@ -82,12 +86,15 @@ class SimulationWriter(Simulation):
         nb_proc = self._comm.Get_size()
         if self._prank == 0:
             with self._file("a"):
-                self._file.attrs["time_stamp"] = str(
-                    datetime.datetime.now().replace(microsecond=0)
-                )
-                self._file.attrs["id"] = self.uid
-                self._file.attrs["processors"] = nb_proc
-                self._file.attrs["notes"] = self._file.attrs.get("notes", "")
+                data = {
+                    "time_stamp": str(datetime.datetime.now().replace(microsecond=0)),
+                    "id": self.uid,
+                    "processors": nb_proc,
+                    "notes": self._file.attrs.get("notes", ""),
+                }
+                self._file.attrs.update(data)
+            if SYNC_TABLE:
+                self._sql_table.update_entry(self.uid, data)
 
     def add_parameters(self, parameters: dict) -> None:
         """Add parameters to simulation.
@@ -108,8 +115,8 @@ class SimulationWriter(Simulation):
                         grp.create_dataset(key, data=val)
                     elif val is not None:
                         grp.attrs[key] = val
-                    else:
-                        pass
+            if SYNC_TABLE:
+                self._sql_table.update_entry(self.uid, parameters)
 
     def add_mesh(
         self, coordinates: np.ndarray, connectivity: np.ndarray, mesh_name: str = None

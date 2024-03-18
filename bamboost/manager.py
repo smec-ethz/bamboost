@@ -15,7 +15,7 @@ import pkgutil
 import shutil
 import uuid
 from ctypes import ArgumentError
-from typing import Union
+from typing import Generator, Union
 
 import h5py
 import pandas as pd
@@ -129,7 +129,7 @@ class Manager:
 
         # Update the SQL table for the database
         self.table = SQLTable(self.UID, path=self.path, _comm=self.comm)
-        with self.table.open:
+        with self.table.open():
             self.table.assert_table_exists()
             self.table.sync()
 
@@ -162,7 +162,7 @@ class Manager:
     def __len__(self) -> int:
         return len(self.all_uids)
 
-    def __iter__(self) -> Simulation:
+    def __iter__(self) -> Generator[Simulation]:
         for sim in self.sims():
             yield sim
 
@@ -278,7 +278,7 @@ class Manager:
         if include_linked_sims:
             return self.get_view_from_hdf_files(include_linked_sims=True)
 
-        with self.table.open:
+        with self.table.open():
             self.table.sync()
             df = self.table.read_table(include_linked_sims)
 
