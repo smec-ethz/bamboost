@@ -20,12 +20,16 @@ from typing import Generator, Union
 import h5py
 import pandas as pd
 
+
 # forward declaration
-class Manager: pass
+class Manager:
+    pass
+
 
 from . import index
 from .common.file_handler import open_h5file
 from .common.mpi import MPI
+from .index import Index, DatabaseTable
 from .io.sqlite import SQLTable
 from .simulation import Simulation
 from .simulation_writer import SimulationWriter
@@ -128,9 +132,10 @@ class Manager:
         self.all_uids = self._get_uids()
 
         # Update the SQL table for the database
-        self.table = SQLTable(self.UID, path=self.path, _comm=self.comm)
+        Index.insert_path(self.UID, self.path)
+        self.table = DatabaseTable(self.UID)
         with self.table.open():
-            self.table.assert_table_exists()
+            self.table.create_database_table()
             self.table.sync()
 
     def __getitem__(self, key: Union[str, int]) -> Simulation:
@@ -280,7 +285,7 @@ class Manager:
 
         with self.table.open():
             self.table.sync()
-            df = self.table.read_table(include_linked_sims)
+            df = self.table.read_table()
 
         if df.empty:
             return df

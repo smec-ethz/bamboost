@@ -9,6 +9,7 @@
 """Module to manage the database index and its ID's."""
 
 from __future__ import annotations
+
 from time import time
 
 __all__ = [
@@ -84,7 +85,7 @@ class Singleton(type):
         return cls._instances[cls]
 
 
-class Index(SQLiteDatabase, metaclass=Singleton):
+class IndexAPI(SQLiteDatabase, metaclass=Singleton):
     """
     SQLite database to store database ID, path lookup. As well as the table for
     each database. Location: ~/.local/share/bamboost
@@ -100,6 +101,18 @@ class Index(SQLiteDatabase, metaclass=Singleton):
         super().__init__()
         self.file = os.path.join(LOCAL_DIR, "database.db")
         self.create_index_table()
+
+    def __repr__(self) -> str:
+        return self.read_table().__repr__()
+
+    def _repr_html_(self) -> str:
+        return self.read_table()._repr_html_()
+
+    def __getitem__(self, id: str) -> DatabaseTable:
+        return DatabaseTable(id)
+
+    def _ipython_key_completions_(self) -> list:
+        return self.read_table().id.tolist()
 
     @with_connection
     def create_index_table(self) -> None:
@@ -157,6 +170,7 @@ class Index(SQLiteDatabase, metaclass=Singleton):
             id (str): ID of the database
             path (str): path of the database
         """
+        path = os.path.abspath(path)
         self._cursor.execute("INSERT OR REPLACE INTO dbindex VALUES (?, ?)", (id, path))
 
     @with_connection
@@ -169,6 +183,7 @@ class Index(SQLiteDatabase, metaclass=Singleton):
         Returns:
             str: ID of the database
         """
+        path = os.path.abspath(path)
         self._cursor.execute("SELECT id FROM dbindex WHERE path=?", (path,))
         return self._cursor.fetchone()[0]
 
@@ -187,6 +202,9 @@ class Index(SQLiteDatabase, metaclass=Singleton):
                 self.insert_path(id, os.path.dirname(database))
 
 
+Index: IndexAPI = IndexAPI()
+
+
 class DatabaseTable:
     """
     Class to manage the table of a database. Multiton pattern. One table per
@@ -200,16 +218,16 @@ class DatabaseTable:
             cls._instances[id] = super().__new__(cls)
         return cls._instances[id]
 
-    def __init__(self, id: str, _index: Index):
+    def __init__(self, id: str, *_):
         if hasattr(self, "_initialized"):
             return
 
         self.id = id
-        self._index = _index
         self._entries = {}
         self._initialized = True
-        self.path = self._index.get_path(self.id)
-        self.update_times_table = f"{self.id}_update_times"
+        self.path = Index.get_path(self.id)
+        self.tablename_db = f"db_{self.id}"
+        self.tablename_update_times = f"db_{self.id}_t"
         self.create_database_table()
 
     def __getattr__(self, name):
@@ -221,7 +239,7 @@ class DatabaseTable:
             "commit",
             "_is_open",
         }:
-            return getattr(self._index, name)
+            return getattr(Index, name)
         return self.__getattribute__(name)
 
     # ---------------------
@@ -234,26 +252,59 @@ class DatabaseTable:
         Returns:
             pd.DataFrame: table of the database
         """
-        df = pd.read_sql_query(f"SELECT * FROM {self.id}", self._conn)
+        df = pd.read_sql_query(f"SELECT * FROM {self.tablename_db}", self._conn)
+        df.rename(columns=lambda x: x.replace(DOT_REPLACEMENT, "."), inplace=True)
+        return df
+
+    @with_connection
+    def read_entry(self, entry_id: str) -> pd.Series:
+        """Read an entry from the database.
+
+        Args:
+            entry_id (str): ID of the entry
+
+        Returns:
+            pd.Series: entry from the database
+        """
+        self._cursor.execute(
+            f"SELECT * FROM {self.tablename_db} WHERE id=?", (entry_id,)
+        )
+        series = pd.Series(*self._cursor.fetchall())
+        series.index = [description[0] for description in self._cursor.description]
+        series.rename(index=lambda x: x.replace(DOT_REPLACEMENT, "."), inplace=True)
+        return series
+
+    @with_connection
+    def read_column(self, *columns: str) -> pd.DataFrame:
+        """Read columns from the database.
+
+        Args:
+            *columns (list): columns to read
+
+        Returns:
+            pd.DataFrame: columns from the database
+        """
+        self._cursor.execute(f"SELECT {', '.join(columns)} FROM {self.tablename_db}")
+        df = pd.DataFrame.from_records(self._cursor.fetchall(), columns=columns)
         df.rename(columns=lambda x: x.replace(DOT_REPLACEMENT, "."), inplace=True)
         return df
 
     @with_connection
     def drop_table(self) -> None:
         """Drop the table of the database."""
-        self._cursor.execute(f"DROP TABLE {self.id}")
-        self._cursor.execute(f"DROP TABLE {self.update_times_table}")
+        self._cursor.execute(f"DROP TABLE {self.tablename_db}")
+        self._cursor.execute(f"DROP TABLE {self.tablename_update_times}")
 
     @with_connection
     def create_database_table(self) -> None:
         """Create a table for a database."""
         self._cursor.execute(
-            f"""CREATE TABLE IF NOT EXISTS {self.id} (id TEXT PRIMARY KEY,
+            f"""CREATE TABLE IF NOT EXISTS {self.tablename_db} (id TEXT PRIMARY KEY,
                                                  time_stamp DATETIME, notes
                                                  TEXT processors INTEGER)"""
         )
         self._cursor.execute(
-            f"""CREATE TABLE IF NOT EXISTS {self.update_times_table} (id TEXT PRIMARY KEY,
+            f"""CREATE TABLE IF NOT EXISTS {self.tablename_update_times} (id TEXT PRIMARY KEY,
                 update_time DATETIME)
             """
         )
@@ -267,7 +318,7 @@ class DatabaseTable:
             data (dict): data to update
         """
         # get columns of table
-        self._cursor.execute(f"PRAGMA table_info({self.id})")
+        self._cursor.execute(f"PRAGMA table_info({self.tablename_db})")
         cols = self._cursor.fetchall()
 
         # check if columns exist
@@ -276,12 +327,14 @@ class DatabaseTable:
             if any(key == column[1] for column in cols):
                 continue
             dtype = parse_sqlite_type(val)
-            self._cursor.execute(f"ALTER TABLE {self.id} ADD COLUMN {key} {dtype}")
+            self._cursor.execute(
+                f"ALTER TABLE {self.tablename_db} ADD COLUMN {key} {dtype}"
+            )
 
         # insert data into table
         data.pop("id", None)
         sql = f"""
-        INSERT INTO {self.id} (id, {", ".join(data.keys())})
+        INSERT INTO {self.tablename_db} (id, {", ".join(data.keys())})
         VALUES (:id, {", ".join([f":{key}" for key in data.keys()])})
         ON CONFLICT(id) DO UPDATE SET
         {", ".join(f"{key} = excluded.{key}" for key in data.keys())}
@@ -291,7 +344,7 @@ class DatabaseTable:
 
         # update update time
         self._cursor.execute(
-            f"INSERT OR REPLACE INTO {self.update_times_table} VALUES (?, ?)",
+            f"INSERT OR REPLACE INTO {self.tablename_update_times} VALUES (?, ?)",
             (entry_id, time()),
         )
 
@@ -306,14 +359,18 @@ class DatabaseTable:
             ]
         )
 
-        self._cursor.execute(f"SELECT id, update_time FROM {self.update_times_table}")
+        self._cursor.execute(
+            f"SELECT id, update_time FROM {self.tablename_update_times}"
+        )
 
         for id, last_up_time in self._cursor.fetchall():
             # remove entries that do not exist on the file system
             if id not in all_ids_fs:
-                self._cursor.execute(f"DELETE FROM {self.id} WHERE id=?", (id,))
                 self._cursor.execute(
-                    f"DELETE FROM {self.update_times_table} WHERE id=?", (id,)
+                    f"DELETE FROM {self.tablename_db} WHERE id=?", (id,)
+                )
+                self._cursor.execute(
+                    f"DELETE FROM {self.tablename_update_times} WHERE id=?", (id,)
                 )
                 continue
 
