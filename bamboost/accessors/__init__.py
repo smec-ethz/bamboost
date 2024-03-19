@@ -1,3 +1,3 @@
 from . import meshes, fielddata
 
-__all__ = ["meshes", "fielddata"]
+__all__ = ["meshes", "fielddata", "globals"]

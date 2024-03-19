@@ -7,16 +7,16 @@
 #
 # There is no warranty for this code
 from __future__ import annotations
-from functools import wraps
 
 import json
+import logging
 import sqlite3
 from contextlib import contextmanager
+from functools import wraps
 from typing import Generator
-from typing_extensions import Self
-import logging
 
 import numpy as np
+from typing_extensions import Self
 
 from bamboost.common.mpi import MPI
 
@@ -60,6 +60,7 @@ sqlite3.register_converter("ARRAY", lambda text: np.array(json.loads(text)))
 sqlite3.register_converter("JSON", lambda text: json.loads(text))
 sqlite3.register_converter("BOOL", lambda val: bool(val))
 
+
 # ----------------
 # DECORATORS
 # ----------------
@@ -90,12 +91,13 @@ def on_rank_0(func):
 
     return wrapper
 
+
 class SQLiteDatabase:
     """
     Class to handle sqlite databases.
     """
 
-    def __init__(self, _comm = MPI.COMM_WORLD) -> None:
+    def __init__(self, _comm=MPI.COMM_WORLD) -> None:
         if _comm.rank != 0:
             return
         self._comm = _comm
@@ -146,7 +148,12 @@ class SQLiteDatabase:
         return self
 
     @contextmanager
-    def open(self) -> Generator[Self]:
+    def open(
+        self,
+        *,
+        force_close: bool = False,
+        ensure_commit: bool = False,
+    ) -> Generator[Self]:
         """The open method is used as a context manager.
 
         Args:
@@ -158,4 +165,4 @@ class SQLiteDatabase:
         """
         self.connect()
         yield self
-        self.close()
+        self.close(ensure_commit=ensure_commit, force=force_close)

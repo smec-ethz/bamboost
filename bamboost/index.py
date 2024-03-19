@@ -34,7 +34,7 @@ import sqlite3
 import subprocess
 from contextlib import contextmanager
 from dataclasses import dataclass
-from typing import Generator
+from typing import Callable, Generator
 
 import numpy as np
 import pandas as pd
@@ -201,6 +201,24 @@ class IndexAPI(SQLiteDatabase, metaclass=Singleton):
                 id = name.split("-")[1]
                 self.insert_path(id, os.path.dirname(database))
 
+    def commit_once(self, func) -> Callable:
+        """Decorator to bundle changes to a single commit.
+
+        Example:
+            >>> @Index.commit_once
+            >>> def create_a_bunch_of_simulations():
+            >>>     for i in range(1000):
+            >>>         db.create_simulation(parameters={...})
+            >>>
+            >>> create_a_bunch_of_simulations()
+        """
+
+        def wrapper(*args, **kwargs):
+            with self.open(ensure_commit=True):
+                return func(*args, **kwargs)
+
+        return wrapper
+
 
 Index: IndexAPI = IndexAPI()
 
@@ -238,6 +256,7 @@ class DatabaseTable:
             "close",
             "commit",
             "_is_open",
+            "commit_once",
         }:
             return getattr(Index, name)
         return self.__getattribute__(name)
@@ -333,6 +352,11 @@ class DatabaseTable:
 
         # insert data into table
         data.pop("id", None)
+        # replace dots in keys
+        for key in list(data.keys()):
+            new_key = key.replace(".", DOT_REPLACEMENT)
+            if new_key != key:
+                data[new_key] = data.pop(key)
         sql = f"""
         INSERT INTO {self.tablename_db} (id, {", ".join(data.keys())})
         VALUES (:id, {", ".join([f":{key}" for key in data.keys()])})

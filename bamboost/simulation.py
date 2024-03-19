@@ -27,7 +27,7 @@ from .common import hdf_pointer, utilities
 from .common.file_handler import FileHandler, with_file_open
 from .common.job import Job
 from .common.mpi import MPI
-from .io.sqlite import SYNC_TABLE, SQLTable
+from .common.sqlite import SYNC_TABLE
 from .xdmf import XDMFWriter
 
 __all__ = ["Simulation", "Links"]
@@ -281,9 +281,9 @@ class Simulation:
             self._file.close()
 
         if SYNC_TABLE:
-            SQLTable(
-                self.database_id, path=self.path_database, _comm=self._comm
-            ).update_entry(self.uid, {"status": status})
+            index.DatabaseTable(self.database_id).update_entry(
+                self.uid, {"status": status}
+            )
 
     def update_metadata(self, update_dict: dict) -> None:
         """Update the metadata attributes.
@@ -295,9 +295,7 @@ class Simulation:
             file.attrs.update(update_dict)
 
         if SYNC_TABLE:
-            SQLTable(
-                self.database_id, path=self.path_database, _comm=self._comm
-            ).update_entry(self.uid, update_dict)
+            index.DatabaseTable(self.database_id).update_entry(self.uid, update_dict)
 
     def update_parameters(self, update_dict: dict) -> None:
         """Update the parameters dictionary.
@@ -311,9 +309,9 @@ class Simulation:
                 file["parameters"].attrs.update(update_dict)
 
             if SYNC_TABLE:
-                SQLTable(
-                    self.database_id, path=self.path_database, _comm=self._comm
-                ).update_entry(self.uid, update_dict)
+                index.DatabaseTable(self.database_id).update_entry(
+                    self.uid, update_dict
+                )
 
     def create_xdmf_file(self, fields: list = None, nb_steps: int = None) -> None:
         """Create the xdmf file to read in paraview.
@@ -438,9 +436,9 @@ class Simulation:
             self._file.attrs["notes"] = note
 
             if SYNC_TABLE:
-                SQLTable(
-                    self.database_id, path=self.path_database, _comm=self._comm
-                ).update_entry(self.uid, {"notes": note})
+                index.DatabaseTable(self.database_id).update_entry(
+                    self.uid, {"notes": note}
+                )
 
     # Ex-Simulation reader methods
     # ----------------------------
