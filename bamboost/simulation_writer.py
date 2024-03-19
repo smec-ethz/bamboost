@@ -13,14 +13,11 @@ import datetime
 import logging
 import os
 import shutil
-from time import time
 from typing import Iterable, Union
 
 import numpy as np
 from typing_extensions import deprecated
 
-from bamboost import index
-from bamboost.index import get_path
 
 from .common.git_utility import GitStateGetter
 from .common.mpi import MPI

@@ -29,7 +29,7 @@ class Manager:
 from . import index
 from .common.file_handler import open_h5file
 from .common.mpi import MPI
-from .index import Index, DatabaseTable
+from .index import DatabaseTable, Index
 from .io.sqlite import SQLTable
 from .simulation import Simulation
 from .simulation_writer import SimulationWriter
@@ -55,12 +55,10 @@ class ManagerFromUID(object):
     """Get a database by its UID. This is used for autocompletion in ipython."""
 
     def __init__(self) -> None:
-        ids = index.get_index_dict()
+        # or [] to circumvent Null type (MPI)
+        ids = Index.fetch(f"SELECT id, path FROM dbindex") or []
         self.completion_keys = tuple(
-            [
-                f'{key} - {"..."+val[-25:] if len(val)>=25 else val}'
-                for key, val in ids.items()
-            ]
+            [f'{key} - {"..."+val[-25:] if len(val)>=25 else val}' for key, val in ids]
         )
 
     def _ipython_key_completions_(self):
@@ -75,7 +73,8 @@ class ManagerFromName(object):
     """Get a database by its path/name. This is used for autocompletion in ipython."""
 
     def __init__(self) -> None:
-        self.completion_keys = tuple(index.get_index_dict().values())
+        paths = Index.fetch("SELECT path FROM dbindex") or []
+        self.completion_keys = tuple(paths)
 
     def _ipython_key_completions_(self):
         return self.completion_keys
@@ -115,8 +114,10 @@ class Manager:
         uid: str = None,
         create_if_not_exist: bool = True,
     ):
+        # provided uid has precedence
         if uid is not None:
             path = index.get_path(uid.upper())
+            path = comm.bcast(path, root=0)
         self.path = path
         self.comm = comm
 
@@ -127,14 +128,12 @@ class Manager:
             log.info(f"Created new database ({path})")
             self._make_new(path)
 
-        self.UID = self._retrieve_uid()
-        # self._store_uid_in_index()
-        self.all_uids = self._get_uids()
+        self.UID = uid or self._retrieve_uid()
 
         # Update the SQL table for the database
-        Index.insert_path(self.UID, self.path)
         self.table = DatabaseTable(self.UID)
-        with self.table.open():
+        with Index.open():
+            Index.insert_path(self.UID, self.path)
             self.table.create_database_table()
             self.table.sync()
 
@@ -198,17 +197,14 @@ class Manager:
             f.write(self.UID + "\n")
             f.write(f'Date of creation: {datetime.now().strftime("%d/%m/%Y %H:%M:%S")}')
         os.chmod(uid_file, 0o444)  # read only for uid file
-        log.info(f"Registered new database (uid = {self.UID})")
-        self._store_uid_in_index()
-        return self.UID
 
-    def _store_uid_in_index(self) -> None:
-        """Stores the UID of this database with the current path."""
-        index.record_database(self.UID, os.path.abspath(self.path))
+        log.info(f"Registered new database (uid = {self.UID})")
+        Index.insert_path(self.UID, path)
+        return self.UID
 
     @property
     def all_uids(self) -> list:
-        if not self.FIX_DF:
+        if not self.FIX_DF or not hasattr(self, "_all_uids"):
             self._all_uids = self._get_uids()
         return self._all_uids
 

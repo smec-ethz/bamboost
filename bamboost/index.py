@@ -33,7 +33,7 @@ import subprocess
 from contextlib import contextmanager
 from dataclasses import dataclass
 from time import time
-from typing import Callable, Generator
+from typing import Callable, Generator, Iterable
 
 import numpy as np
 import pandas as pd
@@ -73,6 +73,16 @@ os.makedirs(LOCAL_DIR, exist_ok=True)
 
 _comm = MPI.COMM_WORLD
 
+
+# ------------------
+# Exception classes
+# ------------------
+class DatabaseNotFoundError(Exception):
+    """Exception raised when a database is not found in the index."""
+
+    pass
+
+
 # ------------------
 # Class definitions
 # ------------------
@@ -104,12 +114,14 @@ class Null:
         # Allows the instance to be called like a function
         return self
 
+    def __getitem__(self, _):
+        return self
+
     def __enter__(self, *args, **kwargs):
         return self
 
     def __exit__(self, *args, **kwargs):
         return False
-
 
 
 class IndexAPI(SQLiteDatabase, metaclass=Singleton):
@@ -156,6 +168,16 @@ class IndexAPI(SQLiteDatabase, metaclass=Singleton):
             pd.DataFrame: index table
         """
         return pd.read_sql_query("SELECT * FROM dbindex", self._conn, *args, **kwargs)
+
+    @with_connection
+    def fetch(self, query: str, *args, **kwargs) -> pd.DataFrame:
+        """Query the index table.
+
+        Args:
+            query (str): query string
+        """
+        self._cursor.execute(query, *args, **kwargs)
+        return self._cursor.fetchall()
 
     @with_connection
     def get_path(self, id: str) -> str:
@@ -209,10 +231,16 @@ class IndexAPI(SQLiteDatabase, metaclass=Singleton):
 
         Returns:
             str: ID of the database
+
+        Raises:
+            DatabaseNotFoundError: if the database is not found in the index
         """
         path = os.path.abspath(path)
         self._cursor.execute("SELECT id FROM dbindex WHERE path=?", (path,))
-        return self._cursor.fetchone()[0]
+        fetched = self._cursor.fetchone()
+        if fetched is None:
+            raise DatabaseNotFoundError(f"Database at {path} not found in index.")
+        return fetched[0]
 
     @with_connection
     def scan_known_paths(self) -> dict:
@@ -245,6 +273,23 @@ class IndexAPI(SQLiteDatabase, metaclass=Singleton):
                 return func(*args, **kwargs)
 
         return wrapper
+
+    @with_connection
+    def clean(self) -> None:
+        """Clean the index from wrong paths."""
+        index = self._cursor.execute("SELECT id, path FROM dbindex").fetchall()
+        for id, path in index:
+            if not _check_path(id, path):
+                self._cursor.execute("DELETE FROM dbindex WHERE id=?", (id,))
+
+    @with_connection
+    def drop_path(self, id: str) -> None:
+        """Drop a path from the index.
+
+        Args:
+            id (str): ID of the database
+        """
+        self._cursor.execute("DELETE FROM dbindex WHERE id=?", (id,))
 
 
 Index: IndexAPI = IndexAPI()
@@ -509,15 +554,17 @@ def get_path(uid: str) -> str:
     Args:
         uid: the UID of the database
     """
-    # check in index
-    index = get_index_dict()
+    if _comm.rank != 0:
+        return
+
+    # check in index (or {} for MPI off-root processes)
+    index = Index.read_table().set_index("id").to_dict()["path"] or {}
     if uid in index.keys():
         path = index[uid]
         if _check_path(uid, path):
             return path
         else:
-            del index[uid]
-            _write_index_dict(index)
+            Index.drop_path(uid)
 
     # check known paths
     known_paths = get_known_paths()
@@ -525,14 +572,14 @@ def get_path(uid: str) -> str:
         res = find(uid, root_dir=path)
         if res:
             path = os.path.dirname(res[0])
-            record_database(uid, path)
+            Index.insert_path(uid, path)
             return path
 
     # check home
     res = find(uid, HOME)
     if res:
         path = os.path.dirname(res[0])
-        record_database(uid, path)
+        Index.insert_path(uid, path)
         return path
 
     raise FileNotFoundError(f"Database {uid} not found on system.")
@@ -598,14 +645,6 @@ def get_index_dict() -> dict:
 def get_known_paths() -> list:
     with open(KNOWN_PATHS, "r") as file:
         return json.loads(file.read())
-
-
-def get_uid_from_path(path: str) -> str:
-    """Returns the UID found in the specified path."""
-    for file in os.listdir(path):
-        if file.startswith(".BAMBOOST"):
-            return file.split("-")[1]
-    raise FileNotFoundError("No UID file found at specified path.")
 
 
 def _write_index_dict(index: dict) -> None:
