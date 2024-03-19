@@ -275,12 +275,31 @@ class IndexAPI(SQLiteDatabase, metaclass=Singleton):
         return wrapper
 
     @with_connection
-    def clean(self) -> None:
-        """Clean the index from wrong paths."""
+    def clean(self, purge: bool = False) -> IndexAPI:
+        """Clean the index from wrong paths.
+
+        Args:
+            purge (bool, optional): Also deletes the table of unmatching uid/path pairs. Defaults to False.
+        """
         index = self._cursor.execute("SELECT id, path FROM dbindex").fetchall()
         for id, path in index:
             if not _check_path(id, path):
                 self._cursor.execute("DELETE FROM dbindex WHERE id=?", (id,))
+
+        if purge:
+            # all tables starting with db_ are tables of databases
+            all_tables = self._cursor.execute(
+                "SELECT name FROM sqlite_master WHERE type='table'"
+            ).fetchall()
+            id_list_tables = {i[0].split("_")[1] for i in all_tables if i[0].startswith("db_")}
+            id_list = self._cursor.execute("SELECT id FROM dbindex").fetchall()
+
+            for id in id_list_tables:
+                if id not in id_list:
+                    self._cursor.execute(f"DROP TABLE db_{id}")
+                    self._cursor.execute(f"DROP TABLE db_{id}_t")
+
+        return self
 
     @with_connection
     def drop_path(self, id: str) -> None:

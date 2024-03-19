@@ -129,11 +129,11 @@ class Manager:
             self._make_new(path)
 
         self.UID = uid or self._retrieve_uid()
+        Index.insert_path(self.UID, self.path)
 
         # Update the SQL table for the database
         self.table = DatabaseTable(self.UID)
         with Index.open():
-            Index.insert_path(self.UID, self.path)
             self.table.create_database_table()
             self.table.sync()
 
