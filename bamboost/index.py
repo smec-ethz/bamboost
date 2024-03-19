@@ -10,8 +10,6 @@
 
 from __future__ import annotations
 
-from time import time
-
 __all__ = [
     "Index",
     "DatabaseTable",
@@ -34,12 +32,14 @@ import sqlite3
 import subprocess
 from contextlib import contextmanager
 from dataclasses import dataclass
+from time import time
 from typing import Callable, Generator
 
 import numpy as np
 import pandas as pd
 
 from bamboost.common.file_handler import open_h5file
+from bamboost.common.mpi import MPI
 
 from .common.sqlite import SQLiteDatabase, parse_sqlite_type, with_connection
 
@@ -71,6 +71,8 @@ if not os.path.isfile(KNOWN_PATHS):
 os.makedirs(LOCAL_DIR, exist_ok=True)
 
 
+_comm = MPI.COMM_WORLD
+
 # ------------------
 # Class definitions
 # ------------------
@@ -80,9 +82,34 @@ class Singleton(type):
     _instances = {}
 
     def __call__(cls, *args, **kwargs):
+        # if not root, return Null object to skip all calls to the index
+        if _comm.rank != 0:
+            return Null()
         if cls not in cls._instances:
             cls._instances[cls] = super().__call__(*args, **kwargs)
         return cls._instances[cls]
+
+
+class Null:
+    """Null object to replace API classes for off-root processes."""
+
+    def __getattr__(self, _):
+        return self
+
+    def __bool__(self):
+        # Allows the instance to behave like `None` in boolean contexts
+        return False
+
+    def __call__(self, *args, **kwargs):
+        # Allows the instance to be called like a function
+        return self
+
+    def __enter__(self, *args, **kwargs):
+        return self
+
+    def __exit__(self, *args, **kwargs):
+        return False
+
 
 
 class IndexAPI(SQLiteDatabase, metaclass=Singleton):
@@ -232,6 +259,9 @@ class DatabaseTable:
     _instances = {}
 
     def __new__(cls, id: str, *_) -> DatabaseTable:
+        if _comm.rank != 0:
+            return Null()
+
         if id not in cls._instances:
             cls._instances[id] = super().__new__(cls)
         return cls._instances[id]
