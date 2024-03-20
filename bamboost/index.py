@@ -35,6 +35,11 @@ from dataclasses import dataclass
 from time import time
 from typing import Callable, Generator, Iterable
 
+try:
+    import toml
+except ImportError:
+    import tomli as toml
+
 import numpy as np
 import pandas as pd
 
@@ -55,6 +60,7 @@ CONFIG_DIR = os.path.join(HOME, ".config", "bamboost")
 LOCAL_DIR = os.path.join(HOME, ".local", "share", "bamboost")
 DATABASE_INDEX = os.path.join(CONFIG_DIR, "database_index.json")
 KNOWN_PATHS = os.path.join(CONFIG_DIR, "known_paths.json")
+CONFIG_FILE = os.path.join(CONFIG_DIR, "config.toml")
 PREFIX = ".BAMBOOST-"
 DOT_REPLACEMENT = "DOT"
 
@@ -291,7 +297,9 @@ class IndexAPI(SQLiteDatabase, metaclass=Singleton):
             all_tables = self._cursor.execute(
                 "SELECT name FROM sqlite_master WHERE type='table'"
             ).fetchall()
-            id_list_tables = {i[0].split("_")[1] for i in all_tables if i[0].startswith("db_")}
+            id_list_tables = {
+                i[0].split("_")[1] for i in all_tables if i[0].startswith("db_")
+            }
             id_list = self._cursor.execute("SELECT id FROM dbindex").fetchall()
 
             for id in id_list_tables:
@@ -662,8 +670,8 @@ def get_index_dict() -> dict:
 
 
 def get_known_paths() -> list:
-    with open(KNOWN_PATHS, "r") as file:
-        return json.loads(file.read())
+    with open(CONFIG_FILE, "rb") as file:
+        return toml.load(file)["index"]["paths"]
 
 
 def _write_index_dict(index: dict) -> None:

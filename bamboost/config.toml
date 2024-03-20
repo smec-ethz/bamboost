@@ -1,0 +1,9 @@
+# Config file for bamboost
+
+[options]
+# uncomment to disable mpi support
+# mpi = False
+
+[index]
+# the list of paths to search for databases
+paths = []
