@@ -53,13 +53,13 @@ adapt_numpy_number = lambda val: val.item()
 sqlite3.register_adapter(np.int_, adapt_numpy_number)
 sqlite3.register_adapter(np.float_, adapt_numpy_number)
 sqlite3.register_adapter(np.datetime64, adapt_numpy_number)
-sqlite3.register_adapter(bool, lambda val: int(val))
+sqlite3.register_adapter(bool, int)
 sqlite3.register_adapter(list, lambda val: json.dumps(val))
 
 # Converts TEXT to np.array when selecting
 sqlite3.register_converter("ARRAY", lambda text: np.array(json.loads(text)))
 sqlite3.register_converter("JSON", lambda text: json.loads(text))
-sqlite3.register_converter("BOOL", lambda val: bool(val))
+sqlite3.register_converter("BOOL", lambda val: val.decode() == "1")
 
 
 # ----------------

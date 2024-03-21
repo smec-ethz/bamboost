@@ -23,32 +23,7 @@ from bamboost import index
 from bamboost.common.file_handler import open_h5file
 from bamboost.common.mpi import MPI
 
-DATA_TYPES = {
-    "ARRAY": "ARRAY",
-    "JSON": "JSON",
-    int: "INTEGER",
-    float: "REAL",
-    str: "TEXT",
-    bool: "BOOL",
-}
-
-SYNC_TABLE = True
-
-
-# Converts np.array to TEXT when inserting
-sqlite3.register_adapter(np.ndarray, lambda arr: json.dumps(arr.tolist()))
-
-adapt_numpy_number = lambda val: val.item()
-sqlite3.register_adapter(np.int_, adapt_numpy_number)
-sqlite3.register_adapter(np.float_, adapt_numpy_number)
-sqlite3.register_adapter(np.datetime64, adapt_numpy_number)
-sqlite3.register_adapter(bool, lambda val: int(val))
-
-# Converts TEXT to np.array when selecting
-sqlite3.register_converter("ARRAY", lambda text: np.array(json.loads(text)))
-sqlite3.register_converter("JSON", lambda text: json.loads(text))
-sqlite3.register_converter("BOOL", lambda val: bool(val))
-
+from ..common.sqlite import DATA_TYPES, SYNC_TABLE, parse_sqlite_type
 
 # ----------------
 # DECORATORS
