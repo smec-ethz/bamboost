@@ -99,6 +99,7 @@ class Simulation:
         create_if_not_exists: bool = False,
     ):
         self.uid: str = uid
+        path = comm.bcast(path, root=0)
         self.path_database: str = os.path.abspath(path)
         self.database_id: str = index.get_uid_from_path(self.path_database)
         self.path: str = os.path.abspath(os.path.join(path, uid))
