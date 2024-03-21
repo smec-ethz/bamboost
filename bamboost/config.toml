@@ -4,6 +4,9 @@
 # uncomment to disable mpi support
 # mpi = False
 
+# default column to sort dataframes by
+# sort_table_by = 'time_stamp'
+
 [index]
 # the list of paths to search for databases
 paths = []

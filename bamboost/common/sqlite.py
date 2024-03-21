@@ -13,7 +13,7 @@ import logging
 import sqlite3
 from contextlib import contextmanager
 from functools import wraps
-from typing import Generator
+from typing import Generator, Iterable
 
 import numpy as np
 from typing_extensions import Self
@@ -38,7 +38,7 @@ def parse_sqlite_type(val):
         return "ARRAY"
     if isinstance(val, np.generic):
         return DATA_TYPES.get(type(val.item()), "TEXT")
-    if isinstance(val, dict):
+    if isinstance(val, (dict, list, tuple, set)):
         return "JSON"
     return DATA_TYPES.get(type(val), "TEXT")
 
@@ -54,6 +54,7 @@ sqlite3.register_adapter(np.int_, adapt_numpy_number)
 sqlite3.register_adapter(np.float_, adapt_numpy_number)
 sqlite3.register_adapter(np.datetime64, adapt_numpy_number)
 sqlite3.register_adapter(bool, lambda val: int(val))
+sqlite3.register_adapter(list, lambda val: json.dumps(val))
 
 # Converts TEXT to np.array when selecting
 sqlite3.register_converter("ARRAY", lambda text: np.array(json.loads(text)))

@@ -64,6 +64,9 @@ CONFIG_FILE = os.path.join(CONFIG_DIR, "config.toml")
 PREFIX = ".BAMBOOST-"
 DOT_REPLACEMENT = "DOT"
 
+with open(CONFIG_FILE, "rb") as f:
+    config = toml.load(f)
+
 # Create config files if they don't exist
 os.makedirs(CONFIG_DIR, exist_ok=True)
 if not os.path.isfile(DATABASE_INDEX):
@@ -420,9 +423,9 @@ class DatabaseTable:
     def create_database_table(self) -> None:
         """Create a table for a database."""
         self._cursor.execute(
-            f"""CREATE TABLE IF NOT EXISTS {self.tablename_db} (id TEXT PRIMARY KEY,
-                                                 time_stamp DATETIME, notes
-                                                 TEXT processors INTEGER)"""
+            f"""CREATE TABLE IF NOT EXISTS {self.tablename_db} 
+                (id TEXT PRIMARY KEY NOT NULL, time_stamp DATETIME, notes TEXT, processors INTEGER)
+            """
         )
         self._cursor.execute(
             f"""CREATE TABLE IF NOT EXISTS {self.tablename_update_times} (id TEXT PRIMARY KEY,

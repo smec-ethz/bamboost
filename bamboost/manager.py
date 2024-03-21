@@ -27,6 +27,7 @@ class Manager:
 
 
 from . import index
+from .index import config
 from .common.file_handler import open_h5file
 from .common.mpi import MPI
 from .index import DatabaseTable, Index
@@ -289,7 +290,9 @@ class Manager:
 
         # Sort dataframe columns
         columns_start = ["id", "notes", "status", "time_stamp"]
-        self._dataframe = df[[*columns_start, *df.columns.difference(columns_start)]]
+        self._dataframe = df[[*columns_start, *df.columns.difference(columns_start)]].sort_values(
+            config['options'].get('sort_table_key', 'id')
+        )
         return self._dataframe
 
     def get_view_from_hdf_files(
