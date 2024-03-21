@@ -363,8 +363,6 @@ class Manager:
         Returns:
             :class:`~bamboost.simulation.Simulation`
         """
-        if uid not in self.all_uids:
-            raise KeyError("The simulation id is not valid.")
         if return_writer:
             return writer_type(uid, self.path, self.comm)
         return Simulation(uid, self.path, self.comm)

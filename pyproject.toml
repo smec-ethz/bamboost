@@ -6,7 +6,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "bamboost"
-version = "0.5.1"
+version = "0.5.2"
 description = "A light weight database manager using HDF5"
 readme = { file = "README.md", content-type = "text/markdown" }
 authors = [{ name = "Flavio Lorez", email = "florez@ethz.ch" }]

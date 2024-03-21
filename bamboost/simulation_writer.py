@@ -234,12 +234,13 @@ class SimulationWriter(Simulation):
                 if name not in grp.keys():
                     vec = grp.create_dataset(
                         name,
-                        shape=(1,),
+                        shape=(self.step + 1,),
                         dtype=dtype if dtype else np.array(value).dtype,
                         chunks=True,
                         maxshape=(None,),
+                        fillvalue=np.nan,
                     )
-                    vec[0] = value
+                    vec[-1] = value
                 else:
                     vec = grp[name]
                     vec.resize((self.step + 1,))
