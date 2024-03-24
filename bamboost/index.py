@@ -36,7 +36,7 @@ from time import time
 from typing import Callable, Generator, Iterable
 
 try:
-    import toml
+    import tomllib as toml
 except ImportError:
     import tomli as toml
 
@@ -441,6 +441,10 @@ class DatabaseTable:
             entry_id (str): ID of the entry
             data (dict): data to update
         """
+        # return if data is empty
+        if not data:
+            return
+
         # get columns of table
         self._cursor.execute(f"PRAGMA table_info({self.tablename_db})")
         cols = self._cursor.fetchall()

@@ -461,10 +461,11 @@ class Manager:
 
         new_sim = SimulationWriter(uid, self.path, self.comm)
         new_sim.initialize()  # sets metadata and status
-        self.all_uids.append(new_sim.uid)
-        if parameters is None:
-            parameters = dict()
-        new_sim.add_parameters(parameters)
+        # add the id to the (fixed) _all_uids list
+        if hasattr(self, "_all_uids"):
+            self._all_uids.append(new_sim.uid)
+        if parameters:
+            new_sim.add_parameters(parameters)
         return new_sim
 
     def remove(self, uid: str) -> None:
