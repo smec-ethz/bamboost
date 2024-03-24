@@ -5,6 +5,7 @@ import shutil
 import sqlite3
 import tempfile
 
+import numpy as np
 import pytest
 from test_manager import temp_manager
 
@@ -13,15 +14,11 @@ from bamboost.index import DatabaseTable, Index
 from bamboost.manager import Manager
 
 
-@pytest.fixture()
-def temp_database():
-    """Create a temporary sqlite database for testing."""
-    temp_dir = tempfile.mkdtemp()
-    yield Index
-    shutil.rmtree(temp_dir)
-
-
-def test_if_db_created():
+# --------------------------------------------------------------------------
+# Index creation and database addition (SQLite)
+# The index.Index is rerouted to a temporary file -> empty at the beginning
+# --------------------------------------------------------------------------
+def test_if_index_created():
     assert os.path.isfile(Index.file)
 
 
@@ -42,6 +39,51 @@ def test_if_database_added(temp_manager: Manager):
     assert temp_manager.path == index.loc[index.id == temp_manager.UID].path.values[0]
 
 
+@pytest.mark.skip(reason="Not implemented yet")
+def test_if_database_removed(temp_manager: Manager):
+    # check if database is removed from index if deleted
+    shutil.rmtree(temp_manager.path)
+    index = Index.read_table()
+    assert temp_manager.UID not in index.id.values
+
+
+def test_index_clean(temp_manager: Manager):
+    # check if index is cleaned
+    shutil.rmtree(temp_manager.path)
+    Index.clean()
+    index = Index.read_table()
+    assert index.empty
+
+
+def test_index_clean_purge(temp_manager: Manager):
+    # check if index is cleaned and purged (=table & entry in index is deleted)
+    # shutil.rmtree(temp_manager.path)
+    uid = temp_manager.UID
+    table_name = f"db_{uid}"
+    res = Index.fetch("SELECT name FROM sqlite_master WHERE type='table';")
+    # assert that the database table exists
+    assert (table_name,) in res
+
+    shutil.rmtree(temp_manager.path)
+    Index.clean(purge=True)
+    res = Index.fetch("SELECT name FROM sqlite_master WHERE type='table';")
+    assert f"db_{temp_manager.UID}" not in res
+
+
+def test_getitem(temp_manager: Manager):
+    # check if __getitem__ works -> returns index.DatabaseTable
+    dbt = Index[temp_manager.UID]
+    assert isinstance(dbt, DatabaseTable)
+
+
+def test_get_id_from_path(temp_manager: Manager):
+    # check if get_id_from_path works
+    assert Index.get_id(temp_manager.path) == temp_manager.UID
+
+
+# --------------------------------------------------------------------------
+# Correct transformation and retrieval of data types when writing to SQLite
+# --------------------------------------------------------------------------
 @pytest.mark.parametrize("value", [True, False])
 def test_datatype_parsing_bool(temp_manager: Manager, value: bool):
     # check if boolean is parsed correctly
@@ -58,11 +100,29 @@ def test_datatype_parsing_int_float(temp_manager: Manager, value):
     assert type(series.test) == type(value)
 
 
+@pytest.mark.parametrize("array", [np.array([[1, 2, 3], [4.0, 5.0, 6.0]])])
+def test_datatype_parsing_array(temp_manager: Manager, array):
+    # check if array is parsed correctly
+    sim = temp_manager.create_simulation(parameters={"test": array})
+    series = DatabaseTable(temp_manager.UID).read_entry(sim.uid)
+    assert isinstance(series.test, np.ndarray)
+
+
+def test_nested_dict(temp_manager: Manager):
+    # check if nested dict is parsed correctly (dots are replaced by literal 'DOT' and replaced back when reading)
+    sim = temp_manager.create_simulation(
+        parameters={"test": {"a": 1, "b": 2, "c": {"d": np.array([2, 3, 4])}}}
+    )
+    series = DatabaseTable(temp_manager.UID).read_entry(sim.uid)
+    assert series["test.a"] == 1
+    assert series["test.b"] == 2
+    assert np.array_equal(series["test.c.d"], np.array([2, 3, 4]))
+
+
 def test_read_database_table(temp_manager: Manager):
     # check if database table is read correctly
     temp_manager.create_simulation(
         parameters={"test": True, "false": False, "int": 1, "float": 1.0}
     )
     table = DatabaseTable(temp_manager.UID).read_table()
-    print(table)
     assert table.shape[0] == 1

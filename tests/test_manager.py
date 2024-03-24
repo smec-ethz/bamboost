@@ -6,7 +6,7 @@ import tempfile
 
 import pytest
 
-from bamboost import Manager, Simulation
+from bamboost import Manager, Simulation, index
 
 
 @pytest.fixture()
@@ -14,7 +14,10 @@ def temp_manager():
     temp_dir = tempfile.mkdtemp()
     db = Manager(path=temp_dir)
     yield db
-    shutil.rmtree(temp_dir)
+    try:
+        shutil.rmtree(temp_dir)
+    except FileNotFoundError:
+        pass
 
 
 def test_if_new_manager_created():
@@ -47,3 +50,17 @@ class TestManager:
         sim = db.sim(sim_uid)
         assert isinstance(sim, Simulation)
         assert sim.path == os.path.join(temp_manager.path, sim_uid)
+
+
+# --------------------------------------------------------------------------
+# Database syncing between SQLite and Filesystem
+# --------------------------------------------------------------------------
+def test_if_table_created(temp_manager: Manager):
+    uid = temp_manager.UID
+    table_name = f"db_{uid}"
+    res = index.Index.fetch("SELECT name FROM sqlite_master WHERE type='table';")
+    # assert that the database table exists
+    assert (table_name,) in res
+    # assert that the table with update times exists
+    assert (f"db_{uid}_t",) in res
+
