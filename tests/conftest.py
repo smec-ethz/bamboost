@@ -12,16 +12,21 @@ def pytest_sessionstart(session):
     index.CONFIG_DIR = tempdir
     index.DATABASE_INDEX = os.path.join(index.CONFIG_DIR, 'database_index.json')
     index.KNOWN_PATHS = os.path.join(index.CONFIG_DIR, 'known_paths.json')
-    print(tempdir)
+    index.LOCAL_DIR = os.path.join(index.CONFIG_DIR, 'local')
 
     # Create config files if they don't exist
     os.makedirs(index.CONFIG_DIR, exist_ok=True)
+    os.makedirs(index.LOCAL_DIR, exist_ok=True)
     if not os.path.isfile(index.DATABASE_INDEX):
         with open(index.DATABASE_INDEX, 'w') as file:
             file.write(json.dumps({}, indent=4))
     if not os.path.isfile(index.KNOWN_PATHS):
         with open(index.KNOWN_PATHS, 'w') as file:
             file.write(json.dumps([], indent=4))
+
+    # change path of sqlite database
+    index.Index.__init__()
+    print(index.Index.file)
 
 
 def pytest_sessionfinish(session, exitstatus):

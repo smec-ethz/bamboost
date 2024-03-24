@@ -31,10 +31,13 @@ class TestManager:
         h5_file = os.path.join(temp_manager.path, sim_uid, f"{sim_uid}.h5")
         assert os.path.isfile(h5_file)
 
-    def test_manager_length(self, temp_manager: Manager):
+    @pytest.mark.parametrize("fix_df", [True, False])
+    def test_manager_length(self, temp_manager: Manager, fix_df: bool):
+        temp_manager.FIX_DF = fix_df
         temp_manager.create_simulation()
         temp_manager.create_simulation()
-        assert len(temp_manager) == 2
+        temp_manager.create_simulation()
+        assert len(temp_manager) == 3
 
     def test_get_single_simulation_base_case(self, temp_manager: Manager):
         sim_uid = "this"
