@@ -59,7 +59,7 @@ sqlite3.register_adapter(list, lambda val: json.dumps(val))
 # Converts TEXT to np.array when selecting
 sqlite3.register_converter("ARRAY", lambda text: np.array(json.loads(text)))
 sqlite3.register_converter("JSON", lambda text: json.loads(text))
-sqlite3.register_converter("BOOL", lambda val: val.decode() == "1")
+sqlite3.register_converter("BOOl", lambda x: bool(int.from_bytes(x, byteorder="big")))
 
 
 # ----------------

@@ -2,9 +2,12 @@
 
 import os
 import shutil
+import sqlite3
 import tempfile
 
+import numpy as np
 import pytest
+from conftest import temp_manager_persistent
 
 from bamboost import Manager, Simulation, index
 
@@ -64,3 +67,46 @@ def test_if_table_created(temp_manager: Manager):
     # assert that the table with update times exists
     assert (f"db_{uid}_t",) in res
 
+
+def test_dataframe_integrity(temp_manager: Manager):
+    booleans = {
+        "1": True,
+        "2": False,
+        "3": True,
+    }
+
+    @index.Index.commit_once
+    def create_sims(booleans: list):
+        for args in zip([1, 2, 3], booleans, ["a", "b", "c"]):
+            sim = temp_manager.create_simulation(
+                uid=args[1],
+                parameters={
+                    "int": args[0],
+                    "float": 1.0,
+                    "str": args[2],
+                    "boolean": booleans[args[1]],
+                    "boolean2": False,
+                    "array": np.array([1, 2, 3]),
+                },
+            )
+
+    create_sims(booleans)
+
+    # delete the table to force re-creation -> booleans are wrong!!!
+    with index.Index.open():
+        index.Index._cursor.execute(f"DROP TABLE db_{temp_manager.UID};")
+        index.Index._cursor.execute(f"DROP TABLE db_{temp_manager.UID}_t;")
+        index.Index.commit()
+
+    db = Manager(uid=temp_manager.UID)
+    df = db.df.set_index("id")
+
+    for uid, val in booleans.items():
+        assert df.loc[uid, "boolean"] == val
+
+
+def test_manager_read():
+    db = Manager(temp_manager_persistent)
+    df = db.df.set_index("id")
+    assert df.loc["1", "boolean"] == True
+    assert df.loc["2", "boolean"] == False
