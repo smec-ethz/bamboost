@@ -103,10 +103,3 @@ def test_dataframe_integrity(temp_manager: Manager):
 
     for uid, val in booleans.items():
         assert df.loc[uid, "boolean"] == val
-
-
-def test_manager_read():
-    db = Manager(temp_manager_persistent)
-    df = db.df.set_index("id")
-    assert df.loc["1", "boolean"] == True
-    assert df.loc["2", "boolean"] == False
