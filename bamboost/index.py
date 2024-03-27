@@ -35,16 +35,12 @@ from dataclasses import dataclass
 from time import time
 from typing import Callable, Generator, Iterable
 
-try:
-    import tomllib as toml
-except ImportError:
-    import tomli as toml
-
 import numpy as np
 import pandas as pd
 
 from bamboost.common.file_handler import open_h5file
 from bamboost.common.mpi import MPI
+from bamboost import config, toml
 
 from .common.sqlite import SQLiteDatabase, parse_sqlite_type, with_connection
 
@@ -63,9 +59,6 @@ KNOWN_PATHS = os.path.join(CONFIG_DIR, "known_paths.json")
 CONFIG_FILE = os.path.join(CONFIG_DIR, "config.toml")
 PREFIX = ".BAMBOOST-"
 DOT_REPLACEMENT = "DOT"
-
-with open(CONFIG_FILE, "rb") as f:
-    config = toml.load(f)
 
 # Create config files if they don't exist
 os.makedirs(CONFIG_DIR, exist_ok=True)
@@ -149,6 +142,7 @@ class IndexAPI(SQLiteDatabase, metaclass=Singleton):
         super().__init__()
         self.file = os.path.join(LOCAL_DIR, "database.db")
         self.create_index_table()
+        self.clean()
 
     def __repr__(self) -> str:
         return self.read_table().__repr__()
@@ -320,9 +314,6 @@ class IndexAPI(SQLiteDatabase, metaclass=Singleton):
             id (str): ID of the database
         """
         self._cursor.execute("DELETE FROM dbindex WHERE id=?", (id,))
-
-
-Index: IndexAPI = IndexAPI()
 
 
 class DatabaseTable:
@@ -716,3 +707,6 @@ def _check_path(uid: str, path: str) -> bool:
     if f"{PREFIX}{uid}" in os.listdir(path):
         return True
     return False
+
+
+Index: IndexAPI = IndexAPI()
