@@ -6,6 +6,9 @@
 # Copyright 2023 Flavio Lorez and contributors
 #
 # There is no warranty for this code
+"""
+This module provides a class to handle sqlite databases.
+"""
 from __future__ import annotations
 
 import json
@@ -18,13 +21,13 @@ from typing import Generator, Iterable
 import numpy as np
 from typing_extensions import Self
 
+from bamboost._config import config
 from bamboost.common.mpi import MPI
 
 log = logging.getLogger(__name__)
 
-DATA_TYPES = {
-    "ARRAY": "ARRAY",
-    "JSON": "JSON",
+_type_to_sql_column_type = {
+    np.ndarray: "ARRAY",
     np.datetime64: "DATETIME",
     int: "INTEGER",
     float: "REAL",
@@ -33,44 +36,56 @@ DATA_TYPES = {
 }
 
 
-def parse_sqlite_type(val):
+def get_sqlite_column_type(val):
+    dtype = type(val)
+    if isinstance(val, np.generic):
+        dtype = type(val.item())
+    if dtype in _type_to_sql_column_type:
+        return _type_to_sql_column_type[dtype]
+
+    if isinstance(val, Iterable):
+        return "JSON"
+    if isinstance(val, dict):
+        return "JSON"
     if isinstance(val, np.ndarray):
         return "ARRAY"
-    if isinstance(val, np.generic):
-        return DATA_TYPES.get(type(val.item()), "TEXT")
-    if isinstance(val, (dict, list, tuple, set)):
-        return "JSON"
-    return DATA_TYPES.get(type(val), "TEXT")
 
 
-SYNC_TABLE = True
+def _register_sqlite_adapters():
+    # Converts np.array & Iterable to JSON when inserting
+    sqlite3.register_adapter(np.ndarray, lambda arr: json.dumps(arr.tolist()))
+    sqlite3.register_adapter(list, lambda val: json.dumps(val))
+    sqlite3.register_adapter(dict, lambda val: json.dumps(val))
+    sqlite3.register_adapter(tuple, lambda val: json.dumps(val))
+    sqlite3.register_adapter(set, lambda val: json.dumps(val))
+
+    # Numpy generic types
+    adapt_numpy_number = lambda val: val.item()
+    sqlite3.register_adapter(np.int_, adapt_numpy_number)
+    sqlite3.register_adapter(np.float_, adapt_numpy_number)
+    sqlite3.register_adapter(np.datetime64, adapt_numpy_number)
+    sqlite3.register_adapter(bool, int)
 
 
-# Converts np.array to TEXT when inserting
-sqlite3.register_adapter(np.ndarray, lambda arr: json.dumps(arr.tolist()))
-
-adapt_numpy_number = lambda val: val.item()
-sqlite3.register_adapter(np.int_, adapt_numpy_number)
-sqlite3.register_adapter(np.float_, adapt_numpy_number)
-sqlite3.register_adapter(np.datetime64, adapt_numpy_number)
-sqlite3.register_adapter(bool, int)
-sqlite3.register_adapter(list, lambda val: json.dumps(val))
-
-# Converts TEXT to np.array when selecting
-sqlite3.register_converter("ARRAY", lambda text: np.array(json.loads(text)))
-sqlite3.register_converter("JSON", lambda text: json.loads(text))
-sqlite3.register_converter("BOOl", lambda x: bool(int.from_bytes(x, byteorder="big")))
+def _register_sqlite_converters():
+    # Converts JSON to np.array & Iterable when selecting
+    sqlite3.register_converter("ARRAY", lambda text: np.array(json.loads(text)))
+    sqlite3.register_converter("JSON", lambda text: json.loads(text))
+    sqlite3.register_converter(
+        "BOOl", lambda x: bool(int.from_bytes(x, byteorder="big"))
+    )
 
 
 # ----------------
 # DECORATORS
 # ----------------
 def with_connection(func):
-    """Decorator to ensure that the cursor is available. If the cursor is not available, the
-    connection is opened and closed after the function is executed."""
+    """Decorator to ensure that the cursor is available. If the cursor is not
+    available, the connection is opened and closed after the function is
+    executed."""
 
     @wraps(func)
-    def wrapper(self: SQLiteDatabase, *args, **kwargs):
+    def wrapper(self: SQLiteHandler, *args, **kwargs):
         cursor: sqlite3.Cursor = self._cursor
         # check if cursor is available
         if not self._is_open or cursor is None:
@@ -81,31 +96,21 @@ def with_connection(func):
     return wrapper
 
 
-def on_rank_0(func):
-    """Decorator to ensure that the function is only executed on rank 0."""
+class SQLiteHandler:
+    """Class to handle sqlite databases."""
 
-    @wraps(func)
-    def wrapper(self: SQLiteDatabase, *args, **kwargs):
-        if self._comm.rank == 0:
-            return func(self, *args, **kwargs)
-        return None
-
-    return wrapper
-
-
-class SQLiteDatabase:
-    """
-    Class to handle sqlite databases.
-    """
-
-    def __init__(self, _comm=MPI.COMM_WORLD) -> None:
+    def __init__(self, file: str, _comm=MPI.COMM_WORLD) -> None:
         if _comm.rank != 0:
             return
-        self._comm = _comm
+        # self._comm = _comm
+        self.file = file
         self._conn = None
         self._cursor = None
         self._is_open = False
         self._lock_stack = 0
+
+        _register_sqlite_adapters()
+        _register_sqlite_converters()
 
     @property
     def _lock_stack(self) -> int:
@@ -158,7 +163,8 @@ class SQLiteDatabase:
         """The open method is used as a context manager.
 
         Args:
-            ensure_commit (bool, optional): Ensure that the connection is committed. Defaults to False.
+            - ensure_commit (bool, optional): Ensure that the connection is
+              committed. Defaults to False.
 
         Example:
             >>> with index.open() as table:
