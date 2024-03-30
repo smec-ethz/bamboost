@@ -18,17 +18,19 @@ from typing import Iterable, Union
 import numpy as np
 from typing_extensions import deprecated
 
+from bamboost._config import config
 
 from .common.git_utility import GitStateGetter
 from .common.mpi import MPI
 from .common.utilities import flatten_dict
-from .simulation import Simulation
-from .common.sqlite import SYNC_TABLE
 from .index import DatabaseTable
+from .simulation import Simulation
 
 __all__ = ["SimulationWriter"]
 
 log = logging.getLogger(__name__)
+
+SYNC_TABLE = config.get("sync_table", True)
 
 
 class SimulationWriter(Simulation):

@@ -30,7 +30,6 @@ from . import index
 from .common.file_handler import open_h5file
 from .common.mpi import MPI
 from .index import DatabaseTable, Index, config
-from .io.sqlite import SQLTable
 from .simulation import Simulation
 from .simulation_writer import SimulationWriter
 

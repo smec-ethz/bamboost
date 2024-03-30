@@ -12,7 +12,7 @@ from typing import Any, Union
 
 log = logging.getLogger(__name__)
 
-from bamboost import config
+from bamboost._config import config
 
 from ._mock_mpi import MockMPI
 
@@ -27,7 +27,6 @@ if ENV_BAMBOOST_MPI is not None:
     MPI_ON = ENV_BAMBOOST_MPI == "1"
 
 
-
 def _get_mpi_module():
     if not MPI_ON:
         return MockMPI
@@ -37,7 +36,7 @@ def _get_mpi_module():
 
         return MPI
     except ImportError:
-        log.warning("MPI is not available, using MockMPI")
+        log.warning("`mpi4py` unavailable [using a mock MPI module]")
         return MockMPI
 
 

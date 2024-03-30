@@ -19,6 +19,8 @@ import numpy as np
 import pandas as pd
 from typing_extensions import Self, deprecated
 
+from bamboost._config import config
+
 from . import index
 from .accessors.fielddata import DataGroup
 from .accessors.globals import GlobalGroup
@@ -27,12 +29,13 @@ from .common import hdf_pointer, utilities
 from .common.file_handler import FileHandler, with_file_open
 from .common.job import Job
 from .common.mpi import MPI
-from .common.sqlite import SYNC_TABLE
 from .xdmf import XDMFWriter
 
 __all__ = ["Simulation", "Links"]
 
 log = logging.getLogger(__name__)
+
+SYNC_TABLE = config.get("sync_table", True)
 
 
 class Links(hdf_pointer.MutableGroup):
