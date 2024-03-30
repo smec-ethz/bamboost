@@ -27,10 +27,9 @@ class Manager:
 
 
 from . import index
-from .index import config
 from .common.file_handler import open_h5file
 from .common.mpi import MPI
-from .index import DatabaseTable, Index
+from .index import DatabaseTable, Index, config
 from .io.sqlite import SQLTable
 from .simulation import Simulation
 from .simulation_writer import SimulationWriter
@@ -117,7 +116,7 @@ class Manager:
     ):
         # provided uid has precedence
         if uid is not None:
-            path = index.get_path(uid.upper())
+            path = index.Index.get_path(uid.upper())
             path = comm.bcast(path, root=0)
         self.path = path
         self.comm = comm
@@ -290,8 +289,11 @@ class Manager:
 
         # Sort dataframe columns
         columns_start = ["id", "notes", "status", "time_stamp"]
-        self._dataframe = df[[*columns_start, *df.columns.difference(columns_start)]].sort_values(
-            config['options'].get('sort_table_key', 'id')
+        self._dataframe = df[
+            [*columns_start, *df.columns.difference(columns_start)]
+        ].sort_values(
+            config.get("options", {}).get("sort_table_key", "id"),
+            ascending=config.get("options", {}).get("sort_table_order", "asc") == "asc",
         )
         return self._dataframe
 
@@ -334,15 +336,18 @@ class Manager:
         for uid in self.all_uids:
             h5file_for_uid = os.path.join(self.path, uid, f"{uid}.h5")
             with open_h5file(h5file_for_uid, "r") as file:
-                tmp_dict = dict()
-                tmp_dict = {
-                    key: (
-                        len(file[f"data/{key}"]),
-                        file[f"data/{key}/0"].shape,
-                        file[f"data/{key}/0"].dtype,
-                    )
-                    for key in file["data"].keys()
-                }
+                try:
+                    tmp_dict = dict()
+                    tmp_dict = {
+                        key: (
+                            len(file[f"data/{key}"]),
+                            file[f"data/{key}/0"].shape,
+                            file[f"data/{key}/0"].dtype,
+                        )
+                        for key in file["data"].keys()
+                    }
+                except KeyError:
+                    tmp_dict = dict()
                 data.append(tmp_dict)
         return pd.DataFrame.from_records(data)
 
