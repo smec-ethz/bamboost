@@ -28,56 +28,27 @@ __all__ = [
 import json
 import logging
 import os
-import sqlite3
 import subprocess
-from contextlib import contextmanager
 from dataclasses import dataclass
 from time import time
 from typing import Callable, Generator, Iterable
 
-import numpy as np
 import pandas as pd
 
+import bamboost._sqlite_database as sql
+from bamboost._config import DATABASE_FILE, HOME, config
 from bamboost.common.file_handler import open_h5file
 from bamboost.common.mpi import MPI
-from bamboost import config, toml
-
-from .common.sqlite import SQLiteDatabase, parse_sqlite_type, with_connection
 
 log = logging.getLogger(__name__)
 
-
-# ------------------
-# Define directories
-# ------------------
-
-HOME = os.path.expanduser("~")
-CONFIG_DIR = os.path.join(HOME, ".config", "bamboost")
-LOCAL_DIR = os.path.join(HOME, ".local", "share", "bamboost")
-DATABASE_INDEX = os.path.join(CONFIG_DIR, "database_index.json")
-KNOWN_PATHS = os.path.join(CONFIG_DIR, "known_paths.json")
-CONFIG_FILE = os.path.join(CONFIG_DIR, "config.toml")
 PREFIX = ".BAMBOOST-"
 DOT_REPLACEMENT = "DOT"
-
-# Create config files if they don't exist
-os.makedirs(CONFIG_DIR, exist_ok=True)
-if not os.path.isfile(DATABASE_INDEX):
-    with open(DATABASE_INDEX, "w") as file:
-        file.write(json.dumps({}, indent=4))
-if not os.path.isfile(KNOWN_PATHS):
-    with open(KNOWN_PATHS, "w") as file:
-        file.write(json.dumps([], indent=4))
-
-# Create local directory if it doesn't exist
-os.makedirs(LOCAL_DIR, exist_ok=True)
-
-
 _comm = MPI.COMM_WORLD
 
 
 # ------------------
-# Exception classes
+# Exceptions
 # ------------------
 class DatabaseNotFoundError(Exception):
     """Exception raised when a database is not found in the index."""
@@ -86,7 +57,7 @@ class DatabaseNotFoundError(Exception):
 
 
 # ------------------
-# Class definitions
+# Classes
 # ------------------
 class Singleton(type):
     """Singleton metaclass to create a single instance of the database."""
@@ -126,21 +97,19 @@ class Null:
         return False
 
 
-class IndexAPI(SQLiteDatabase, metaclass=Singleton):
-    """
-    SQLite database to store database ID, path lookup. As well as the table for
+class IndexAPI(sql.SQLiteHandler, metaclass=Singleton):
+    """SQLite database to store database ID, path lookup. As well as the table for
     each database. Location: ~/.local/share/bamboost
     Singleton pattern.
 
     Attributes:
-        file (str): path to the database file
-        _conn (sqlite3.Connection): connection to the database
-        _cursor (sqlite3.Cursor): cursor for the database
+        - file (str): path to the database file
+        - _conn (sqlite3.Connection): connection to the database
+        - _cursor (sqlite3.Cursor): cursor for the database
     """
 
     def __init__(self):
-        super().__init__()
-        self.file = os.path.join(LOCAL_DIR, "database.db")
+        super().__init__(file=DATABASE_FILE)
         self.create_index_table()
         self.clean()
 
@@ -156,14 +125,14 @@ class IndexAPI(SQLiteDatabase, metaclass=Singleton):
     def _ipython_key_completions_(self) -> list:
         return self.read_table().id.tolist()
 
-    @with_connection
+    @sql.with_connection
     def create_index_table(self) -> None:
         """Create the index table if it does not exist."""
         self._cursor.execute(
             """CREATE TABLE IF NOT EXISTS dbindex (id TEXT PRIMARY KEY, path TEXT)"""
         )
 
-    @with_connection
+    @sql.with_connection
     def read_table(self, *args, **kwargs) -> pd.DataFrame:
         """Read the index table.
 
@@ -172,7 +141,7 @@ class IndexAPI(SQLiteDatabase, metaclass=Singleton):
         """
         return pd.read_sql_query("SELECT * FROM dbindex", self._conn, *args, **kwargs)
 
-    @with_connection
+    @sql.with_connection
     def fetch(self, query: str, *args, **kwargs) -> pd.DataFrame:
         """Query the index table.
 
@@ -182,7 +151,7 @@ class IndexAPI(SQLiteDatabase, metaclass=Singleton):
         self._cursor.execute(query, *args, **kwargs)
         return self._cursor.fetchall()
 
-    @with_connection
+    @sql.with_connection
     def get_path(self, id: str) -> str:
         """Get the path of a database from its ID.
 
@@ -214,7 +183,7 @@ class IndexAPI(SQLiteDatabase, metaclass=Singleton):
 
         raise FileNotFoundError(f"Database {id} not found on system.")
 
-    @with_connection
+    @sql.with_connection
     def insert_path(self, id: str, path: str) -> None:
         """Insert a database path into the index.
 
@@ -225,7 +194,7 @@ class IndexAPI(SQLiteDatabase, metaclass=Singleton):
         path = os.path.abspath(path)
         self._cursor.execute("INSERT OR REPLACE INTO dbindex VALUES (?, ?)", (id, path))
 
-    @with_connection
+    @sql.with_connection
     def get_id(self, path: str) -> str:
         """Get the ID of a database from its path.
 
@@ -245,7 +214,7 @@ class IndexAPI(SQLiteDatabase, metaclass=Singleton):
             raise DatabaseNotFoundError(f"Database at {path} not found in index.")
         return fetched[0]
 
-    @with_connection
+    @sql.with_connection
     def scan_known_paths(self) -> dict:
         """Scan known paths for databases and update the index."""
         for path in get_known_paths():
@@ -277,7 +246,7 @@ class IndexAPI(SQLiteDatabase, metaclass=Singleton):
 
         return wrapper
 
-    @with_connection
+    @sql.with_connection
     def clean(self, purge: bool = False) -> IndexAPI:
         """Clean the index from wrong paths.
 
@@ -306,7 +275,7 @@ class IndexAPI(SQLiteDatabase, metaclass=Singleton):
 
         return self
 
-    @with_connection
+    @sql.with_connection
     def drop_path(self, id: str) -> None:
         """Drop a path from the index.
 
@@ -360,7 +329,7 @@ class DatabaseTable:
     # ---------------------
     # Database table functions
     # ---------------------
-    @with_connection
+    @sql.with_connection
     def read_table(self) -> pd.DataFrame:
         """Read the table of the database.
 
@@ -371,7 +340,7 @@ class DatabaseTable:
         df.rename(columns=lambda x: x.replace(DOT_REPLACEMENT, "."), inplace=True)
         return df
 
-    @with_connection
+    @sql.with_connection
     def read_entry(self, entry_id: str) -> pd.Series:
         """Read an entry from the database.
 
@@ -389,7 +358,7 @@ class DatabaseTable:
         series.rename(index=lambda x: x.replace(DOT_REPLACEMENT, "."), inplace=True)
         return series
 
-    @with_connection
+    @sql.with_connection
     def read_column(self, *columns: str) -> pd.DataFrame:
         """Read columns from the database.
 
@@ -404,13 +373,13 @@ class DatabaseTable:
         df.rename(columns=lambda x: x.replace(DOT_REPLACEMENT, "."), inplace=True)
         return df
 
-    @with_connection
+    @sql.with_connection
     def drop_table(self) -> None:
         """Drop the table of the database."""
         self._cursor.execute(f"DROP TABLE {self.tablename_db}")
         self._cursor.execute(f"DROP TABLE {self.tablename_update_times}")
 
-    @with_connection
+    @sql.with_connection
     def create_database_table(self) -> None:
         """Create a table for a database."""
         self._cursor.execute(
@@ -424,7 +393,7 @@ class DatabaseTable:
             """
         )
 
-    @with_connection
+    @sql.with_connection
     def update_entry(self, entry_id: str, data: dict) -> None:
         """Update an entry in the database.
 
@@ -445,7 +414,7 @@ class DatabaseTable:
             key = key.replace(".", DOT_REPLACEMENT)
             if any(key == column[1] for column in cols):
                 continue
-            dtype = parse_sqlite_type(val)
+            dtype = sql.get_sqlite_column_type(val)
             self._cursor.execute(
                 f"ALTER TABLE {self.tablename_db} ADD COLUMN {key} {dtype}"
             )
@@ -457,14 +426,14 @@ class DatabaseTable:
             new_key = key.replace(".", DOT_REPLACEMENT)
             if new_key != key:
                 data[new_key] = data.pop(key)
-        sql = f"""
+        query = f"""
         INSERT INTO {self.tablename_db} (id, {", ".join(data.keys())})
         VALUES (:id, {", ".join([f":{key}" for key in data.keys()])})
         ON CONFLICT(id) DO UPDATE SET
         {", ".join(f"{key} = excluded.{key}" for key in data.keys())}
         """
         data["id"] = entry_id
-        self._cursor.execute(sql, data)
+        self._cursor.execute(query, data)
 
         # update update time
         self._cursor.execute(
@@ -472,7 +441,7 @@ class DatabaseTable:
             (entry_id, time()),
         )
 
-    @with_connection
+    @sql.with_connection
     def sync(self) -> None:
         """Sync the table with the file system."""
         all_ids_fs = set(
@@ -507,7 +476,7 @@ class DatabaseTable:
         for id in all_ids_fs:
             self.update_entry(id, self.entry(id).get_all_metadata())
 
-    @with_connection
+    @sql.with_connection
     def entry(self, entry_id: str) -> Entry:
         """Get the Entry object of an entry.
         Multiton pattern. One Entry per entry.
@@ -561,53 +530,6 @@ class Entry:
 # ----------------------
 # Module level functions
 # ----------------------
-def record_database(uid: str, path: str) -> None:
-    """Record a database in `database_index.json`
-
-    Args:
-        uid: the uid of the database
-        path: the path of the database
-    """
-    index = get_index_dict()
-    index[uid] = path
-    _write_index_dict(index)
-
-
-def get_path(uid: str) -> str:
-    """Find the path of a database specified by its UID.
-
-    Args:
-        uid: the UID of the database
-    """
-    if _comm.rank != 0:
-        return
-
-    # check in index (or {} for MPI off-root processes)
-    index = Index.read_table().set_index("id").to_dict()["path"] or {}
-    if uid in index.keys():
-        path = index[uid]
-        if _check_path(uid, path):
-            return path
-        else:
-            Index.drop_path(uid)
-
-    # check known paths
-    known_paths = get_known_paths()
-    for path in known_paths:
-        res = find(uid, root_dir=path)
-        if res:
-            path = os.path.dirname(res[0])
-            Index.insert_path(uid, path)
-            return path
-
-    # check home
-    res = find(uid, HOME)
-    if res:
-        path = os.path.dirname(res[0])
-        Index.insert_path(uid, path)
-        return path
-
-    raise FileNotFoundError(f"Database {uid} not found on system.")
 
 
 def find(uid, root_dir) -> list:
@@ -626,30 +548,6 @@ def find(uid, root_dir) -> list:
     return paths
 
 
-def clean() -> None:
-    """Clean the database index from wrong paths."""
-    index = get_index_dict()
-    clean_index = {uid: path for uid, path in index.items() if _check_path(uid, path)}
-    _write_index_dict(clean_index)
-
-
-def create_index() -> None:
-    """Create database index from known paths."""
-    known_paths = get_known_paths()
-    index = get_index_dict()
-    for path in known_paths:
-        completed_process = subprocess.run(
-            ["find", path, "-iname", f"{PREFIX}*", "-not", "-path", "*/\.git/*"],
-            capture_output=True,
-        )
-        databases_found = completed_process.stdout.decode("utf-8").splitlines()
-        for database in databases_found:
-            name = os.path.basename(database)
-            uid = name.split("-")[1]
-            index[uid] = os.path.dirname(database)
-    _write_index_dict(index)
-
-
 def get_uid_from_path(path: str) -> str:
     """Returns the UID found in the specified path."""
     for file in os.listdir(path):
@@ -658,24 +556,9 @@ def get_uid_from_path(path: str) -> str:
     raise FileNotFoundError("No UID file found at specified path.")
 
 
-def get_index_dict() -> dict:
-    """Returns a dictionary of all known databases."""
-    with open(DATABASE_INDEX, "r") as file:
-        try:
-            return json.loads(file.read())
-        except json.JSONDecodeError:
-            return {}
-
-
 def get_known_paths() -> list:
-    with open(CONFIG_FILE, "rb") as file:
-        return toml.load(file)["index"]["paths"]
+    return config["index"]["paths"]
 
-
-def _write_index_dict(index: dict) -> None:
-    """Write the database index."""
-    with open(DATABASE_INDEX, "w+") as file:
-        file.write(json.dumps(index, indent=4))
 
 
 def _find_posix(uid, root_dir) -> list:
