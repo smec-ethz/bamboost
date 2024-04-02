@@ -3,7 +3,11 @@ import argparse
 import rich
 
 from bamboost import _config
+from bamboost import index
 from bamboost.index import Index
+from bamboost.manager import Manager
+from bamboost.simulation import Simulation
+from bamboost.simulation_writer import SimulationWriter
 
 
 def main():
@@ -11,14 +15,24 @@ def main():
     subparsers = parser.add_subparsers(
         dest="command",
     )
+    function_map = {}
 
+    # ----------------
     # Submit
+    # ----------------
+    function_map["submit"] = submit_simulation
     parser_submit = subparsers.add_parser("submit", help="Submit a job")
     parser_submit.add_argument(
         "path",
         nargs="?",
         type=str,
-        help="Database path in which a submission will be made",
+        help="Path to simulation (directory) to submit",
+    )
+    parser_submit.add_argument(
+        "--id",
+        default=None,
+        type=str,
+        help="Simulation ID",
     )
     parser_submit.add_argument(
         "--db",
@@ -26,11 +40,31 @@ def main():
         type=str,
         help="Database ID in which a submission will be made",
     )
+    parser_submit.add_argument(
+        "--all",
+        action="store_true",
+        help="Submit all unsubmitted simulations in the database",
+    )
 
+    parser_db = subparsers.add_parser("db", help="Database management")
+    parser_db.add_argument("db", type=str, help="Database ID")
+    parser_db.add_argument(
+        "command",
+        choices=["create", "remove", "list"],
+        help="Database management command",
+    )
+
+
+    # ----------------
     # List
+    # ----------------
+    function_map["list"] = list_databases
     parser_list = subparsers.add_parser("list", help="List all databases")
 
+    # ----------------
     # Clean
+    # ----------------
+    function_map["clean"] = clean_index
     parser_clean = subparsers.add_parser("clean", help="Clean the index")
     parser_clean.add_argument(
         "--purge",
@@ -38,43 +72,46 @@ def main():
         help="also remove the tables from unknown databases",
     )
 
+    # ----------------
     # Open config file
+    # ----------------
+    function_map["config"] = open_config
     parser_config = subparsers.add_parser("config", help="Open the config file")
 
     args = parser.parse_args()
-
-    # function map
-    functions = {
-        "submit": submit_simulation,
-        "list": list_databases,
-        "clean": clean_index,
-        "config": open_config,
-    }
-
     if args.command is None:
         parser.print_help()
         return
-    func = functions[args.command]
-    func()
+    func = function_map[args.command]
+    func(args)
 
 
-def submit_simulation():
-    parser = argparse.ArgumentParser()
-    print("submitting...")
+def submit_simulation(args):
+    if args.path is not None:
+        db_path, uid = args.path.rstrip("/").rsplit("/", 1)
+        sim = Simulation(uid, db_path)
+        args.id = uid
+        args.db = Index.get_id(db_path)
+    else:
+        assert args.id and args.db, "Simulation ID and database ID must be provided"
+        sim = Simulation(args.id, args.db)
+
+    sim.submit()
+    print(f"Submitted simulation {args.id} [db: {args.db}]")
 
 
-def list_databases():
+def list_databases(args):
     table = Index.read_table()
     rich.print(table.to_string())
 
 
-def clean_index(purge: bool = False):
+def clean_index(args, purge: bool = False):
     Index.clean(purge=purge)
     rich.print("Index cleaned")
 
 
-def open_config():
-    import subprocess
+def open_config(args):
     import os
+    import subprocess
 
     subprocess.run([f"{os.environ.get('EDITOR', 'vi')}", f"{_config.CONFIG_FILE}"])

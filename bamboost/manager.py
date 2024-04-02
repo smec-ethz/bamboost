@@ -290,10 +290,13 @@ class Manager:
         columns_start = ["id", "notes", "status", "time_stamp"]
         self._dataframe = df[
             [*columns_start, *df.columns.difference(columns_start)]
-        ].sort_values(
-            config.get("options", {}).get("sort_table_key", "id"),
-            ascending=config.get("options", {}).get("sort_table_order", "asc") == "asc",
-        )
+        ]
+        if "sort_table_key" in (opts:=config.get("options", {})):
+            self._dataframe.sort_values(
+                opts.get("sort_table_key", "id"),
+                ascending=opts.get("sort_table_order", "asc") == "asc",
+                inplace=True,
+            )
         return self._dataframe
 
     def get_view_from_hdf_files(

@@ -5,7 +5,7 @@
 # mpi = False
 
 # default column to sort dataframes by
-# sort_table_by = 'time_stamp'
+# sort_table_key = 'time_stamp'
 
 [index]
 # the list of paths to search for databases

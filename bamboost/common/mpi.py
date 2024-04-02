@@ -36,7 +36,7 @@ def _get_mpi_module():
 
         return MPI
     except ImportError:
-        log.warning("`mpi4py` unavailable [using a mock MPI module]")
+        log.info("`mpi4py` unavailable [using a mock MPI module]")
         return MockMPI
 
 
