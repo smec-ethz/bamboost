@@ -22,6 +22,7 @@ class Job:
         commands: list,
         path: str,
         uid: str = None,
+        db_id: str = None,
         nnodes: int = 1,
         ntasks: int = 4,
         ncpus: int = 1,
@@ -53,7 +54,8 @@ class Job:
         script += f"#SBATCH --output={os.path.join(path, uid)}/{uid}.out\n"
 
         # add SCRIPT_DIR as environment variable
-        script += 'SCRIPT_DIR=$( cd -- "$( dirname -- "${BASH_SOURCE[0]}" )" &> /dev/null && pwd )\n\n'
+        script += f"""path=$(sqlite3 $HOME/.local/share/bamboost/bamboost.db "SELECT path FROM dbindex WHERE id='{db_id}'")\n"""
+        script += f'SCRIPT_DIR=$path/{uid}\n\n'
 
         # user defined commands
         script += "\n"

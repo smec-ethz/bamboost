@@ -23,7 +23,6 @@ except ImportError:
     raise ImportError("FEniCS not found. Module unavailable.")
 
 
-
 class FenicsWriter(SimulationWriter):
     """
     Helper writer for input from FEniCS directly.
@@ -34,7 +33,13 @@ class FenicsWriter(SimulationWriter):
         comm: MPI communicator
     """
 
-    def __init__(self, uid: str, path: str, comm: MPI.Comm = MPI.COMM_WORLD):
+    def __init__(
+        self,
+        uid: str,
+        path: str,
+        comm: MPI.Comm = MPI.COMM_WORLD,
+        create_if_not_exists: bool = False,
+    ):
         super().__init__(uid, path, comm)
 
     def add_field(

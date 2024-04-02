@@ -401,6 +401,7 @@ class Simulation:
                 commands,
                 path=os.path.abspath(self.path_database),
                 uid=self.uid,
+                db_id=self.database_id,
                 nnodes=nnodes,
                 ntasks=ntasks,
                 ncpus=ncpus,
