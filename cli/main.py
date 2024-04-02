@@ -1,10 +1,10 @@
 import argparse
 
+import pandas as pd
 import rich
 
-from bamboost import _config
-from bamboost import index
-from bamboost.index import Index
+from bamboost import _config, index
+from bamboost.index import DatabaseTable, Index
 from bamboost.manager import Manager
 from bamboost.simulation import Simulation
 from bamboost.simulation_writer import SimulationWriter
@@ -46,14 +46,14 @@ def main():
         help="Submit all unsubmitted simulations in the database",
     )
 
+    function_map["db"] = manage_db
     parser_db = subparsers.add_parser("db", help="Database management")
     parser_db.add_argument("db", type=str, help="Database ID")
-    parser_db.add_argument(
-        "command",
-        choices=["create", "remove", "list"],
-        help="Database management command",
+    sub_parser_db = parser_db.add_subparsers(
+        dest="subcommand",
+        help="Database management subcommand",
     )
-
+    sub_parser_db.add_parser("list", help="List all simulations in the database")
 
     # ----------------
     # List
@@ -98,6 +98,29 @@ def submit_simulation(args):
 
     sim.submit()
     print(f"Submitted simulation {args.id} [db: {args.db}]")
+
+
+def manage_db(args):
+    # check if index provided
+    index = Index.read_table()
+    if args.db in index["id"].values:
+        path = Index.get_path(args.db)
+    else:
+        try:
+            path = index.loc[int(args.db), "path"]
+        except IndexError:
+            raise ValueError(f"Database {args.db} not found")
+
+    db = Manager(path)
+
+    if args.subcommand == "list":
+        with Index.open():
+            rich.print(
+                pd.read_sql(
+                    f"""SELECT id, submitted, status, time_stamp FROM db_{db.UID}""",
+                    Index._conn,
+                )
+            )
 
 
 def list_databases(args):
