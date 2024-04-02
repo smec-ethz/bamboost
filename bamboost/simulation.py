@@ -142,7 +142,7 @@ class Simulation:
         """
         db_uid, sim_uid = full_uid.split(":")
         db_path = index.Index.get_path(db_uid)
-        return cls(sim_uid, db_path)
+        return cls(sim_uid, db_path, create_if_not_exists=False)
 
     @with_file_open()
     def __getitem__(self, key) -> hdf_pointer.BasePointer:
@@ -433,6 +433,8 @@ class Simulation:
 
         with self._file("a") as file:
             file.attrs.update({"submitted": True})
+        if SYNC_TABLE:
+            index.DatabaseTable(self.database_id).update_entry(self.uid, {"submitted": True})
 
     @with_file_open("a")
     def change_note(self, note) -> None:
