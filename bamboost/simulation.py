@@ -141,7 +141,7 @@ class Simulation:
             full_uid: the full id (Database uid : simulation uid)
         """
         db_uid, sim_uid = full_uid.split(":")
-        db_path = index.get_path(db_uid)
+        db_path = index.Index.get_path(db_uid)
         return cls(sim_uid, db_path)
 
     @with_file_open()
