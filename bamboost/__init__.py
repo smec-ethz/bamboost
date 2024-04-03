@@ -1,7 +1,7 @@
 __author__ = "florez@ethz.ch"
 __copyright__ = ""
 __license__ = "LGPLv3"
-__version__ = "0.5.2"
+__version__ = "0.6.0"
 
 import logging
 import os
