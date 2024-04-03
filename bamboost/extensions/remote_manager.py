@@ -14,6 +14,7 @@ import os
 import pkgutil
 import sqlite3
 import subprocess
+import pandas as pd
 
 from bamboost._sqlite_database import SQLiteHandler, with_connection
 from bamboost.common.mpi import MPI
@@ -174,6 +175,14 @@ class RemoteManager(Manager):
     @property
     def _table(self) -> RemoteDatabaseTable:
         return RemoteDatabaseTable(self.UID, _index=self._index)
+
+    def get_view(self, include_linked_sims: bool = False) -> pd.DataFrame:
+        df = super().get_view(include_linked_sims)
+        df.insert(1, "cached", False)
+        for id in os.listdir(self.path):
+            if id in df["id"].values:
+                df.loc[df["id"] == id, "cached"] = True
+        return df
 
     def sim(self, uid, return_writer: bool = False):
         """Return simulation object.
