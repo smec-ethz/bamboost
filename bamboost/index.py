@@ -11,7 +11,6 @@
 from __future__ import annotations
 
 __all__ = [
-    "Index",
     "DatabaseTable",
     "Entry",
     "record_database",
@@ -59,18 +58,6 @@ class DatabaseNotFoundError(Exception):
 # ------------------
 # Classes
 # ------------------
-class Singleton(type):
-    """Singleton metaclass to create a single instance of the database."""
-
-    _instances = {}
-
-    def __call__(cls, *args, **kwargs):
-        # if not root, return Null object to skip all calls to the index
-        if _comm.rank != 0:
-            return Null()
-        if cls not in cls._instances:
-            cls._instances[cls] = super().__call__(*args, **kwargs)
-        return cls._instances[cls]
 
 
 class Null:
@@ -97,7 +84,7 @@ class Null:
         return False
 
 
-class IndexAPI(sql.SQLiteHandler, metaclass=Singleton):
+class IndexAPI(sql.SQLiteHandler):
     """SQLite database to store database ID, path lookup. As well as the table for
     each database. Location: ~/.local/share/bamboost
     Singleton pattern.
@@ -108,8 +95,18 @@ class IndexAPI(sql.SQLiteHandler, metaclass=Singleton):
         - _cursor (sqlite3.Cursor): cursor for the database
     """
 
-    def __init__(self):
-        super().__init__(file=DATABASE_FILE)
+    _instances = {}
+
+    def __new__(cls, *, _file: str = DATABASE_FILE) -> IndexAPI:
+        if _comm.rank != 0:
+            return Null()
+
+        if _file not in cls._instances:
+            cls._instances[_file] = super().__new__(cls)
+        return cls._instances[_file]
+
+    def __init__(self, *, _file: str = DATABASE_FILE):
+        super().__init__(file=_file)
         self.create_index_table()
         self.clean()
 
@@ -120,7 +117,7 @@ class IndexAPI(sql.SQLiteHandler, metaclass=Singleton):
         return self.read_table()._repr_html_()
 
     def __getitem__(self, id: str) -> DatabaseTable:
-        return DatabaseTable(id)
+        return DatabaseTable(id, _index=self)
 
     def _ipython_key_completions_(self) -> list:
         return self.read_table().id.tolist()
@@ -284,6 +281,10 @@ class IndexAPI(sql.SQLiteHandler, metaclass=Singleton):
         """
         self._cursor.execute("DELETE FROM dbindex WHERE id=?", (id,))
 
+    def check_path(self, id: str, path: str) -> bool:
+        """Check if path is going to the correct database."""
+        return _check_path(id, path)
+
 
 class DatabaseTable:
     """
@@ -293,7 +294,7 @@ class DatabaseTable:
 
     _instances = {}
 
-    def __new__(cls, id: str, *_) -> DatabaseTable:
+    def __new__(cls, id: str, *args, **kwargs) -> DatabaseTable:
         if _comm.rank != 0:
             return Null()
 
@@ -301,14 +302,15 @@ class DatabaseTable:
             cls._instances[id] = super().__new__(cls)
         return cls._instances[id]
 
-    def __init__(self, id: str, *_):
+    def __init__(self, id: str, *, _index: IndexAPI = None):
         if hasattr(self, "_initialized"):
             return
 
         self.id = id
         self._entries = {}
         self._initialized = True
-        self.path = Index.get_path(self.id)
+        self._index = _index if _index is not None else IndexAPI()
+        self.path = self._index.get_path(self.id)
         self.tablename_db = f"db_{self.id}"
         self.tablename_update_times = f"db_{self.id}_t"
         self.create_database_table()
@@ -323,7 +325,7 @@ class DatabaseTable:
             "_is_open",
             "commit_once",
         }:
-            return getattr(Index, name)
+            return getattr(self._index, name)
         return self.__getattribute__(name)
 
     # ---------------------
@@ -560,7 +562,6 @@ def get_known_paths() -> list:
     return config["index"]["paths"]
 
 
-
 def _find_posix(uid, root_dir) -> list:
     """Find function using system `find` on linux."""
     completed_process = subprocess.run(
@@ -590,6 +591,3 @@ def _check_path(uid: str, path: str) -> bool:
     if f"{PREFIX}{uid}" in os.listdir(path):
         return True
     return False
-
-
-Index: IndexAPI = IndexAPI()

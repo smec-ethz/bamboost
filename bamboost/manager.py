@@ -29,7 +29,7 @@ class Manager:
 from . import index
 from .common.file_handler import open_h5file
 from .common.mpi import MPI
-from .index import DatabaseTable, Index, config
+from .index import DatabaseTable, IndexAPI, config
 from .simulation import Simulation
 from .simulation_writer import SimulationWriter
 
@@ -55,7 +55,7 @@ class ManagerFromUID(object):
 
     def __init__(self) -> None:
         # or [] to circumvent Null type (MPI)
-        ids = Index.fetch(f"SELECT id, path FROM dbindex") or []
+        ids = IndexAPI().fetch(f"SELECT id, path FROM dbindex") or []
         self.completion_keys = tuple(
             [f'{key} - {"..."+val[-25:] if len(val)>=25 else val}' for key, val in ids]
         )
@@ -72,7 +72,7 @@ class ManagerFromName(object):
     """Get a database by its path/name. This is used for autocompletion in ipython."""
 
     def __init__(self) -> None:
-        paths = Index.fetch("SELECT path FROM dbindex") or []
+        paths = IndexAPI().fetch("SELECT path FROM dbindex") or []
         self.completion_keys = tuple(paths)
 
     def _ipython_key_completions_(self):
@@ -115,7 +115,7 @@ class Manager:
     ):
         # provided uid has precedence
         if uid is not None:
-            path = index.Index.get_path(uid.upper())
+            path = self._index.get_path(uid.upper())
             path = comm.bcast(path, root=0)
         self.path = path
         self.comm = comm
@@ -128,13 +128,12 @@ class Manager:
             self._make_new(path)
 
         self.UID = uid or self._retrieve_uid()
-        Index.insert_path(self.UID, self.path)
+        self._index.insert_path(self.UID, self.path)
 
         # Update the SQL table for the database
-        self.table = DatabaseTable(self.UID)
-        with Index.open():
-            self.table.create_database_table()
-            self.table.sync()
+        with self._index.open():
+            self._table.create_database_table()
+            self._table.sync()
 
     def __getitem__(self, key: Union[str, int]) -> Simulation:
         """Returns the simulation in the specified row of the dataframe.
@@ -172,6 +171,16 @@ class Manager:
     def _ipython_key_completions_(self):
         return self.all_uids
 
+    @property
+    def _index(self) -> IndexAPI:
+        """The index which contains this database."""
+        return IndexAPI()
+
+    @property
+    def _table(self) -> DatabaseTable:
+        """The table in the sql database for this database."""
+        return DatabaseTable(self.UID)
+
     def _retrieve_uid(self) -> str:
         """Get the UID of this database from the file tree."""
         try:
@@ -198,7 +207,7 @@ class Manager:
         os.chmod(uid_file, 0o444)  # read only for uid file
 
         log.info(f"Registered new database (uid = {self.UID})")
-        Index.insert_path(self.UID, path)
+        self._index.insert_path(self.UID, path)
         return self.UID
 
     @property
@@ -278,9 +287,9 @@ class Manager:
         if include_linked_sims:
             return self.get_view_from_hdf_files(include_linked_sims=True)
 
-        with self.table.open():
-            self.table.sync()
-            df = self.table.read_table()
+        with self._table.open():
+            self._table.sync()
+            df = self._table.read_table()
 
         if df.empty:
             return df
@@ -372,7 +381,7 @@ class Manager:
         """
         if return_writer:
             return writer_type(uid, self.path, self.comm)
-        return Simulation(uid, self.path, self.comm)
+        return Simulation(uid, self.path, self.comm, _db_id=self.UID)
 
     def sims(
         self,

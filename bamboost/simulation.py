@@ -100,11 +100,13 @@ class Simulation:
         path: str,
         comm: MPI.Comm = MPI.COMM_WORLD,
         create_if_not_exists: bool = False,
+        *,
+        _db_id: str = None,
     ):
         self.uid: str = uid
         path = comm.bcast(path, root=0)
         self.path_database: str = os.path.abspath(path)
-        self.database_id: str = index.get_uid_from_path(self.path_database)
+        self.database_id = _db_id or index.get_uid_from_path(self.path_database)
         self.path: str = os.path.abspath(os.path.join(path, uid))
         self.h5file: str = os.path.join(self.path, f"{self.uid}.h5")
         self.xdmffile: str = os.path.join(self.path, f"{self.uid}.xdmf")
@@ -141,7 +143,7 @@ class Simulation:
             full_uid: the full id (Database uid : simulation uid)
         """
         db_uid, sim_uid = full_uid.split(":")
-        db_path = index.Index.get_path(db_uid)
+        db_path = index.IndexAPI().get_path(db_uid)
         return cls(sim_uid, db_path, create_if_not_exists=False)
 
     @with_file_open()

@@ -4,7 +4,7 @@ import pandas as pd
 import rich
 
 from bamboost import _config, index
-from bamboost.index import DatabaseTable, Index
+from bamboost.index import DatabaseTable, IndexAPI
 from bamboost.manager import Manager
 from bamboost.simulation import Simulation
 from bamboost.simulation_writer import SimulationWriter
@@ -12,6 +12,9 @@ from bamboost.simulation_writer import SimulationWriter
 
 def main():
     parser = argparse.ArgumentParser(description="CLI for bamboost")
+    parser.add_argument(
+        "--remote", "-r", help="Remote server to fetch data from", type=str
+    )
     subparsers = parser.add_subparsers(
         dest="command",
     )
@@ -91,7 +94,7 @@ def submit_simulation(args):
         db_path, uid = args.path.rstrip("/").rsplit("/", 1)
         sim = Simulation(uid, db_path)
         args.id = uid
-        args.db = Index.get_id(db_path)
+        args.db = IndexAPI().get_id(db_path)
     else:
         assert args.id and args.db, "Simulation ID and database ID must be provided"
         sim = Simulation(args.id, args.db)
@@ -102,9 +105,9 @@ def submit_simulation(args):
 
 def manage_db(args):
     # check if index provided
-    index = Index.read_table()
+    index = IndexAPI().read_table()
     if args.db in index["id"].values:
-        path = Index.get_path(args.db)
+        path = IndexAPI().get_path(args.db)
     else:
         try:
             path = index.loc[int(args.db), "path"]
@@ -114,22 +117,22 @@ def manage_db(args):
     db = Manager(path)
 
     if args.subcommand == "list":
-        with Index.open():
+        with IndexAPI().open():
             rich.print(
                 pd.read_sql(
                     f"""SELECT id, submitted, status, time_stamp FROM db_{db.UID}""",
-                    Index._conn,
+                    IndexAPI()._conn,
                 )
             )
 
 
 def list_databases(args):
-    table = Index.read_table()
+    table = IndexAPI().read_table()
     rich.print(table.to_string())
 
 
 def clean_index(args, purge: bool = False):
-    Index.clean(purge=purge)
+    IndexAPI().clean(purge=purge)
     rich.print("Index cleaned")
 
 
