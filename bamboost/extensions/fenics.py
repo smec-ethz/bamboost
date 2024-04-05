@@ -67,7 +67,12 @@ class FenicsWriter(SimulationWriter):
         time = time if time is not None else self.step
 
         # get global dofs ordering and vector
-        data = self._get_global_dofs(func)
+        if center == "Node":
+            data = self._get_global_dofs(func)
+        elif center == "Cell":
+            data = self._get_global_dofs_cell_data(func)
+        else:
+            raise ValueError("Center must be 'Node' or 'Cell'.")
         vector = data["vector"]
         global_map = data["global_map"]
         global_size = data["global_size"]
@@ -134,6 +139,45 @@ class FenicsWriter(SimulationWriter):
             "vector": local_vector,
             "global_map": global_vertices[sort_indices],
             "global_size": global_size,
+        }
+
+    def _get_global_dofs_cell_data(self, func: fe.Function) -> dict:
+        """
+        Get global dofs for a given function.
+
+        Args:
+            - func: Expression/field/function
+
+        Returns:
+            A dict with the local vector, a mapping from the local to the
+            global vertices (both sorted by index because h5py complains if
+            slicing is not continuously increasing), and the number of global
+            vertices.
+        """
+        V = func.function_space()
+        val_per_vertex = (
+            np.prod(func.ufl_shape).astype(np.int32) if func.ufl_shape else 1
+        )
+
+        mesh = V.mesh()
+        dofmap = V.dofmap()
+
+        local_to_global_indices = dofmap.tabulate_local_to_global_dofs()
+        local_to_global_indices = (
+            local_to_global_indices[
+                np.arange(
+                    0, len(local_to_global_indices), val_per_vertex, dtype=np.int32
+                )
+            ]
+            // val_per_vertex
+        )
+        shape = (-1, *func.ufl_shape) if func.ufl_shape else (-1,)
+        local_vector = func.vector().get_local().reshape(shape)
+
+        return {
+            "vector": local_vector,
+            "global_map": local_to_global_indices,
+            "global_size": self._comm.allreduce(mesh.num_cells(), op=MPI.SUM),
         }
 
     def add_mesh(self, mesh: fe.Mesh, mesh_name: str = None) -> None:
