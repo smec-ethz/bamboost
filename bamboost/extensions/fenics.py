@@ -49,6 +49,7 @@ class FenicsWriter(SimulationWriter):
         time: float = None,
         mesh: str = None,
         dtype: str = None,
+        center: str = "Node",
     ) -> None:
         """Add a dataset to the file. The data is stored at `data/`.
 
@@ -59,11 +60,8 @@ class FenicsWriter(SimulationWriter):
             mesh: Optional. Linked mesh for this data
             dtype: Optional. Numpy style datatype, see h5py documentation,
                 defaults to the dtype of the vector
-            map: Optional. Map to map the local data to a global array. From
-                parallel processes to a global array. Needed to align with mesh.
-                Indices must be increasing.
-            global_size: Optional. Size of the global array. If not given, the
-                global size is inferred from the vector sizes of each process.
+            center: Optional. Center of the data. Can be 'Node' or 'Cell'.
+                Default is 'Node'.
         """
         mesh = mesh if mesh is not None else self._default_mesh
         time = time if time is not None else self.step
@@ -92,6 +90,7 @@ class FenicsWriter(SimulationWriter):
                 vec = self._file["data"][name][str(self.step)]
                 vec.attrs["t"] = time  # add time as attribute to dataset
                 vec.attrs["mesh"] = mesh  # add link to mesh as attribute
+                vec.attrs["center"] = center
 
     def _get_global_dofs(self, func: fe.Function) -> dict:
         """

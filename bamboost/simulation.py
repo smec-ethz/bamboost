@@ -428,12 +428,12 @@ class Simulation:
                 os.path.join(self.path, f"sbatch_{self.uid}.sh")
             )
             env = os.environ.copy()
-            del env["BAMBOOST_MPI"]
+            _ = env.pop("BAMBOOST_MPI", None)
             subprocess.run(["sbatch", f"{batch_script}"], env=env)
         if f"{self.uid}.sh" in os.listdir(self.path):
             bash_script = os.path.abspath(os.path.join(self.path, f"{self.uid}.sh"))
             env = os.environ.copy()
-            del env["BAMBOOST_MPI"]
+            _ = env.pop("BAMBOOST_MPI", None)
             subprocess.run(["bash", f"{bash_script}"], env=env)
 
         print(f"Simulation {self.uid} submitted!")
