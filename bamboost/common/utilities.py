@@ -163,4 +163,5 @@ def show_differences(df: pd.DataFrame) -> pd.DataFrame:
     except KeyError:
         pass
     df_diff = df_diff.loc[:, (df_diff.nunique() != 1)]
+    df_diff.dropna(axis=1, how='all', inplace=True)
     return df_diff
