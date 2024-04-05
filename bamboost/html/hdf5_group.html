@@ -20,11 +20,6 @@
         background-color: var(--bb-bg50);
       }
 
-      table th {
-        font-style: italic;
-        background-color: var(--bb-bg50);
-      }
-
       .info_container {
         position: relative;
         display: inline-flex;
@@ -106,6 +101,12 @@
         text-align: right;
         background-color: transparent;
       }
+
+      table.content-table th {
+        font-style: italic;
+        background-color: var(--bb-bg50);
+      }
+
     </style>
   </head>
 
@@ -121,18 +122,16 @@
           <div>bamboost $version</div>
         </div>
       </div>
-      <div class="content-table">
-        <table>
-          <tbody>
-            <th colspan="2" class="head">Attributes</th>
-            <tr>
-              <th>Attribute</th>
-              <th>Value</th>
-            </tr>
-            $attrs
-          </tbody>
-        </table>
-      </div>
+      <table class="content-table">
+        <tbody>
+          <th colspan="2" class="head">Attributes</th>
+          <tr>
+            <th>Attribute</th>
+            <th>Value</th>
+          </tr>
+          $attrs
+        </tbody>
+      </table>
       <table class="content-table">
         <tbody>
           <th colspan="2" class="head">Groups</th>
