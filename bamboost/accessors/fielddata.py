@@ -100,6 +100,7 @@ class FieldData(hdf_pointer.Group):
 
         if len(self) > self.obj.attrs.get("virtual_dataset_length", 0):
             self._create_vds()
+            self._create_times()
             return self.obj[self._vds_key]
 
         return self.obj[self._vds_key]
