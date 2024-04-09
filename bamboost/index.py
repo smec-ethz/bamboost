@@ -103,10 +103,13 @@ class IndexAPI(sql.SQLiteHandler):
         return cls._instances[_file]
 
     def __init__(self, *, _file: str = None):
+        if hasattr(self, "_initialized"):
+            return
         _file = _file or paths["DATABASE_FILE"]
         super().__init__(file=_file)
         self.create_index_table()
         self.clean()
+        self._initialized = True
 
     def __repr__(self) -> str:
         return self.read_table().__repr__()
