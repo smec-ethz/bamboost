@@ -31,7 +31,7 @@ from typing import Callable, Generator, Iterable
 import pandas as pd
 
 import bamboost._sqlite_database as sql
-from bamboost._config import DATABASE_FILE, HOME, config
+from bamboost._config import config, paths
 from bamboost.common.file_handler import open_h5file
 from bamboost.common.mpi import MPI
 
@@ -93,15 +93,17 @@ class IndexAPI(sql.SQLiteHandler):
 
     _instances = {}
 
-    def __new__(cls, *, _file: str = DATABASE_FILE) -> IndexAPI:
+    def __new__(cls, *, _file: str = None) -> IndexAPI:
         if _comm.rank != 0:
             return Null()
-
+        
+        _file = _file or paths["DATABASE_FILE"]
         if _file not in cls._instances:
             cls._instances[_file] = super().__new__(cls)
         return cls._instances[_file]
 
-    def __init__(self, *, _file: str = DATABASE_FILE):
+    def __init__(self, *, _file: str = None):
+        _file = _file or paths["DATABASE_FILE"]
         super().__init__(file=_file)
         self.create_index_table()
         self.clean()
@@ -168,7 +170,7 @@ class IndexAPI(sql.SQLiteHandler):
                 return path
 
         # last resort, check home
-        res = find(id, HOME)
+        res = find(id, paths["HOME"])
         if res:
             path = os.path.dirname(res[0])
             self.insert_path(id, path)
@@ -555,7 +557,7 @@ def get_uid_from_path(path: str) -> str:
 
 
 def get_known_paths() -> list:
-    return config["index"]["paths"]
+    return config["index"].get("paths", [])
 
 
 def _find_posix(uid, root_dir) -> list:

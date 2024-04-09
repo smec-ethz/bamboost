@@ -30,8 +30,6 @@ __all__ = ["SimulationWriter"]
 
 log = logging.getLogger(__name__)
 
-SYNC_TABLE = config.get("sync_table", True)
-
 
 class SimulationWriter(Simulation):
     """The SimulationWriter is the writer object for a single simulation. It inherits
@@ -56,7 +54,7 @@ class SimulationWriter(Simulation):
     ):
         super().__init__(uid, path, comm, create_if_not_exists)
         self.step: int = 0
-        if SYNC_TABLE:
+        if config["options"].get("sync_table", True):
             self._db_table = DatabaseTable(self.database_id)
 
     def __enter__(self):
@@ -91,7 +89,7 @@ class SimulationWriter(Simulation):
                     "notes": self._file.attrs.get("notes", ""),
                 }
                 self._file.attrs.update(data)
-            if SYNC_TABLE:
+            if config["options"].get("sync_table", True):
                 self._db_table.update_entry(self.uid, data)
 
     def add_parameters(self, parameters: dict) -> None:
@@ -113,7 +111,7 @@ class SimulationWriter(Simulation):
                         grp.create_dataset(key, data=val)
                     elif val is not None:
                         grp.attrs[key] = val
-            if SYNC_TABLE:
+            if config["options"].get("sync_table", True):
                 self._db_table.update_entry(self.uid, parameters)
 
     def add_mesh(

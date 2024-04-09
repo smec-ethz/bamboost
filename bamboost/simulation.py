@@ -35,8 +35,6 @@ __all__ = ["Simulation", "Links"]
 
 log = logging.getLogger(__name__)
 
-SYNC_TABLE = config.get("sync_table", True)
-
 
 class Links(hdf_pointer.MutableGroup):
     """Link group. Used to create and access links.
@@ -286,7 +284,7 @@ class Simulation:
             self._file.attrs["status"] = status
             self._file.close()
 
-        if SYNC_TABLE:
+        if config["options"].get("sync_table", True):
             index.DatabaseTable(self.database_id).update_entry(
                 self.uid, {"status": status}
             )
@@ -300,7 +298,7 @@ class Simulation:
         with self._file("a") as file:
             file.attrs.update(update_dict)
 
-        if SYNC_TABLE:
+        if config["options"].get("sync_table", True):
             index.DatabaseTable(self.database_id).update_entry(self.uid, update_dict)
 
     def update_parameters(self, update_dict: dict) -> None:
@@ -314,7 +312,7 @@ class Simulation:
             with self._file("a") as file:
                 file["parameters"].attrs.update(update_dict)
 
-            if SYNC_TABLE:
+            if config["options"].get("sync_table", True):
                 index.DatabaseTable(self.database_id).update_entry(
                     self.uid, update_dict
                 )
@@ -440,15 +438,17 @@ class Simulation:
 
         with self._file("a") as file:
             file.attrs.update({"submitted": True})
-        if SYNC_TABLE:
-            index.DatabaseTable(self.database_id).update_entry(self.uid, {"submitted": True})
+        if config["options"].get("sync_table", True):
+            index.DatabaseTable(self.database_id).update_entry(
+                self.uid, {"submitted": True}
+            )
 
     @with_file_open("a")
     def change_note(self, note) -> None:
         if self._prank == 0:
             self._file.attrs["notes"] = note
 
-            if SYNC_TABLE:
+            if config["options"].get("sync_table", True):
                 index.DatabaseTable(self.database_id).update_entry(
                     self.uid, {"notes": note}
                 )

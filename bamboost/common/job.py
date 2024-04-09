@@ -10,6 +10,8 @@
 import argparse
 import os
 
+from bamboost._config import paths
+
 __all__ = ["Job"]
 
 
@@ -54,8 +56,8 @@ class Job:
         script += f"#SBATCH --output={os.path.join(path, uid)}/{uid}.out\n"
 
         # add SCRIPT_DIR as environment variable
-        script += f"""path=$(sqlite3 $HOME/.local/share/bamboost/bamboost.db "SELECT path FROM dbindex WHERE id='{db_id}'")\n"""
-        script += f'SCRIPT_DIR=$path/{uid}\n\n'
+        script += f"""path=$(sqlite3 {paths['DATABASE_FILE']} "SELECT path FROM dbindex WHERE id='{db_id}'")\n"""
+        script += f"SCRIPT_DIR=$path/{uid}\n\n"
 
         # user defined commands
         script += "\n"
