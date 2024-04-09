@@ -295,11 +295,12 @@ class Simulation:
         Args:
             update_dict: dictionary to push
         """
-        with self._file("a") as file:
-            file.attrs.update(update_dict)
+        if self._prank == 0:
+            with self._file("a") as file:
+                file.attrs.update(update_dict)
 
-        if config["options"].get("sync_table", True):
-            index.DatabaseTable(self.database_id).update_entry(self.uid, update_dict)
+            if config["options"].get("sync_table", True):
+                index.DatabaseTable(self.database_id).update_entry(self.uid, update_dict)
 
     def update_parameters(self, update_dict: dict) -> None:
         """Update the parameters dictionary.
