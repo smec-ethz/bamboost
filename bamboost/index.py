@@ -11,17 +11,13 @@
 from __future__ import annotations
 
 __all__ = [
-    "DatabaseTable",
-    "Entry",
-    "record_database",
-    "get_path",
-    "find",
-    "clean",
-    "create_index",
-    "get_uid_from_path",
-    "get_index_dict",
-    "get_known_paths",
-    "get_uid_from_path",
+    'Null',
+    'IndexAPI',
+    'DatabaseTable',
+    'Entry',
+    'find',
+    'get_uid_from_path',
+    'get_known_paths'
 ]
 
 import json

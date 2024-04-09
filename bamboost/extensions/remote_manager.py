@@ -217,6 +217,19 @@ class RemoteManager(Manager):
 
         return super().sim(uid, return_writer)
 
+    def sync(self, uid: str) -> None:
+        subprocess.call(
+            [
+                "rsync",
+                "-r",
+                f"{self.remote.remote_name}:{self.remote_path_db}/{uid}",
+                f"{self.path}",
+            ],
+            stdout=subprocess.PIPE,
+        )
+        log.info(f"Data for {uid} transferred to {self.path}")
+
+
 
 if __name__ == "__main__":
     pass
