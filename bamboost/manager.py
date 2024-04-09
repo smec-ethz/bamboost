@@ -38,18 +38,6 @@ __all__ = ["Manager", "ManagerFromUID", "ManagerFromName"]
 log = logging.getLogger(__name__)
 
 
-META_INFO = """
-This database has been created using `bamboost`, a python package developed at
-the CMBM group of ETH zurich. It has been built for data management using the
-HDF5 file format.
-
-https://gitlab.ethz.ch/compmechmat/research/libs/dbmanager
-"""
-
-# Setup Manager getters
-# ---------------------
-
-
 class ManagerFromUID(object):
     """Get a database by its UID. This is used for autocompletion in ipython."""
 
@@ -297,10 +285,8 @@ class Manager:
 
         # Sort dataframe columns
         columns_start = ["id", "notes", "status", "time_stamp"]
-        self._dataframe = df[
-            [*columns_start, *df.columns.difference(columns_start)]
-        ]
-        if "sort_table_key" in (opts:=config.get("options", {})):
+        self._dataframe = df[[*columns_start, *df.columns.difference(columns_start)]]
+        if "sort_table_key" in (opts := config.get("options", {})):
             self._dataframe.sort_values(
                 opts.get("sort_table_key", "id"),
                 ascending=opts.get("sort_table_order", "asc") == "asc",

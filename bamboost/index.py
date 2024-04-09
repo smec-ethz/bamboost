@@ -37,9 +37,9 @@ from bamboost.common.mpi import MPI
 
 log = logging.getLogger(__name__)
 
-PREFIX = ".BAMBOOST-"
-DOT_REPLACEMENT = "DOT"
-_comm = MPI.COMM_WORLD
+PREFIX = ".BAMBOOST-"  # prefix for databaseID identifier file
+DOT_REPLACEMENT = "DOT"  # replace dots with this in column names for sqlite
+_comm = MPI.COMM_WORLD  # TODO: is this good practice?
 
 
 # ------------------

@@ -2,10 +2,11 @@
 
 [options]
 # uncomment to disable mpi support
-# mpi = False
+# mpi = false
 
 # default column to sort dataframes by
 # sort_table_key = 'time_stamp'
+# sort_table_order = 'asc' / 'desc'
 
 [index]
 # the list of paths to search for databases
