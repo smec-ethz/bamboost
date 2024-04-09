@@ -3,13 +3,14 @@ import pytest
 from test_manager import temp_manager
 
 
-class TestReader:
-
-    def test_some(self):
-        assert 1 == 1
-
-
-@pytest.mark.parametrize("data", [np.array([1, 2, 3]), np.array([1.2, 2.3, 3.4])])
+@pytest.mark.parametrize(
+    "data",
+    [
+        np.array([1, 2, 3]),
+        np.array([1.2, 2.3, 3.4]),
+        np.array([[1, 2], [3, 4]]),
+    ],
+)
 def test_read_field(temp_manager, data):
     sim = temp_manager.create_simulation()
     uid = sim.uid
@@ -19,4 +20,3 @@ def test_read_field(temp_manager, data):
     sim = temp_manager.sim(uid)
     data_read = sim.data["test"].at_step(0)
     assert np.array_equal(data_read, data)
-
