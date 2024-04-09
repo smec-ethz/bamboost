@@ -3,15 +3,14 @@
 import os
 import shutil
 import sqlite3
-import tempfile
 
 import numpy as np
 import pytest
-from test_manager import temp_manager
 
-from bamboost.common import sqlite
-from bamboost.index import DatabaseTable, Index
+from bamboost.index import DatabaseTable, IndexAPI
 from bamboost.manager import Manager
+
+from test_manager import temp_manager
 
 
 # --------------------------------------------------------------------------
@@ -19,11 +18,11 @@ from bamboost.manager import Manager
 # The index.Index is rerouted to a temporary file -> empty at the beginning
 # --------------------------------------------------------------------------
 def test_if_index_created():
-    assert os.path.isfile(Index.file)
+    assert os.path.isfile(IndexAPI().file)
 
 
 def test_if_table_created():
-    conn = sqlite3.connect(Index.file, detect_types=sqlite3.PARSE_DECLTYPES)
+    conn = sqlite3.connect(IndexAPI().file, detect_types=sqlite3.PARSE_DECLTYPES)
     cursor = conn.cursor()
     # check if table dbindex exists
     cursor.execute(
@@ -34,7 +33,7 @@ def test_if_table_created():
 
 def test_if_database_added(temp_manager: Manager):
     # check if database is in index
-    index = Index.read_table()  # returns pd.DataFrame
+    index = IndexAPI().read_table()  # returns pd.DataFrame
     assert temp_manager.UID in index.id.values
     assert temp_manager.path == index.loc[index.id == temp_manager.UID].path.values[0]
 
@@ -43,15 +42,15 @@ def test_if_database_added(temp_manager: Manager):
 def test_if_database_removed(temp_manager: Manager):
     # check if database is removed from index if deleted
     shutil.rmtree(temp_manager.path)
-    index = Index.read_table()
+    index = IndexAPI().read_table()
     assert temp_manager.UID not in index.id.values
 
 
 def test_index_clean(temp_manager: Manager):
     # check if index is cleaned
     shutil.rmtree(temp_manager.path)
-    Index.clean()
-    index = Index.read_table()
+    IndexAPI().clean()
+    index = IndexAPI().read_table()
     assert index.empty
 
 
@@ -60,25 +59,25 @@ def test_index_clean_purge(temp_manager: Manager):
     # shutil.rmtree(temp_manager.path)
     uid = temp_manager.UID
     table_name = f"db_{uid}"
-    res = Index.fetch("SELECT name FROM sqlite_master WHERE type='table';")
+    res = IndexAPI().fetch("SELECT name FROM sqlite_master WHERE type='table';")
     # assert that the database table exists
     assert (table_name,) in res
 
     shutil.rmtree(temp_manager.path)
-    Index.clean(purge=True)
-    res = Index.fetch("SELECT name FROM sqlite_master WHERE type='table';")
+    IndexAPI().clean(purge=True)
+    res = IndexAPI().fetch("SELECT name FROM sqlite_master WHERE type='table';")
     assert f"db_{temp_manager.UID}" not in res
 
 
 def test_getitem(temp_manager: Manager):
     # check if __getitem__ works -> returns index.DatabaseTable
-    dbt = Index[temp_manager.UID]
+    dbt = IndexAPI()[temp_manager.UID]
     assert isinstance(dbt, DatabaseTable)
 
 
 def test_get_id_from_path(temp_manager: Manager):
     # check if get_id_from_path works
-    assert Index.get_id(temp_manager.path) == temp_manager.UID
+    assert IndexAPI().get_id(temp_manager.path) == temp_manager.UID
 
 
 # --------------------------------------------------------------------------

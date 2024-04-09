@@ -2,12 +2,10 @@
 
 import os
 import shutil
-import sqlite3
 import tempfile
 
 import numpy as np
 import pytest
-from conftest import temp_manager_persistent
 
 from bamboost import Manager, Simulation, index
 
@@ -61,7 +59,7 @@ class TestManager:
 def test_if_table_created(temp_manager: Manager):
     uid = temp_manager.UID
     table_name = f"db_{uid}"
-    res = index.Index.fetch("SELECT name FROM sqlite_master WHERE type='table';")
+    res = index.IndexAPI().fetch("SELECT name FROM sqlite_master WHERE type='table';")
     # assert that the database table exists
     assert (table_name,) in res
     # assert that the table with update times exists
@@ -69,13 +67,14 @@ def test_if_table_created(temp_manager: Manager):
 
 
 def test_dataframe_integrity(temp_manager: Manager):
+    _index = index.IndexAPI()  # shortcutting calling IndexAPI() every time
     booleans = {
         "1": True,
         "2": False,
         "3": True,
     }
 
-    @index.Index.commit_once
+    @_index.commit_once
     def create_sims(booleans: list):
         for args in zip([1, 2, 3], booleans, ["a", "b", "c"]):
             sim = temp_manager.create_simulation(
@@ -93,10 +92,10 @@ def test_dataframe_integrity(temp_manager: Manager):
     create_sims(booleans)
 
     # delete the table to force re-creation -> booleans are wrong!!!
-    with index.Index.open():
-        index.Index._cursor.execute(f"DROP TABLE db_{temp_manager.UID};")
-        index.Index._cursor.execute(f"DROP TABLE db_{temp_manager.UID}_t;")
-        index.Index.commit()
+    with _index.open():
+        _index._cursor.execute(f"DROP TABLE db_{temp_manager.UID};")
+        _index._cursor.execute(f"DROP TABLE db_{temp_manager.UID}_t;")
+        _index.commit()
 
     db = Manager(uid=temp_manager.UID)
     df = db.df.set_index("id")
