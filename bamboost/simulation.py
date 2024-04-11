@@ -213,6 +213,9 @@ class Simulation:
         tmp_dict = dict()
         if self._prank == 0:
             with self._file("r"):
+                # return if parameters is not in the file
+                if "parameters" not in self._file.keys():
+                    return {}
                 tmp_dict.update(self._file["parameters"].attrs)
                 for key in self._file["parameters"].keys():
                     tmp_dict.update({key: self._file[f"parameters/{key}"][()]})
@@ -303,7 +306,9 @@ class Simulation:
                 file.attrs.update(update_dict)
 
             if config["options"].get("sync_table", True):
-                index.DatabaseTable(self.database_id).update_entry(self.uid, update_dict)
+                index.DatabaseTable(self.database_id).update_entry(
+                    self.uid, update_dict
+                )
 
     def update_parameters(self, update_dict: dict) -> None:
         """Update the parameters dictionary.
@@ -492,6 +497,12 @@ class Simulation:
         """
         if mesh_name is None:
             mesh_name = self._default_mesh
+
+        # Raise an error if the mesh is not found
+        if (self._mesh_location.split("/")[0] not in self._file.keys()) or (
+            mesh_name not in self._file[self._mesh_location].keys()
+        ):
+            raise KeyError(f"Mesh location {self._mesh_location} not found in file.")
 
         mesh = self.meshes[mesh_name]
         return mesh.coordinates, mesh.connectivity
