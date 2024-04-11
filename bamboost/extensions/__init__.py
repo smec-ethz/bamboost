@@ -20,5 +20,10 @@ class ExtensionsLazyLoader:
         from .remote_manager import RemoteManager
         return RemoteManager
 
+    @property
+    def install_slurm(self):
+        from .slurm import install
+        return install
+
 
 extensions = ExtensionsLazyLoader()

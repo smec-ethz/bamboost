@@ -228,6 +228,8 @@ class Simulation:
         if self._prank == 0:
             with self._file("r") as file:
                 tmp_dict.update(file.attrs)
+
+        tmp_dict = utilities.unflatten_dict(tmp_dict)
         tmp_dict = self._comm.bcast(tmp_dict, root=0)
         return tmp_dict
 
@@ -296,6 +298,7 @@ class Simulation:
             update_dict: dictionary to push
         """
         if self._prank == 0:
+            update_dict = utilities.flatten_dict(update_dict)
             with self._file("a") as file:
                 file.attrs.update(update_dict)
 
