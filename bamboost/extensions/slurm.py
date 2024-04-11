@@ -13,16 +13,19 @@ import os
 import subprocess
 from functools import wraps
 
-from bamboost.simulation_writer import SimulationWriter
 from bamboost.common.utilities import to_camel_case
+from bamboost.simulation_writer import SimulationWriter
 
+
+NAME_OF_DICT = "_slurm"
 
 def _extend_enter_slurm_info(original_enter):
     @wraps(original_enter)
     def modified_enter(self: SimulationWriter, *args, **kwargs):
         slurm_job_id = os.environ.get("SLURM_JOB_ID")
-        self.update_metadata({"slurm": {"jobId": slurm_job_id}})
+        self.update_metadata({NAME_OF_DICT: {"jobId": slurm_job_id}})
         return original_enter(self, *args, **kwargs)
+
     return modified_enter
 
 
@@ -51,26 +54,11 @@ def _extend_exit_slurm_info(original_exit):
                     slurm_dict[to_camel_case(key.strip())] = value.strip()
 
             # _write_slurm_info(self, slurm_dict)
-            self.update_metadata({"slurm": slurm_dict})
+            self.update_metadata({NAME_OF_DICT: slurm_dict})
 
         return original_exit(self, exc_type, exc_value, exc_tb)
 
     return modified_exit
-
-
-def _write_slurm_info(self: SimulationWriter, slurm_dict: dict):
-    """Write the slurm metadata to the HDF5 file.
-
-    Args:
-        - self: The SimulationWriter instance.
-        - slurm_dict: A dictionary containing the key-value pairs extracted
-          from the SLURM job.
-    """
-    # Create a group for the SLURM metadata
-    if self._prank == 0:
-        with self.open("a") as file:
-            slurm_group = file.file_object.require_group("slurm")
-            slurm_group.attrs.update(slurm_dict)
 
 
 def install():

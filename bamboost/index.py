@@ -340,6 +340,8 @@ class DatabaseTable:
             pd.DataFrame: table of the database
         """
         df = pd.read_sql_query(f"SELECT * FROM {self.tablename_db}", self._conn)
+        # drop "hidden" columns which start with _
+        df = df.loc[:, ~df.columns.str.startswith("_")]
         df.rename(columns=lambda x: x.replace(DOT_REPLACEMENT, "."), inplace=True)
         return df
 
