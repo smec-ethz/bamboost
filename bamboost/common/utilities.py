@@ -163,5 +163,11 @@ def show_differences(df: pd.DataFrame) -> pd.DataFrame:
     except KeyError:
         pass
     df_diff = df_diff.loc[:, (df_diff.nunique() != 1)]
-    df_diff.dropna(axis=1, how='all', inplace=True)
+    df_diff.dropna(axis=1, how="all", inplace=True)
     return df_diff
+
+
+def to_camel_case(s: str) -> str:
+    words = s.split()
+    camel_case = words[0].lower() + "".join([word.capitalize() for word in words[1:]])
+    return camel_case
