@@ -415,6 +415,7 @@ class DatabaseTable:
         # check if columns exist
         for key, val in data.items():
             key = key.replace(".", DOT_REPLACEMENT)
+            key = _remove_illegal_column_characters(key)
             if any(key == column[1] for column in cols):
                 continue
             dtype = sql.get_sqlite_column_type(val)
@@ -592,3 +593,19 @@ def _check_path(uid: str, path: str) -> bool:
     if f"{PREFIX}{uid}" in os.listdir(path):
         return True
     return False
+
+def _remove_illegal_column_characters(key: str) -> str:
+    """Remove illegal characters in sqlite column names from a string.
+    
+    Args:
+        key (str): key to clean
+
+    Removes all content in parenthesis and replaces dashes with underscores.
+    """
+    import re
+    # clean from parenthesis
+    key = re.sub(r"[()]", "", re.sub(r"\(.*?\)", "", key))
+    # clean from dashes
+    key = re.sub(r"-", "_", key)
+    return key
+
