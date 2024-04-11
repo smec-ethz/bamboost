@@ -49,14 +49,18 @@ def main():
         help="Submit all unsubmitted simulations in the database",
     )
 
+    # ----------------
+    # Database
+    # ----------------
     function_map["db"] = manage_db
     parser_db = subparsers.add_parser("db", help="Database management")
-    parser_db.add_argument("db", type=str, help="Database ID")
+    parser_db.add_argument("db_id", type=str, help="Database ID")
     sub_parser_db = parser_db.add_subparsers(
         dest="subcommand",
         help="Database management subcommand",
     )
     sub_parser_db.add_parser("list", help="List all simulations in the database")
+    sub_parser_db.add_parser("reset", help="Reset its table in the sqlite database")
 
     # ----------------
     # List
@@ -81,6 +85,9 @@ def main():
     function_map["config"] = open_config
     parser_config = subparsers.add_parser("config", help="Open the config file")
 
+    # ----------------
+    # Parse
+    # ----------------
     args = parser.parse_args()
     if args.command is None:
         parser.print_help()
@@ -105,25 +112,30 @@ def submit_simulation(args):
 
 def manage_db(args):
     # check if index provided
-    index = IndexAPI().read_table()
-    if args.db in index["id"].values:
-        path = IndexAPI().get_path(args.db)
-    else:
-        try:
-            path = index.loc[int(args.db), "path"]
-        except IndexError:
-            raise ValueError(f"Database {args.db} not found")
-
-    db = Manager(path)
+    # index = IndexAPI().read_table()
+    # if args.db in index["id"].values:
+    #     path = IndexAPI().get_path(args.db)
+    # else:
+    #     try:
+    #         path = index.loc[int(args.db), "path"]
+    #     except IndexError:
+    #         raise ValueError(f"Database {args.db} not found")
+    #
+    # db = Manager(path)
 
     if args.subcommand == "list":
         with IndexAPI().open():
             rich.print(
                 pd.read_sql(
-                    f"""SELECT id, submitted, status, time_stamp FROM db_{db.UID}""",
+                    f"""SELECT id, submitted, status, time_stamp FROM db_{args.db_id}""",
                     IndexAPI()._conn,
                 )
             )
+    if args.subcommand == "reset":
+        with IndexAPI().open():
+            IndexAPI()._conn.execute(f"DROP TABLE IF EXISTS db_{args.db_id}")
+            IndexAPI()._conn.execute(f"DROP TABLE IF EXISTS db_{args.db_id}_t")
+        rich.print(f"Database {args.db_id} dropped")
 
 
 def list_databases(args):
