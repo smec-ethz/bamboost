@@ -28,7 +28,7 @@ paths = {
     "HOME": os.path.expanduser("~"),
     "CONFIG_DIR": os.path.join(_home_dir, ".config", "bamboost"),
     "LOCAL_DIR": os.path.join(_home_dir, ".local", "share", "bamboost"),
-    "CONFIG_FILE": os.path.join(_home_dir, ".config", "config.toml"),
+    "CONFIG_FILE": os.path.join(_home_dir, ".config", "bamboost", "config.toml"),
     "DATABASE_FILE": os.path.join(
         _home_dir, ".local", "share", "bamboost", "bamboost.db"
     ),
