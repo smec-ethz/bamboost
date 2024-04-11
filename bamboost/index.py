@@ -414,10 +414,17 @@ class DatabaseTable:
         self._cursor.execute(f"PRAGMA table_info({self.tablename_db})")
         cols = self._cursor.fetchall()
 
+        # replace dots in keys
+        for key in list(data.keys()):
+            new_key = key.replace(".", DOT_REPLACEMENT)
+            new_key = _remove_illegal_column_characters(new_key)
+            if new_key != key:
+                data[new_key] = data.pop(key)
+
         # check if columns exist
         for key, val in data.items():
-            key = key.replace(".", DOT_REPLACEMENT)
-            key = _remove_illegal_column_characters(key)
+            # key = key.replace(".", DOT_REPLACEMENT)
+            # key = _remove_illegal_column_characters(key)
             if any(key == column[1] for column in cols):
                 continue
             dtype = sql.get_sqlite_column_type(val)
@@ -427,13 +434,8 @@ class DatabaseTable:
 
         # insert data into table
         data.pop("id", None)
-        # replace dots in keys
-        for key in list(data.keys()):
-            new_key = key.replace(".", DOT_REPLACEMENT)
-            if new_key != key:
-                data[new_key] = data.pop(key)
         query = f"""
-        INSERT INTO {self.tablename_db} (id, {", ".join(data.keys())})
+        INSERT INTO {self.tablename_db} (id, {", ".join([f"{key}" for key in data.keys()])})
         VALUES (:id, {", ".join([f":{key}" for key in data.keys()])})
         ON CONFLICT(id) DO UPDATE SET
         {", ".join(f"{key} = excluded.{key}" for key in data.keys())}
