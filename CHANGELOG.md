@@ -1,26 +1,69 @@
-Change log for bamboost
-=======================
+# Change log for bamboost
 
-v0.5.2 (??)
---------------
+## v0.6.0 (??)
 
+**Major design change**: Using an sqlite database to store an up-to-date and cheaply
+accessible "copy" of all bamboost databases, including parameters and metadata.
+Designed as a caching system. The TRUE data remains the data in the hdf5 files.
+Data remains self-describing even without any knowledge of bamboost. If the
+sqlite database is lost/deleted corrupted, it is automatically rebuilt when
+needed. Actuality is ensured by comparison of file modification times.
+This also replaces the "unsafe" json database index we had before.
+
+**Advantages:**
+
+- Significant speed up (10x up to magnitudes depending on database size) for
+  creation of metadata/parameter table (especially on Euler & for larger
+  databases) because we avoid reading every single hdf5 file if it not
+  necessary.
+- Database IDs, Simulation IDs and metadata is available outside the bamboost
+  ecosystem -> Useful for remote access (RemoteManager). We can now fetch the
+  sqlite database and know of all our data and it's location on the remote.
+- Speed up and availability of data very beneficial for the terminal user
+  interface (tui) that is being developed in paralell.
+- Database indexing is faster, less error-prone than before (json)
+
+**Other news:**
+
+- FEAT: [Extension] Remote and RemoteManager classes to access databases on a remote server. Lazily caching requested simulations.
+- FEAT: [Extension] FenicsWriter -> optimized writer for fenics meshes and functions (fully functional in paralell). It is significantly faster than any other method I tried. It allows to write fenics functions directly (sim.add_field('name', fe.project(expr, space))).
+- FEAT: [Extension] Slurm. Automatically store slurm info when simulation ends
+  (or fails). Used by starting your script with:
+  ```python
+  from bamboost import extensions
+  extensions.install_slurm()
+  ```
+- FEAT: Config file at `~/.config/bamboost/config.toml` to store user settings
+  (e.g. default sort order for tables, paths to search, etc.)
+- FEAT: global config dictionary `from bamboost import config`
+- FEAT: Command line interface to print index, table info, etc. to the terminal
+  or to submit a simulation (e.g. all unsubmitted ones).
+- FEAT: utility function `show_differences` to show only the differences in
+  pandas dataframes.
+- FEAT: TUI (terminal user interface). Not sure whether it should be included in
+  this repo. It's code base is messy but I already use it all the time.
+- FEAT: `sim.add_field` got an aditional argument `center` specifying whether
+  the data is cell-centered or node-centered. Default is `center='Node'`.
+  Implemented in generated xdmf file and thus readable by paraview.
+
+- API: requires `sqlite3` -> on Euler, make sure to load the module sqlite
+- API: paths to search moved to general config file `config.toml`
 - API: `SimulationWriter.add_field` does not reshape 1D arrays to 2D anymore.
   Arrays are written as they are.
 - API: `SimulationWriter.add_field` now accepts arrays of any shape, not only
   1D or 2D arrays.
 - FIX: fixed `XDMFWriter` to correctly write Tensors/Matrices.
-- FEAT: new function `sim.open_paraview`
+- FIX: slurm job submission now works (sim.submit()) from within python files.
 
-=======
-v0.5.1 (06Mar24)
---------------
+and many small fixes and improvements.
+
+## v0.5.1 (06Mar24)
 
 - FIX: bugfix
 - FIX: initialisation of `Simulation` does not create one anymore, if it doesn't
   exist.
 
-v0.5.0 (05Mar24)
---------------
+## v0.5.0 (05Mar24)
 
 - FEAT: Made mpi4py an optional dependency (install `bamboost[mpi]` to include
   it). This allows to use bamboost without mpi4py, e.g. when installing
@@ -31,18 +74,15 @@ v0.5.0 (05Mar24)
 If mpi4py is not used (or installed) a MockMPI class is used internally to
 bypass any MPI code. Code should always still be written with MPI in mind.
 
-
-v0.4.5 (13Feb24)
---------------
+## v0.4.5 (13Feb24)
 
 - API: sim.globals now returns a (hdf)Group object instead of a pandas dataframe
-to be consistent with the other data accessors (sim.data, sim.userdata,
-sim.meshes). The pandas dataframe is now accessible with `sim.globals.df`.
+  to be consistent with the other data accessors (sim.data, sim.userdata,
+  sim.meshes). The pandas dataframe is now accessible with `sim.globals.df`.
 - API: Changed behaviour for context manager of `SimulationWriter`. Exiting does
   not change status to "Finished" anymore. Use `sim.finish_sim()` to do so.
 
-v0.4.4 (12Feb24)
---------------
+## v0.4.4 (12Feb24)
 
 DOC: using typing_extension deprecated to tag deprecated functions
 FEAT: added option `prefix` when creating a simulation (random id is prefixed with this string)
@@ -50,51 +90,49 @@ FEAT: added tiny script to bump the version (no CI publishing yet)
 ENH: xdmf file is now printed with linebreaks for better readability
 FIX: tiny cleanups
 
-v0.4.3 (26Jan24)
---------------
+## v0.4.3 (26Jan24)
 
 #### SimulationWriter
+
 API: data writer functions infer dtype for input. dtype can also be imposed
 
-
-v0.4.2 (xxJan24)
---------------
+## v0.4.2 (xxJan24)
 
 FIX: Fixes for paralell writing. Writing is sped up significantly.
 TEST: Added tests for paralell writing.
+
 - Write 1000 steps with 1, 2, 4 and 8 threads. Timing is printed to stdout.
   `./tests/paralellization/test_steps/run.sh out_directory`
 - Write single big array (20'000x20'000) with 1, 2, 4 and 8 threads. Timing is printed to stdout.
   `./tests/paralellization/test_big_array/run.sh out_directory`
 
-
-v0.4.1
-----------
+## v0.4.1
 
 Added functionality for `userdata`. To show the content of it, display the object `sim.userdata`.
 
 ### Simple way to store non field data
+
 - Scalar, string, etc will are stored as attributes: `sim.userdata['some_name'] = value`
 - Arrays are stored as datasets: `sim.userdata['array_name'] = arr`
 
 Access is natural: `sim.userdata['some_name']` -> returns the stored value
 
+## v0.4.0
 
-v0.4.0
-----------
-
-Introduced globally unique identifiers for each database. They are stored as a file in the database directory. 
+Introduced globally unique identifiers for each database. They are stored as a file in the database directory.
 This allows to safely link different simulations together, e.g. meshes from a mesh database that are used in many places. Also, it allows to access any database from any path without remembering where it is stored. To do so, an index is maintained at `~.config/bamboost` which contains all previously accessed databases.
 
-Also introduced nice reprs for a database and for a simulation inside jupyter notebooks :smile: 
+Also introduced nice reprs for a database and for a simulation inside jupyter notebooks :smile:
 
 In addition, some internal things were optimized (don't remember what exactly).
 Hopefully, nothing was broken. Testing is still to do.
 
 #### Simulation
+
 Try the new nice repr in notebooks :)
 
 **New methods:**
+
 - `fromUID(full_uid: str)`: return simulation object from its full id
 - `show_files()`: print the content of the simulation folder
 - `show_h5tree()`: print the h5 file's structure
@@ -102,15 +140,19 @@ Try the new nice repr in notebooks :)
 - `get_full_uid()`: returns the full id of the simulation (including the id of the database)
 
 **New attributes:**
+
 - `links`: Accessor to a mutable group in the h5 file to store and access linked simulations
 
 #### Manager
+
 Try the new nice repr in notebooks :)
 
 **New attributes:**
+
 - `fromUID`: access a database from anywhere by its UID (key completion shows known databases)
 - `fromName`: access databases by name/path (key completion shows known databases)
 - `FIX_DF`: new toggle. if set to false, the pandas dataframe will be reconstructed each time it is accessed.
 
 #### Index
+
 New module to manage the index of known databases, and finding them.
