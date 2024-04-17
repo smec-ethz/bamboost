@@ -111,6 +111,12 @@ class IndexAPI(sql.SQLiteHandler):
         self.clean()
         self._initialized = True
 
+    @classmethod
+    def ThreadSafe(cls, *, _file: str = None) -> IndexAPI:
+        instance = super().__new__(cls)
+        instance.__init__(_file=_file)
+        return instance
+
     def __repr__(self) -> str:
         return self.read_table().__repr__()
 
