@@ -448,11 +448,16 @@ class DatabaseTable:
 
         # insert data into table
         data.pop("id", None)
+
+        keys = ", ".join([f"{key}" for key in data.keys()])
+        values = ", ".join([f":{key}" for key in data.keys()])
+        updates = ", ".join([f"{key} = excluded.{key}" for key in data.keys()])
+
         query = f"""
-        INSERT INTO {self.tablename_db} (id, {", ".join([f"{key}" for key in data.keys()])})
-        VALUES (:id, {", ".join([f":{key}" for key in data.keys()])})
+        INSERT INTO {self.tablename_db} (id, {keys})
+        VALUES (:id, {values})
         ON CONFLICT(id) DO UPDATE SET
-        {", ".join(f"{key} = excluded.{key}" for key in data.keys())}
+        {updates}
         """
         data["id"] = entry_id
         self._cursor.execute(query, data)
