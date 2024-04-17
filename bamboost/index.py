@@ -130,6 +130,14 @@ class IndexAPI(sql.SQLiteHandler):
             """CREATE TABLE IF NOT EXISTS dbindex (id TEXT PRIMARY KEY, path TEXT)"""
         )
 
+    def get_database_table(self, id: str) -> DatabaseTable:
+        """Get the table of a database.
+
+        Args:
+            - id (str): ID of the database
+        """
+        return DatabaseTable(id, _index=self)
+
     @sql.with_connection
     def read_table(self, *args, **kwargs) -> pd.DataFrame:
         """Read the index table.

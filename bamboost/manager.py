@@ -167,7 +167,7 @@ class Manager:
     @property
     def _table(self) -> DatabaseTable:
         """The table in the sql database for this database."""
-        return DatabaseTable(self.UID)
+        return self._index.get_database_table(self.UID)
 
     def _retrieve_uid(self) -> str:
         """Get the UID of this database from the file tree."""
