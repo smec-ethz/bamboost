@@ -150,8 +150,8 @@ class SimulationWriter(Simulation):
             if mesh_location in self._file.file_object:
                 del self._file.file_object[mesh_location]
             grp = f.require_group(mesh_location)
-            coord = grp.require_dataset("geometry", shape=coord_shape, dtype="f")
-            conn = grp.require_dataset("topology", shape=conn_shape, dtype="i")
+            coord = grp.require_dataset("geometry", shape=coord_shape, dtype=coordinates.dtype)
+            conn = grp.require_dataset("topology", shape=conn_shape, dtype=connectivity.dtype)
 
             coord[idx_start:idx_end] = coordinates
             conn[idx_start_cells:idx_end_cells] = connectivity
