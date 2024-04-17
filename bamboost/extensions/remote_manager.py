@@ -14,13 +14,14 @@ import os
 import pkgutil
 import sqlite3
 import subprocess
+
 import pandas as pd
 
+from bamboost._config import config
 from bamboost._sqlite_database import SQLiteHandler, with_connection
 from bamboost.common.mpi import MPI
 from bamboost.index import DatabaseTable, IndexAPI
 from bamboost.manager import Manager
-from bamboost._config import config
 
 log = logging.getLogger(__name__)
 
@@ -183,8 +184,9 @@ class RemoteManager(Manager):
         for id in os.listdir(self.path):
             if id in df["id"].values:
                 df.loc[df["id"] == id, "cached"] = True
-        
-        if "sort_table_key" in (opts := config.get("options", {})):
+
+        opts = config.get("options", {})
+        if "sort_table_key" in opts:
             df.sort_values(
                 opts.get("sort_table_key", "id"),
                 ascending=opts.get("sort_table_order", "asc") == "asc",
@@ -236,7 +238,6 @@ class RemoteManager(Manager):
             stdout=subprocess.PIPE,
         )
         log.info(f"Data for {uid} transferred to {self.path}")
-
 
 
 if __name__ == "__main__":
