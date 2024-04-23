@@ -13,17 +13,14 @@ import datetime
 import logging
 import os
 import shutil
-from typing import Iterable, Union
+from typing import Union
 
 import numpy as np
 from typing_extensions import deprecated
 
-from bamboost._config import config
-
 from .common.git_utility import GitStateGetter
 from .common.mpi import MPI
 from .common.utilities import flatten_dict
-from .index import DatabaseTable
 from .simulation import Simulation
 
 __all__ = ["SimulationWriter"]
@@ -54,8 +51,6 @@ class SimulationWriter(Simulation):
     ):
         super().__init__(uid, path, comm, create_if_not_exists)
         self.step: int = 0
-        if config["options"].get("sync_table", True):
-            self._db_table = DatabaseTable(self.database_id)
 
     def __enter__(self):
         self.change_status("Started")  # change status to running (process 0 only)
@@ -89,8 +84,7 @@ class SimulationWriter(Simulation):
                     "notes": self._file.attrs.get("notes", ""),
                 }
                 self._file.attrs.update(data)
-            if config["options"].get("sync_table", True):
-                self._db_table.update_entry(self.uid, data)
+            self._push_update_to_sqlite(data)
 
     def add_parameters(self, parameters: dict) -> None:
         """Add parameters to simulation.
@@ -111,8 +105,7 @@ class SimulationWriter(Simulation):
                         grp.create_dataset(key, data=val)
                     elif val is not None:
                         grp.attrs[key] = val
-            if config["options"].get("sync_table", True):
-                self._db_table.update_entry(self.uid, parameters)
+            self._push_update_to_sqlite(parameters)
 
     def add_mesh(
         self, coordinates: np.ndarray, connectivity: np.ndarray, mesh_name: str = None

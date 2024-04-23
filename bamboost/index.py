@@ -55,6 +55,9 @@ class DatabaseNotFoundError(Exception):
 # Classes
 # ------------------
 
+Error = sql.sqlite3.Error
+"""Error exception for index errors."""
+
 
 class Null:
     """Null object to replace API classes for off-root processes."""

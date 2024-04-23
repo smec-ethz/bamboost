@@ -115,13 +115,18 @@ class Manager:
             log.info(f"Created new database ({path})")
             self._make_new(path)
 
+        # retrieve the UID of the database from the id file
+        # if not found, a new one is generated
         self.UID = uid or self._retrieve_uid()
-        self._index.insert_path(self.UID, self.path)
 
         # Update the SQL table for the database
-        with self._index.open():
-            self._table.create_database_table()
-            self._table.sync()
+        try:
+            with self._index.open():
+                self._index.insert_path(self.UID, self.path)
+                self._table.create_database_table()
+                self._table.sync()
+        except index.Error as e:
+            log.warning(f"index error: {e}")
 
     def __getitem__(self, key: Union[str, int]) -> Simulation:
         """Returns the simulation in the specified row of the dataframe.
@@ -273,11 +278,15 @@ class Manager:
             >>> db.get_view(include_linked_sims=True)
         """
         if include_linked_sims:
-            return self.get_view_from_hdf_files(include_linked_sims=True)
+            return self.get_view_from_hdf_files(include_linked_sims=include_linked_sims)
 
-        with self._table.open():
-            self._table.sync()
-            df = self._table.read_table()
+        try:
+            with self._table.open():
+                self._table.sync()
+                df = self._table.read_table()
+        except index.Error as e:
+            log.warning(f"index error: {e}")
+            return self.get_view_from_hdf_files(include_linked_sims=include_linked_sims)
 
         if df.empty:
             return df

@@ -208,6 +208,19 @@ class Simulation:
         )
         return html_string
 
+    def _push_update_to_sqlite(self, update_dict: dict) -> None:
+        """Push update to sqlite database.
+
+        Args:
+            - update_dict (dict): key value pair to push
+        """
+        if not config["options"].get("sync_table", True):
+            return
+        try:
+            index.DatabaseTable(self.database_id).update_entry(self.uid, update_dict)
+        except index.Error as e:
+            log.warning(f"Could not update sqlite database: {e}")
+
     @property
     def parameters(self) -> dict:
         tmp_dict = dict()
@@ -289,10 +302,7 @@ class Simulation:
             self._file.attrs["status"] = status
             self._file.close()
 
-        if config["options"].get("sync_table", True):
-            index.DatabaseTable(self.database_id).update_entry(
-                self.uid, {"status": status}
-            )
+        self._push_update_to_sqlite({"status": status})
 
     def update_metadata(self, update_dict: dict) -> None:
         """Update the metadata attributes.
@@ -305,10 +315,7 @@ class Simulation:
             with self._file("a") as file:
                 file.attrs.update(update_dict)
 
-            if config["options"].get("sync_table", True):
-                index.DatabaseTable(self.database_id).update_entry(
-                    self.uid, update_dict
-                )
+            self._push_update_to_sqlite(update_dict)
 
     def update_parameters(self, update_dict: dict) -> None:
         """Update the parameters dictionary.
@@ -321,10 +328,7 @@ class Simulation:
             with self._file("a") as file:
                 file["parameters"].attrs.update(update_dict)
 
-            if config["options"].get("sync_table", True):
-                index.DatabaseTable(self.database_id).update_entry(
-                    self.uid, update_dict
-                )
+            self._push_update_to_sqlite(update_dict)
 
     def create_xdmf_file(self, fields: list = None, nb_steps: int = None) -> None:
         """Create the xdmf file to read in paraview.
@@ -447,20 +451,14 @@ class Simulation:
 
         with self._file("a") as file:
             file.attrs.update({"submitted": True})
-        if config["options"].get("sync_table", True):
-            index.DatabaseTable(self.database_id).update_entry(
-                self.uid, {"submitted": True}
-            )
+
+        self._push_update_to_sqlite({"submitted": True})
 
     @with_file_open("a")
     def change_note(self, note) -> None:
         if self._prank == 0:
             self._file.attrs["notes"] = note
-
-            if config["options"].get("sync_table", True):
-                index.DatabaseTable(self.database_id).update_entry(
-                    self.uid, {"notes": note}
-                )
+            self._push_update_to_sqlite({"notes": note})
 
     # Ex-Simulation reader methods
     # ----------------------------
