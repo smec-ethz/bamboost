@@ -80,6 +80,16 @@ def main():
     )
 
     # ----------------
+    # Scan
+    # ----------------
+    def scan_known_paths(args):
+        IndexAPI().scan_known_paths()
+        rich.print("Scanned known paths")
+    function_map["scan"] = scan_known_paths
+
+    parser_scan = subparsers.add_parser("scan", help="Scan known paths")
+
+    # ----------------
     # Open config file
     # ----------------
     function_map["config"] = open_config
@@ -111,18 +121,6 @@ def submit_simulation(args):
 
 
 def manage_db(args):
-    # check if index provided
-    # index = IndexAPI().read_table()
-    # if args.db in index["id"].values:
-    #     path = IndexAPI().get_path(args.db)
-    # else:
-    #     try:
-    #         path = index.loc[int(args.db), "path"]
-    #     except IndexError:
-    #         raise ValueError(f"Database {args.db} not found")
-    #
-    # db = Manager(path)
-
     if args.subcommand == "list":
         with IndexAPI().open():
             rich.print(
