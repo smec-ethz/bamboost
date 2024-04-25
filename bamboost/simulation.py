@@ -441,13 +441,18 @@ class Simulation:
             env = os.environ.copy()
             _ = env.pop("BAMBOOST_MPI", None)
             subprocess.run(["sbatch", f"{batch_script}"], env=env)
-        if f"{self.uid}.sh" in os.listdir(self.path):
+        elif f"{self.uid}.sh" in os.listdir(self.path):
             bash_script = os.path.abspath(os.path.join(self.path, f"{self.uid}.sh"))
             env = os.environ.copy()
             _ = env.pop("BAMBOOST_MPI", None)
             subprocess.run(["bash", f"{bash_script}"], env=env)
+        else:
+            raise FileNotFoundError(
+                f"Could not find a batch script for simulation {self.uid}."
+            )
+        
 
-        print(f"Simulation {self.uid} submitted!")
+        log.info(f"Simulation {self.uid} submitted!")
 
         with self._file("a") as file:
             file.attrs.update({"submitted": True})
