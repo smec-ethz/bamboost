@@ -1,6 +1,18 @@
 Change log for bamboost
 =======================
 
+v0.6.0 (25Apr24)
+--------------
+
+- FEAT: Added `extensions`.
+    - `extensions.fenics.FenicsWriter`: optimized writer for FEniCS. Can write a fenics space directly.
+    - `extensions.slurm.install()`: Monkey patches the simulation context
+      manager, storing the slurm job info on Euler.
+- FEAT: new utility function `show_differences` to show a DataFrame with only
+  the differences between simulations.
+- FIX: `sim.add_global_field` now works if previous steps were not written
+- FIX: `add_mesh` dtype is now inferred from the input array
+
 v0.5.1 (06Mar24)
 --------------
 
