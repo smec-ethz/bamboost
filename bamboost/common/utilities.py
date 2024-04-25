@@ -15,6 +15,7 @@ from itertools import islice
 from pathlib import Path
 
 import h5py
+import pandas as pd
 
 __all__ = ["flatten_dict", "unflatten_dict", "tree", "h5_tree"]
 
@@ -110,3 +111,63 @@ def h5_tree(val, pre=""):
                 h5_tree(val, pre + "│   ")
             else:
                 print(pre + "├── " + key + " (%d)" % len(val))
+
+
+def show_differences(df: pd.DataFrame) -> pd.DataFrame:
+    """This function takes a pandas DataFrame as input and returns a modified
+    DataFrame that shows only the columns which have differences.
+
+    Args:
+        - df (pd.DataFrame): The input DataFrame to analyze
+
+    Returns:
+        - pd.DataFrame
+
+    The function first creates a copy of the input DataFrame to work with. It
+    then iterates over each column in the DataFrame and tries to calculate the
+    number of unique values in that column. If successful, it adds the column
+    name and number of unique values to a list of good results. If there is an
+    error, it attempts to apply json.dumps to the column and then calculate the
+    number of unique values again. If this is successful, it also adds the
+    column name and number of unique values to the list of good results. If
+    there is still an error, it adds the column name and the error to a list of
+    errors.
+
+    After processing all columns, the function removes any columns that had
+    errors from the DataFrame. It then sets the index of the DataFrame to 'id'
+    and filters out any columns that have only one unique value. The modified
+    DataFrame is then returned.
+    """
+    import json
+
+    df_diff = df.copy()
+    cols_nunique_good = []
+    cols_nunique_error = []
+    for col in df_diff.columns:
+        try:
+            nunique = df_diff[col].nunique()
+            cols_nunique_good.append((col, nunique))
+        except Exception as e:
+            try:
+                df_diff[col] = df_diff[col].apply(json.dumps)
+                nunique = df_diff[col].nunique()
+                cols_nunique_good.append((col, nunique))
+            except TypeError as e:
+                cols_nunique_error.append((col, e))
+
+    df_diff = df_diff[
+        df_diff.columns[~df_diff.columns.isin([col for col, _, in cols_nunique_error])]
+    ]
+    try:
+        df_diff.set_index("id", inplace=True)
+    except KeyError:
+        pass
+    df_diff = df_diff.loc[:, (df_diff.nunique() != 1)]
+    df_diff.dropna(axis=1, how="all", inplace=True)
+    return df_diff
+
+
+def to_camel_case(s: str) -> str:
+    words = s.split()
+    camel_case = words[0].lower() + "".join([word.capitalize() for word in words[1:]])
+    return camel_case

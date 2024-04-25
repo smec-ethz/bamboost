@@ -9,6 +9,7 @@ import os
 from .manager import Manager
 from .simulation import Simulation
 from .simulation_writer import SimulationWriter
+from .extensions import extensions
 
 
 def set_log_level(level: int = 30):
