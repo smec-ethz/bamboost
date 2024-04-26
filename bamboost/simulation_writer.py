@@ -13,7 +13,7 @@ import datetime
 import logging
 import os
 import shutil
-from typing import Union
+from typing import Iterable, Union
 
 import numpy as np
 from typing_extensions import deprecated
@@ -177,16 +177,14 @@ class SimulationWriter(Simulation):
         if mesh is None:
             mesh = self._default_mesh
 
-        # Get dimension of vector
-        if vector.ndim <= 1:
-            vector = vector.reshape((-1, 1))
-        dim = vector.shape[1]
+        dim = vector.shape[1:] if vector.ndim > 1 else None
 
         if time is None:
             time = self.step
 
         length_local = vector.shape[0]
         length_p = np.array(self._comm.allgather(length_local))
+
         length = np.sum(length_p)
 
         # global indices
@@ -201,10 +199,10 @@ class SimulationWriter(Simulation):
             grp = data.require_group(name)
             vec = grp.require_dataset(
                 str(self.step),
-                shape=(length, dim),
+                shape=(length, *dim) if dim else (length,),
                 dtype=dtype if dtype else vector.dtype,
             )
-            vec[idx_start:idx_end, :] = vector
+            vec[idx_start:idx_end] = vector
 
         if self._prank == 0:
             with self._file("a"):

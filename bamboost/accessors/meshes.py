@@ -45,7 +45,10 @@ class Mesh(hdf_pointer.Group):
     @property
     @with_file_open("r")
     def coordinates(self):
-        return self.obj["geometry"][()]
+        try:
+            return self.obj["geometry"][()]
+        except KeyError:
+            return self.obj["coordinates"][()]
 
     @property
     @with_file_open("r")

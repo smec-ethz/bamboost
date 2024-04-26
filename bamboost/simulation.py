@@ -256,6 +256,10 @@ class Simulation:
         else:
             subprocess.run(["xdg-open", self.path])
 
+    def open_in_paraview(self) -> None:
+        """Open the xdmf file in paraview."""
+        subprocess.Popen(["paraview", self.xdmffile])
+
     def get_full_uid(self) -> str:
         """Returns the full uid of the simulation (including the one of the database)"""
         database_uid = index.get_uid_from_path(self.path_database)
@@ -302,23 +306,34 @@ class Simulation:
 
         if self._prank == 0:
             with self._file("r") as f:
-                if not fields:
+                if 'data' not in f.keys():
+                    fields, nb_steps = [], 0
+                if fields is None:
                     fields = list(f["data"].keys())
 
-                if not nb_steps:
+                if nb_steps is None:
                     grp_name = list(f["data"].keys())[0]
                     nb_steps = list(f[f"data/{grp_name}"].keys())
                     nb_steps = max(
                         [int(step) for step in nb_steps if not step.startswith("__")]
                     )
 
+                # temporary fix to load coordinates/geometry
+                coords_name = (
+                    "geometry"
+                    if "geometry"
+                    in f[f"{self._mesh_location}/{self._default_mesh}"].keys()
+                    else "coordinates"
+                )
+
             xdmf_writer = XDMFWriter(self.xdmffile, self.h5file)
             xdmf_writer.write_points_cells(
-                f"{self._mesh_location}/{self._default_mesh}/geometry",
+                f"{self._mesh_location}/{self._default_mesh}/{coords_name}",
                 f"{self._mesh_location}/{self._default_mesh}/topology",
             )
 
-            xdmf_writer.add_timeseries(nb_steps + 1, fields)
+            if fields:
+                xdmf_writer.add_timeseries(nb_steps + 1, fields)
             xdmf_writer.write_file()
 
     def create_batch_script(
@@ -329,7 +344,7 @@ class Simulation:
         ncpus=1,
         time="04:00:00",
         mem_per_cpu=2048,
-        tmp=8000,
+        tmp=None,
         euler=True,
     ) -> None:
         """Create a batch job and put it into the folder.

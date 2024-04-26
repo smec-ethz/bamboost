@@ -90,6 +90,10 @@ class Manager:
             time it is accessed.
         fromUID: Access a database by its UID
         fromName: Access a database by its path/name
+
+    Example:
+        >>> db = Manager("path/to/db")
+        >>> db.df # DataFrame of the database
     """
 
     FIX_DF = True
@@ -272,18 +276,25 @@ class Manager:
                 data.append(tmp_dict)
         return pd.DataFrame.from_records(data)
 
-    def sim(self, uid, return_writer: bool = False) -> Simulation:
+    def sim(
+        self,
+        uid,
+        return_writer: bool = False,
+        writer_type: SimulationWriter = SimulationWriter,
+    ) -> Simulation:
         """Get an existing simulation with uid. Same as accessing with `db[uid]` directly.
 
         Args:
             uid (`str`): unique identifier
             return_writer: if true, return `SimulationWriter`, otherwise
                 return `Simulation`
+            writer_type: Optionally, you can specify a custom writer type to return.
+
         Returns:
             :class:`~bamboost.simulation.Simulation`
         """
         if return_writer:
-            return SimulationWriter(uid, self.path, self.comm)
+            return writer_type(uid, self.path, self.comm)
         return Simulation(uid, self.path, self.comm)
 
     def sims(
@@ -304,8 +315,12 @@ class Manager:
             exclude (`list[str]`): sims to exclude
             return_writer: if true, return `SimulationWriter`, otherwise
                 return `Simulation`
+
         Returns:
             A list of `:class:~bamboost.simulation.Simulation` objects
+
+        Examples:
+            >>> db.sims(select=db.df["status"] == "finished", sort="time_stamp")
         """
         if select is not None:
             id_list = self.df[select]["id"].values
@@ -343,8 +358,15 @@ class Manager:
                 specified later with :func:`~bamboost.simulation.SimulationWriter.add_parameters`.
             skip_duplicate_check (`bool`): if True, the duplicate check is skipped.
             prefix (`str`): Prefix for the uid. If not specified, no prefix is used.
+
         Returns:
             sim (:class:`~bamboost.simulation.SimulationWriter`)
+
+        Examples:
+            >>> db.create_simulation(parameters={"a": 1, "b": 2})
+            apple
+
+            >>> db.create_simulation(uid="my_sim", parameters={"a": 1, "b": 2}, prefix="test")
         """
         if parameters and not skip_duplicate_check:
             go_on, uid = self._check_duplicate(parameters, uid)
