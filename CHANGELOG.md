@@ -8,8 +8,11 @@ v0.6.1 (26Apr24)
   Arrays are written as they are.
 - FEAT: `SimulationWriter.add_field` now accepts arrays of any shape, not only
   1D or 2D arrays.
+- FEAT: `SimulationWriter.add_field` now accepts a `center` argument to specify
+  Cell or Node data.
 - FEAT: new function `sim.open_paraview`
-- FIX: fixed `XDMFWriter` to correctly write Tensors/Matrices.
+- FIX: fixed `XDMFWriter` to correctly write Tensors/Matrices and Cell/Node
+  data.
 - FIX: initialisation of `Simulation` does not create one anymore, if it doesn't
   exist.
 
