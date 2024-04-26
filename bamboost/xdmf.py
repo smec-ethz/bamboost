@@ -170,12 +170,15 @@ class XDMFWriter:
             else:
                 att_type = "Matrix"
 
+            # Cell or Node data
+            center = data.attrs.get("center", "Node")
+
             att = ET.SubElement(
                 grid,
                 "Attribute",
                 Name=name,
                 AttributeType=att_type,
-                Center="Node",
+                Center=center,
             )
 
             dt, prec = numpy_to_xdmf_dtype[data.dtype.name]

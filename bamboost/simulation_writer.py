@@ -163,6 +163,7 @@ class SimulationWriter(Simulation):
         time: float = None,
         mesh: str = None,
         dtype: str = None,
+        center: str = "Node",
     ) -> None:
         """Add a dataset to the file. The data is stored at `data/`.
 
@@ -173,6 +174,8 @@ class SimulationWriter(Simulation):
             mesh: Optional. Linked mesh for this data
             dtype: Optional. Numpy style datatype, see h5py documentation,
                 defaults to the dtype of the vector.
+            center: Optional. Center of the data. Can be 'Node' or 'Cell'.
+                Default is 'Node'.
         """
         if mesh is None:
             mesh = self._default_mesh
@@ -209,6 +212,7 @@ class SimulationWriter(Simulation):
                 vec = self._file["data"][name][str(self.step)]
                 vec.attrs["t"] = time  # add time as attribute to dataset
                 vec.attrs["mesh"] = mesh  # add link to mesh as attribute
+                vec.attrs["center"] = center
 
     def add_global_field(
         self, name: str, value: Union[float, int], dtype: str = None
