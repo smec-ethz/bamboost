@@ -17,7 +17,14 @@ from pathlib import Path
 import h5py
 import pandas as pd
 
-__all__ = ["flatten_dict", "unflatten_dict", "tree", "h5_tree"]
+__all__ = [
+    "flatten_dict",
+    "unflatten_dict",
+    "tree",
+    "h5_tree",
+    "show_differences",
+    "to_camel_case",
+]
 
 space = "    "
 branch = "│   "
