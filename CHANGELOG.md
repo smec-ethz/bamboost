@@ -1,6 +1,11 @@
 Change log for bamboost
 =======================
 
+v0.6.2 (xxMay24)
+--------------
+- FEAT: `SimulationWriter`: Context manager that moves in and out of the simulation path 
+
+
 v0.6.1 (26Apr24)
 --------------
 

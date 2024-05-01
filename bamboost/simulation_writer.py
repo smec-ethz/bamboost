@@ -13,6 +13,7 @@ import datetime
 import logging
 import os
 import shutil
+from contextlib import contextmanager
 from typing import Iterable, Union
 
 import numpy as np
@@ -262,6 +263,21 @@ class SimulationWriter(Simulation):
     def finish_sim(self, status: str = "Finished") -> None:
         if self._prank == 0:
             self.change_status(status)
+
+    @contextmanager
+    def working_directory(self):
+        """A context manager for changing the working directory to this simulations' path.
+
+        >>> with sim.working_directory():
+        >>>     ...
+        """
+
+        current_dir = os.getcwd()
+        try:
+            os.chdir(self.path)
+            yield
+        finally:
+            os.chdir(current_dir)
 
     def register_git_attributes(self, repo_path: str = "./") -> None:
         """Register git information for given repo.
