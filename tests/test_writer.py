@@ -1,3 +1,5 @@
+import os
+
 from test_manager import temp_manager
 import numpy as np
 import pytest
@@ -110,3 +112,20 @@ def test_userdata_dtype_forced(temp_manager, dtype, array):
     sim = temp_manager.sim(uid)
 
     assert sim.userdata["test"].dtype == dtype
+
+def test_enter_path(temp_manager,):
+    sim = temp_manager.create_simulation()
+    sim.finish_sim()
+    path = sim.path
+    uid = sim.uid
+    original_path = os.getcwd()
+    with sim.enter_path():
+        assert os.getcwd() == path
+    assert os.getcwd() == original_path
+
+    # check that we return in the right path even when throwing an error
+    try:
+        with sim.enter_path():
+            raise ValueError()
+    except ValueError:
+        assert os.getcwd() == original_path
