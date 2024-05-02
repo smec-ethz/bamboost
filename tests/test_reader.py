@@ -1,15 +1,15 @@
 import os
+
 from test_manager import temp_manager
 
 
 class TestReader:
 
     def test_some(self):
-        assert 1==1
+        assert 1 == 1
 
 
-
-def test_enter_path(temp_manager,):
+def test_enter_path(temp_manager):
     sim = temp_manager.create_simulation()
     sim.finish_sim()
     path = sim.path
