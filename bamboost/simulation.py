@@ -13,6 +13,7 @@ import logging
 import os
 import pkgutil
 import subprocess
+from contextlib import contextmanager
 from typing import Any, Iterable, Tuple
 
 import numpy as np
@@ -513,3 +514,18 @@ class Simulation:
         # print('\U00002B57 ' + os.path.basename(self.h5file))
         print("\U0001F43C " + os.path.basename(self.h5file))
         utilities.h5_tree(self._file.file_object)
+
+    @contextmanager
+    def enter_path(self):
+        """A context manager for changing the working directory to this simulations' path.
+
+        >>> with sim.working_directory():
+        >>>     ...
+        """
+
+        current_dir = os.getcwd()
+        try:
+            os.chdir(self.path)
+            yield
+        finally:
+            os.chdir(current_dir)
