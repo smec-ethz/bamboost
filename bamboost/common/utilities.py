@@ -17,7 +17,14 @@ from pathlib import Path
 import h5py
 import pandas as pd
 
-__all__ = ["flatten_dict", "unflatten_dict", "tree", "h5_tree"]
+__all__ = [
+    "flatten_dict",
+    "unflatten_dict",
+    "tree",
+    "h5_tree",
+    "show_differences",
+    "to_camel_case",
+]
 
 space = "    "
 branch = "│   "
@@ -117,12 +124,6 @@ def show_differences(df: pd.DataFrame) -> pd.DataFrame:
     """This function takes a pandas DataFrame as input and returns a modified
     DataFrame that shows only the columns which have differences.
 
-    Args:
-        - df (pd.DataFrame): The input DataFrame to analyze
-
-    Returns:
-        - pd.DataFrame
-
     The function first creates a copy of the input DataFrame to work with. It
     then iterates over each column in the DataFrame and tries to calculate the
     number of unique values in that column. If successful, it adds the column
@@ -137,6 +138,12 @@ def show_differences(df: pd.DataFrame) -> pd.DataFrame:
     errors from the DataFrame. It then sets the index of the DataFrame to 'id'
     and filters out any columns that have only one unique value. The modified
     DataFrame is then returned.
+
+    Args:
+        df (pd.DataFrame): The input DataFrame to analyze
+
+    Returns:
+        pd.DataFrame
     """
     import json
 
