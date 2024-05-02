@@ -4,6 +4,7 @@ Change log for bamboost
 v0.6.2 (02May24)
 --------------
 - FEAT: `Simulation`: Context manager that moves in and out of the simulation path 
+- FIX: Simulation: `submit` function fixed to work for paralell jobs
 
 
 v0.6.1 (26Apr24)
