@@ -3,3 +3,4 @@
 include pyproject.toml
 include bamboost/html/*
 include bamboost/_example_config.toml
+include bamboost/*
