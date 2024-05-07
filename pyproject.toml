@@ -41,3 +41,7 @@ changelog = "https://gitlab.com/cmbm-ethz/bamboost/-/tree/main/CHANGELOG.md"
 
 [tool.setuptools.packages.find]
 include = ["bamboost", "bamboost*", "cli", "cli*"]
+
+
+[tool.setuptools.package-data]
+bamboost = ["_example_config.toml"]
