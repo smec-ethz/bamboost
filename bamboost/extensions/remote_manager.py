@@ -71,6 +71,15 @@ class Remote(IndexAPI, SQLiteHandler):
         # Initialize the SQLiteHandler
         SQLiteHandler.__init__(self, self.file)
 
+    @classmethod
+    def list(cls) -> list:
+        """List all remote servers."""
+        return [
+            name
+            for name in os.listdir(CACHE_DIR)
+            if os.path.isdir(os.path.join(CACHE_DIR, name))
+        ]
+
     def _setup_ssh(self, home_path: str = None) -> None:
         """Set up the SSH and SFTP connection to the remote server."""
         # Setup the ssh connection using paramiko
@@ -211,12 +220,10 @@ class RemoteManager(Manager):
         if not os.path.isdir(self.path):
             os.makedirs(self.path)
 
-        # Get the database ID file
+        # Write the database ID file if it does not exist
         if not os.path.exists(f"{self.path}/.BAMBOOST-{self.UID}"):
-            self.remote.sftp.get(
-                f"{self.remote_path_db}/.BAMBOOST-{self.UID}",
-                f"{self.path}/.BAMBOOST-{self.UID}",
-            )
+            with open(f"{self.path}/.BAMBOOST-{self.UID}", "w") as f:
+                f.write(self.UID)
 
         self.UID = id
         self._index.insert_local_path(self.UID, self.path)
