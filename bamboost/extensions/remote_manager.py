@@ -16,12 +16,14 @@ import sqlite3
 import subprocess
 
 import pandas as pd
+import paramiko
 
 from bamboost._config import config
 from bamboost._sqlite_database import SQLiteHandler, with_connection
 from bamboost.common.mpi import MPI
 from bamboost.index import DatabaseTable, IndexAPI
 from bamboost.manager import Manager
+from bamboost.simulation import Simulation
 
 log = logging.getLogger(__name__)
 
@@ -55,22 +57,83 @@ class Remote(IndexAPI, SQLiteHandler):
         """Override the __new__ method to avoid the singleton pattern of IndexAPI."""
         return object.__new__(cls)
 
-    def __init__(self, remote_name: str, skip_update: bool = False) -> None:
+    def __init__(
+        self, remote_name: str, skip_update: bool = False, *, home_path: str = None
+    ) -> None:
         self.remote_name = remote_name
         self.local_path = os.path.join(CACHE_DIR, self.remote_name)
         os.makedirs(self.local_path, exist_ok=True)
         self.file = f"{self.local_path}/bamboost.db"
+
         if not skip_update:
-            self._fetch_index()
+            self._setup_ssh(home_path)
 
         # Initialize the SQLiteHandler
         SQLiteHandler.__init__(self, self.file)
 
+    def _setup_ssh(self, home_path: str = None) -> None:
+        """Set up the SSH and SFTP connection to the remote server."""
+        # Setup the ssh connection using paramiko
+        self.ssh = paramiko.SSHClient()
+        self.ssh.set_missing_host_key_policy(paramiko.AutoAddPolicy())
+        try:
+            # connect to remote server
+            self.ssh.connect(self.remote_name)
+            # open sftp session
+            self.sftp = self.ssh.open_sftp()
+            # get the home directory of the remote server and replace ~ with it
+            if not home_path:
+                home_path = self._get_remote_home()
+            self.index_path = REMOTE_INDEX.replace("~", home_path)
+            # fetch the index file
+            self._fetch_index()
+        except paramiko.ssh_exception.AuthenticationException:
+            log.error(
+                f"Could not connect to {self.remote_name}. Make sure ssh keys are set up."
+            )
+            self._cleanup()
+            raise
+
+    @property
+    def ssh(self) -> paramiko.SSHClient:
+        if hasattr(self, "_ssh"):
+            return self._ssh
+        raise AttributeError("SSH connection not set up.")
+
+    @ssh.setter
+    def ssh(self, ssh: paramiko.SSHClient) -> None:
+        self._ssh = ssh
+
+    @property
+    def sftp(self) -> paramiko.SFTP:
+        if hasattr(self, "_sftp"):
+            return self._sftp
+        raise AttributeError("SFTP connection not set up.")
+
+    @sftp.setter
+    def sftp(self, sftp: paramiko.SFTP) -> None:
+        self._sftp = sftp
+
+    def _cleanup(self) -> None:
+        """Close the SFTP and SSH connections."""
+        if hasattr(self, "sftp"):
+            self.sftp.close()
+        if hasattr(self, "ssh"):
+            self.ssh.close()
+
+    def __del__(self) -> None:
+        self._cleanup()
+
+    def _get_remote_home(self) -> str:
+        """Get the home directory of the remote server."""
+        stdin, stdout, stderr = self.ssh.exec_command("echo $HOME")
+        return stdout.read().decode().strip()
+
     def _fetch_index(self) -> None:
-        """Fetches the bamboost.db from the remote server. Takes time."""
-        subprocess.run(
-            ["rsync", "-avh", f"{self.remote_name}:{REMOTE_INDEX}", f"{self.file}"]
-        )
+        """Fetches the bamboost.db from the remote server."""
+        # download the index file
+        self.sftp.get(self.index_path, self.file)
+        log.info(f"Index file fetched from {self.remote_name}")
 
     def _ipython_key_completions_(self) -> list[str]:
         ids = self.read_table()[["id", "path"]].values
@@ -148,6 +211,13 @@ class RemoteManager(Manager):
         if not os.path.isdir(self.path):
             os.makedirs(self.path)
 
+        # Get the database ID file
+        if not os.path.exists(f"{self.path}/.BAMBOOST-{self.UID}"):
+            self.remote.sftp.get(
+                f"{self.remote_path_db}/.BAMBOOST-{self.UID}",
+                f"{self.path}/.BAMBOOST-{self.UID}",
+            )
+
         self.UID = id
         self._index.insert_local_path(self.UID, self.path)
 
@@ -210,10 +280,16 @@ class RemoteManager(Manager):
         # Check if data is already in cache
         if os.path.exists(f"{self.path}/{uid}"):
             log.info(f"Data for {uid} already in cache")
-            return super().sim(uid, return_writer)
+            return RemoteSimulation(uid, self)
 
         # Transfer data using rsync
         log.info(f"Data not in cache. Transferring data for {uid} from {self.remote}")
+        self.rsync(uid)
+
+        return RemoteSimulation(uid, self)
+
+    def rsync(self, uid: str) -> None:
+        """Transfer data using rsync."""
         subprocess.call(
             [
                 "rsync",
@@ -223,21 +299,21 @@ class RemoteManager(Manager):
             ],
             stdout=subprocess.PIPE,
         )
-        log.info(f"Data for {uid} transferred to {self.path}")
+        log.info(f"Data for {uid} synced with {self.path}")
 
-        return super().sim(uid, return_writer)
 
-    def sync(self, uid: str) -> None:
-        subprocess.call(
-            [
-                "rsync",
-                "-r",
-                f"{self.remote.remote_name}:{self.remote_path_db}/{uid}",
-                f"{self.path}",
-            ],
-            stdout=subprocess.PIPE,
-        )
-        log.info(f"Data for {uid} transferred to {self.path}")
+class RemoteSimulation(Simulation):
+    def __init__(self, uid: str, manager: RemoteManager) -> None:
+        super().__init__(uid, manager.path, _db_id=manager.UID)
+        self.manager = manager
+
+    def sync(self) -> RemoteSimulation:
+        """Sync the simulation data with the remote server."""
+        self.manager.rsync(self.uid)
+        return self
+
+    def get_full_uid(self) -> str:
+        return f"{self.manager.UID}:{self.uid}"
 
 
 if __name__ == "__main__":
