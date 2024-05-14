@@ -16,7 +16,6 @@ import sqlite3
 import subprocess
 
 import pandas as pd
-import paramiko
 
 from bamboost._config import config
 from bamboost._sqlite_database import SQLiteHandler, with_connection
@@ -66,7 +65,10 @@ class Remote(IndexAPI, SQLiteHandler):
         self.file = f"{self.local_path}/bamboost.db"
 
         if not skip_update:
-            self._setup_ssh(home_path)
+            subprocess.call(
+                ["rsync", "-r", f"{self.remote_name}:{REMOTE_INDEX}", self.file],
+                stdout=subprocess.PIPE,
+            )
 
         # Initialize the SQLiteHandler
         SQLiteHandler.__init__(self, self.file)
@@ -79,70 +81,6 @@ class Remote(IndexAPI, SQLiteHandler):
             for name in os.listdir(CACHE_DIR)
             if os.path.isdir(os.path.join(CACHE_DIR, name))
         ]
-
-    def _setup_ssh(self, home_path: str = None) -> None:
-        """Set up the SSH and SFTP connection to the remote server."""
-        # Setup the ssh connection using paramiko
-        self.ssh = paramiko.SSHClient()
-        self.ssh.set_missing_host_key_policy(paramiko.AutoAddPolicy())
-        try:
-            # connect to remote server
-            self.ssh.connect(self.remote_name)
-            # open sftp session
-            self.sftp = self.ssh.open_sftp()
-            # get the home directory of the remote server and replace ~ with it
-            if not home_path:
-                home_path = self._get_remote_home()
-            self.index_path = REMOTE_INDEX.replace("~", home_path)
-            # fetch the index file
-            self._fetch_index()
-        except paramiko.ssh_exception.AuthenticationException:
-            log.error(
-                f"Could not connect to {self.remote_name}. Make sure ssh keys are set up."
-            )
-            self._cleanup()
-            raise
-
-    @property
-    def ssh(self) -> paramiko.SSHClient:
-        if hasattr(self, "_ssh"):
-            return self._ssh
-        raise AttributeError("SSH connection not set up.")
-
-    @ssh.setter
-    def ssh(self, ssh: paramiko.SSHClient) -> None:
-        self._ssh = ssh
-
-    @property
-    def sftp(self) -> paramiko.SFTP:
-        if hasattr(self, "_sftp"):
-            return self._sftp
-        raise AttributeError("SFTP connection not set up.")
-
-    @sftp.setter
-    def sftp(self, sftp: paramiko.SFTP) -> None:
-        self._sftp = sftp
-
-    def _cleanup(self) -> None:
-        """Close the SFTP and SSH connections."""
-        if hasattr(self, "sftp"):
-            self.sftp.close()
-        if hasattr(self, "ssh"):
-            self.ssh.close()
-
-    def __del__(self) -> None:
-        self._cleanup()
-
-    def _get_remote_home(self) -> str:
-        """Get the home directory of the remote server."""
-        stdin, stdout, stderr = self.ssh.exec_command("echo $HOME")
-        return stdout.read().decode().strip()
-
-    def _fetch_index(self) -> None:
-        """Fetches the bamboost.db from the remote server."""
-        # download the index file
-        self.sftp.get(self.index_path, self.file)
-        log.info(f"Index file fetched from {self.remote_name}")
 
     def _ipython_key_completions_(self) -> list[str]:
         ids = self.read_table()[["id", "path"]].values
