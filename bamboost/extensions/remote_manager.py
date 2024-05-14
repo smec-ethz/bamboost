@@ -41,7 +41,7 @@ def _extend_manager_from_uid_getitem(original_getitem: Callable):
     """
 
     @wraps(original_getitem)
-    def modified_enter(self: ManagerFromUID, key: str):
+    def modified_getitem(self: ManagerFromUID, key: str):
         # If key starts with ssh://, it is a remote key
         # Format: ssh://<remote_name>/<id>
         if key.startswith("ssh://"):
@@ -52,7 +52,7 @@ def _extend_manager_from_uid_getitem(original_getitem: Callable):
 
         return original_getitem(self, key)
 
-    return modified_enter
+    return modified_getitem
 
 
 # MonkeyPatch ManagerFromUID if not already patched
