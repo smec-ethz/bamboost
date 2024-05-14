@@ -14,6 +14,8 @@ import os
 import pkgutil
 import sqlite3
 import subprocess
+from functools import wraps
+from typing import Callable
 
 import pandas as pd
 
@@ -21,7 +23,7 @@ from bamboost._config import config
 from bamboost._sqlite_database import SQLiteHandler, with_connection
 from bamboost.common.mpi import MPI
 from bamboost.index import DatabaseTable, IndexAPI
-from bamboost.manager import Manager
+from bamboost.manager import Manager, ManagerFromUID
 from bamboost.simulation import Simulation
 
 log = logging.getLogger(__name__)
@@ -30,6 +32,35 @@ HOME = os.path.expanduser("~")
 CACHE_DIR = os.path.join(HOME, ".cache", "bamboost")
 # location off the index file on the remote server
 REMOTE_INDEX = f"~/.local/share/bamboost/bamboost.db"
+
+
+# MonkeyPatch manager.ManagerFromUID
+def _extend_manager_from_uid_getitem(original_getitem: Callable):
+    """Extend the __getitem__ method of ManagerFromUID to handle remote keys.
+    In the following format: ssh://<remote_name>/<id>.
+    """
+
+    @wraps(original_getitem)
+    def modified_enter(self: ManagerFromUID, key: str):
+        # If key starts with ssh://, it is a remote key
+        # Format: ssh://<remote_name>/<id>
+        if key.startswith("ssh://"):
+            remote_name = key.split("/")[2]
+            key = key.split("/")[3]
+            remote = Remote(remote_name, skip_update=True)
+            return remote[key]
+
+        return original_getitem(self, key)
+
+    return modified_enter
+
+
+# MonkeyPatch ManagerFromUID if not already patched
+if not hasattr(ManagerFromUID.__getitem__, "__wrapped__"):
+    ManagerFromUID.__getitem__ = _extend_manager_from_uid_getitem(
+        ManagerFromUID.__getitem__
+    )
+    Manager.fromUID = ManagerFromUID()
 
 
 class Remote(IndexAPI, SQLiteHandler):
