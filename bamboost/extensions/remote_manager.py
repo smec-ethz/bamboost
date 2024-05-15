@@ -65,10 +65,8 @@ class Remote(IndexAPI, SQLiteHandler):
         self.file = f"{self.local_path}/bamboost.db"
 
         if not skip_update:
-            subprocess.call(
-                ["rsync", "-r", f"{self.remote_name}:{REMOTE_INDEX}", self.file],
-                stdout=subprocess.PIPE,
-            )
+            process = self.fetch_index()
+            process.wait()
 
         # Initialize the SQLiteHandler
         SQLiteHandler.__init__(self, self.file)
@@ -93,6 +91,15 @@ class Remote(IndexAPI, SQLiteHandler):
         """Return a `RemoteManager` for the given id."""
         id = id.split(" - ")[0]
         return RemoteManager(id, remote=self)
+
+    def fetch_index(self) -> subprocess.Popen:
+        """Fetch the index from the remote server."""
+        return subprocess.Popen(
+            ["rsync", "-av", f"{self.remote_name}:{REMOTE_INDEX}", self.file],
+            stdout=subprocess.PIPE,
+            stderr=subprocess.STDOUT,
+            text=True,
+        )
 
     def get_manager(self, id: str, skip_update: bool = False) -> RemoteManager:
         return RemoteManager(id, remote=self, skip_update=skip_update)
