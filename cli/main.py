@@ -60,6 +60,7 @@ def main():
         help="Database management subcommand",
     )
     sub_parser_db.add_parser("list", help="List all simulations in the database")
+    sub_parser_db.add_parser("drop", help="Drop database from the index")
     sub_parser_db.add_parser("reset", help="Reset its table in the sqlite database")
 
     # ----------------
@@ -133,6 +134,13 @@ def manage_db(args):
         with IndexAPI().open():
             IndexAPI()._conn.execute(f"DROP TABLE IF EXISTS db_{args.db_id}")
             IndexAPI()._conn.execute(f"DROP TABLE IF EXISTS db_{args.db_id}_t")
+        rich.print(f"Database {args.db_id} dropped")
+
+    if args.subcommand == "drop":
+        with IndexAPI().open():
+            IndexAPI()._conn.execute(f"DROP TABLE IF EXISTS db_{args.db_id}")
+            IndexAPI()._conn.execute(f"DROP TABLE IF EXISTS db_{args.db_id}_t")
+        IndexAPI().drop_path(args.db_id)
         rich.print(f"Database {args.db_id} dropped")
 
 

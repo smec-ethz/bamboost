@@ -22,6 +22,7 @@ from bamboost._sqlite_database import SQLiteHandler, with_connection
 from bamboost.common.mpi import MPI
 from bamboost.index import DatabaseTable, IndexAPI
 from bamboost.manager import Manager
+from bamboost.simulation import Simulation
 
 log = logging.getLogger(__name__)
 
@@ -55,22 +56,29 @@ class Remote(IndexAPI, SQLiteHandler):
         """Override the __new__ method to avoid the singleton pattern of IndexAPI."""
         return object.__new__(cls)
 
-    def __init__(self, remote_name: str, skip_update: bool = False) -> None:
+    def __init__(
+        self, remote_name: str, skip_update: bool = False, *, home_path: str = None
+    ) -> None:
         self.remote_name = remote_name
         self.local_path = os.path.join(CACHE_DIR, self.remote_name)
         os.makedirs(self.local_path, exist_ok=True)
         self.file = f"{self.local_path}/bamboost.db"
+
         if not skip_update:
-            self._fetch_index()
+            process = self.fetch_index()
+            process.wait()
 
         # Initialize the SQLiteHandler
         SQLiteHandler.__init__(self, self.file)
 
-    def _fetch_index(self) -> None:
-        """Fetches the bamboost.db from the remote server. Takes time."""
-        subprocess.run(
-            ["rsync", "-avh", f"{self.remote_name}:{REMOTE_INDEX}", f"{self.file}"]
-        )
+    @classmethod
+    def list(cls) -> list:
+        """List all remote servers."""
+        return [
+            name
+            for name in os.listdir(CACHE_DIR)
+            if os.path.isdir(os.path.join(CACHE_DIR, name))
+        ]
 
     def _ipython_key_completions_(self) -> list[str]:
         ids = self.read_table()[["id", "path"]].values
@@ -83,6 +91,15 @@ class Remote(IndexAPI, SQLiteHandler):
         """Return a `RemoteManager` for the given id."""
         id = id.split(" - ")[0]
         return RemoteManager(id, remote=self)
+
+    def fetch_index(self) -> subprocess.Popen:
+        """Fetch the index from the remote server."""
+        return subprocess.Popen(
+            ["rsync", "-av", f"{self.remote_name}:{REMOTE_INDEX}", self.file],
+            stdout=subprocess.PIPE,
+            stderr=subprocess.STDOUT,
+            text=True,
+        )
 
     def get_manager(self, id: str, skip_update: bool = False) -> RemoteManager:
         return RemoteManager(id, remote=self, skip_update=skip_update)
@@ -148,6 +165,11 @@ class RemoteManager(Manager):
         if not os.path.isdir(self.path):
             os.makedirs(self.path)
 
+        # Write the database ID file if it does not exist
+        if not os.path.exists(f"{self.path}/.BAMBOOST-{self.UID}"):
+            with open(f"{self.path}/.BAMBOOST-{self.UID}", "w") as f:
+                f.write(self.UID)
+
         self.UID = id
         self._index.insert_local_path(self.UID, self.path)
 
@@ -210,10 +232,16 @@ class RemoteManager(Manager):
         # Check if data is already in cache
         if os.path.exists(f"{self.path}/{uid}"):
             log.info(f"Data for {uid} already in cache")
-            return super().sim(uid, return_writer)
+            return RemoteSimulation(uid, self)
 
         # Transfer data using rsync
         log.info(f"Data not in cache. Transferring data for {uid} from {self.remote}")
+        self.rsync(uid)
+
+        return RemoteSimulation(uid, self)
+
+    def rsync(self, uid: str) -> None:
+        """Transfer data using rsync."""
         subprocess.call(
             [
                 "rsync",
@@ -223,21 +251,21 @@ class RemoteManager(Manager):
             ],
             stdout=subprocess.PIPE,
         )
-        log.info(f"Data for {uid} transferred to {self.path}")
+        log.info(f"Data for {uid} synced with {self.path}")
 
-        return super().sim(uid, return_writer)
 
-    def sync(self, uid: str) -> None:
-        subprocess.call(
-            [
-                "rsync",
-                "-r",
-                f"{self.remote.remote_name}:{self.remote_path_db}/{uid}",
-                f"{self.path}",
-            ],
-            stdout=subprocess.PIPE,
-        )
-        log.info(f"Data for {uid} transferred to {self.path}")
+class RemoteSimulation(Simulation):
+    def __init__(self, uid: str, manager: RemoteManager) -> None:
+        super().__init__(uid, manager.path, _db_id=manager.UID)
+        self.manager = manager
+
+    def sync(self) -> RemoteSimulation:
+        """Sync the simulation data with the remote server."""
+        self.manager.rsync(self.uid)
+        return self
+
+    def get_full_uid(self) -> str:
+        return f"{self.manager.UID}:{self.uid}"
 
 
 if __name__ == "__main__":
