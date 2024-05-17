@@ -30,6 +30,10 @@ requires-python = ">=3.7"
 mpi = [
     "mpi4py",
 ]
+test = [
+    "pytest",
+    "pytest-cov",
+]
 
 [project.entry-points.console_scripts]
 bamboostcli = "cli:main"
