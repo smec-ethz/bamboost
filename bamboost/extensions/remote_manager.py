@@ -62,6 +62,31 @@ if not hasattr(ManagerFromUID.__getitem__, "__wrapped__"):
     )
     Manager.fromUID = ManagerFromUID()
 
+# MonkeyPatch Simulation.fromUID
+def _extend_simulation_from_uid(original_from_uid: Callable):
+    """Extend the fromUID method of Simulation to handle remote keys.
+    In the following format: ssh://<remote_name>/<id>:<uid>.
+    """
+
+    @wraps(original_from_uid)
+    def modified_from_uid(cls: Simulation, key: str):
+        # If key starts with ssh://, it is a remote key
+        # Format: ssh://<remote_name>/<db_id>:<sim_id>
+        if key.startswith("ssh://"):
+            remote_name = key.split("/")[2]
+            full_id = key.split("/")[3]
+            db_id, sim_id = full_id.split(":")
+            remote = Remote(remote_name, skip_update=True)
+            return remote[db_id].sim(sim_id)
+
+        return original_from_uid(cls, key)
+
+    return modified_from_uid
+
+# MonkeyPatch Simulation if not already patched
+if not hasattr(Simulation.fromUID, "__wrapped__"):
+    Simulation.fromUID = classmethod(_extend_simulation_from_uid(Simulation.fromUID))
+
 
 class Remote(IndexAPI, SQLiteHandler):
     """Access bamboost database of a remote server. The index is fetched using
