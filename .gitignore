@@ -17,4 +17,4 @@ frontend/
 extract-docs/
 tests/_out
 tests/*.ipynb
-tests/*.coverage
+.coverage

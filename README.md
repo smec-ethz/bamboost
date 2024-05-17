@@ -40,6 +40,9 @@ will totally break if you load it heavily. Just kidding, bamboo can fully carry 
 <a href="https://gitlab.com/cmbm-ethz/bamboost/-/blob/main/LICENSE">
     <img src="https://img.shields.io/pypi/l/bamboost" alt="PyPI - License">
 </a>
+
+<a href="https://gitlab.com/cmbm-ethz/bamboost/-/commits/test-ci"><img alt="pipeline status" src="https://gitlab.com/cmbm-ethz/bamboost/badges/test-ci/pipeline.svg" /></a> 
+<a href="https://gitlab.com/cmbm-ethz/bamboost/-/commits/test-ci"><img alt="coverage report" src="https://gitlab.com/cmbm-ethz/bamboost/badges/test-ci/coverage.svg" /></a>
 </div>
 
 ## Documentation
