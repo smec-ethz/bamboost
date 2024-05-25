@@ -314,7 +314,7 @@ class RemoteSimulation(Simulation):
         return self
 
     def get_full_uid(self) -> str:
-        return f"{self.manager.UID}:{self.uid}"
+        return f"ssh://{self.manager.remote.remote_name}/{self.manager.UID}:{self.uid}"
 
 
 if __name__ == "__main__":
