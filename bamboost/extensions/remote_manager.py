@@ -79,7 +79,7 @@ def _extend_simulation_from_uid(original_from_uid: Callable):
             remote = Remote(remote_name, skip_update=True)
             return remote[db_id].sim(sim_id)
 
-        return original_from_uid(cls, key)
+        return original_from_uid(key)
 
     return modified_from_uid
 
