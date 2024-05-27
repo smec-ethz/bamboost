@@ -6,11 +6,38 @@ __version__ = "0.6.0"
 import logging
 import os
 
-from .manager import Manager
-from .simulation import Simulation
-from .simulation_writer import SimulationWriter
 from ._config import config
 from .extensions import extensions
+
+
+def _lazy_load_stub_manager(*args, **kwargs):
+    global Manager
+    from .manager import Manager
+
+    return Manager(*args, **kwargs)
+
+
+Manager = _lazy_load_stub_manager
+
+
+def _lazy_load_stub_simulation(*args, **kwargs):
+    global Simulation
+    from .simulation import Simulation
+
+    return Simulation(*args, **kwargs)
+
+
+Simulation = _lazy_load_stub_simulation
+
+
+def _lazy_load_stub_simulation_writer(*args, **kwargs):
+    global SimulationWriter
+    from .simulation_writer import SimulationWriter
+
+    return SimulationWriter(*args, **kwargs)
+
+
+SimulationWriter = _lazy_load_stub_simulation_writer
 
 
 def set_log_level(level: int = 30):
