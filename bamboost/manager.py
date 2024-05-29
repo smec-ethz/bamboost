@@ -26,14 +26,18 @@ class Manager:
     pass
 
 
-from . import index
-from .common.file_handler import open_h5file
-from .common.mpi import MPI
-from .index import DatabaseTable, IndexAPI, config
-from .simulation import Simulation
-from .simulation_writer import SimulationWriter
+from bamboost import index
+from bamboost.common.file_handler import open_h5file
+from bamboost.common.mpi import MPI
+from bamboost.index import DatabaseTable, IndexAPI, config
+from bamboost.simulation import Simulation
+from bamboost.simulation_writer import SimulationWriter
 
-__all__ = ["Manager", "ManagerFromUID", "ManagerFromName"]
+__all__ = [
+    "Manager",
+    "ManagerFromUID",
+    "ManagerFromName",
+]
 
 log = logging.getLogger(__name__)
 

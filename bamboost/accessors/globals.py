@@ -14,6 +14,8 @@ import pandas as pd
 from bamboost.common.file_handler import FileHandler
 from bamboost.common.hdf_pointer import Group
 
+__all__ = ["GlobalGroup"]
+
 
 class GlobalGroup(Group):
     """Enhanced Group for '/globals'.

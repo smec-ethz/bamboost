@@ -22,6 +22,8 @@ try:
 except ImportError:
     import tomli
 
+__all__ = ["paths", "config"]
+
 # Define paths to bamboost config files
 _home_dir = os.path.expanduser("~")
 paths = {

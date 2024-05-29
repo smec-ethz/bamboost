@@ -24,6 +24,8 @@ from typing_extensions import Self
 from bamboost._config import config
 from bamboost.common.mpi import MPI
 
+__all__ = ["SQLiteHandler"]
+
 log = logging.getLogger(__name__)
 
 _type_to_sql_column_type = {

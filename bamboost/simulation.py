@@ -19,19 +19,21 @@ import numpy as np
 import pandas as pd
 from typing_extensions import Self, deprecated
 
+from bamboost import index
 from bamboost._config import config
+from bamboost.accessors.fielddata import DataGroup
+from bamboost.accessors.globals import GlobalGroup
+from bamboost.accessors.meshes import MeshGroup
+from bamboost.common import hdf_pointer, utilities
+from bamboost.common.file_handler import FileHandler, with_file_open
+from bamboost.common.job import Job
+from bamboost.common.mpi import MPI
+from bamboost.xdmf import XDMFWriter
 
-from . import index
-from .accessors.fielddata import DataGroup
-from .accessors.globals import GlobalGroup
-from .accessors.meshes import MeshGroup
-from .common import hdf_pointer, utilities
-from .common.file_handler import FileHandler, with_file_open
-from .common.job import Job
-from .common.mpi import MPI
-from .xdmf import XDMFWriter
-
-__all__ = ["Simulation", "Links"]
+__all__ = [
+    "Simulation",
+    "Links",
+]
 
 log = logging.getLogger(__name__)
 
@@ -452,7 +454,6 @@ class Simulation:
             raise FileNotFoundError(
                 f"Could not find a batch script for simulation {self.uid}."
             )
-        
 
         log.info(f"Simulation {self.uid} submitted!")
 

@@ -14,7 +14,7 @@ log = logging.getLogger(__name__)
 
 from bamboost._config import config
 
-from ._mock_mpi import MockMPI
+from bamboost.common._mock_mpi import MockMPI
 
 MPIType = Union[MockMPI, Any]
 

@@ -20,7 +20,12 @@ from bamboost.common.mpi import MPI, MPI_ON
 
 log = logging.getLogger(__name__)
 
-__all__ = ["open_h5file", "FileHandler", "with_file_open", "capture_key_error"]
+__all__ = [
+    "open_h5file",
+    "FileHandler",
+    "with_file_open",
+    "capture_key_error",
+]
 
 HAS_MPIO = "mpio" in h5py.registered_drivers()
 if HAS_MPIO and MPI_ON:

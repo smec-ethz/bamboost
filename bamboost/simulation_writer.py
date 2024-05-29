@@ -18,10 +18,10 @@ from typing import Union
 import numpy as np
 from typing_extensions import deprecated
 
-from .common.git_utility import GitStateGetter
-from .common.mpi import MPI
-from .common.utilities import flatten_dict
-from .simulation import Simulation
+from bamboost.common.git_utility import GitStateGetter
+from bamboost.common.mpi import MPI
+from bamboost.common.utilities import flatten_dict
+from bamboost.simulation import Simulation
 
 __all__ = ["SimulationWriter"]
 
@@ -151,8 +151,12 @@ class SimulationWriter(Simulation):
             if mesh_location in self._file.file_object:
                 del self._file.file_object[mesh_location]
             grp = f.require_group(mesh_location)
-            coord = grp.require_dataset("geometry", shape=coord_shape, dtype=coordinates.dtype)
-            conn = grp.require_dataset("topology", shape=conn_shape, dtype=connectivity.dtype)
+            coord = grp.require_dataset(
+                "geometry", shape=coord_shape, dtype=coordinates.dtype
+            )
+            conn = grp.require_dataset(
+                "topology", shape=conn_shape, dtype=connectivity.dtype
+            )
 
             coord[idx_start:idx_end] = coordinates
             conn[idx_start_cells:idx_end_cells] = connectivity

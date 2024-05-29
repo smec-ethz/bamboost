@@ -26,6 +26,12 @@ from bamboost.index import DatabaseTable, IndexAPI
 from bamboost.manager import Manager, ManagerFromUID
 from bamboost.simulation import Simulation
 
+__all__ = [
+    "Remote",
+    "RemoteManager",
+    "RemoteSimulation",
+]
+
 log = logging.getLogger(__name__)
 
 HOME = os.path.expanduser("~")
@@ -62,6 +68,7 @@ if not hasattr(ManagerFromUID.__getitem__, "__wrapped__"):
     )
     Manager.fromUID = ManagerFromUID()
 
+
 # MonkeyPatch Simulation.fromUID
 def _extend_simulation_from_uid(original_from_uid: Callable):
     """Extend the fromUID method of Simulation to handle remote keys.
@@ -82,6 +89,7 @@ def _extend_simulation_from_uid(original_from_uid: Callable):
         return original_from_uid(key)
 
     return modified_from_uid
+
 
 # MonkeyPatch Simulation if not already patched
 if not hasattr(Simulation.fromUID, "__wrapped__"):
