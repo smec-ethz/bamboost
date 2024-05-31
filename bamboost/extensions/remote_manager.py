@@ -171,7 +171,11 @@ class Remote(IndexAPI, SQLiteHandler):
     @with_connection
     def get_path(self, id: str) -> str:
         self._cursor.execute("SELECT path FROM dbindex WHERE id=?", (id,))
-        return self._cursor.fetchone()[0]
+        fetch = self._cursor.fetchone()
+        if fetch is None:
+            raise KeyError(f"No database found with id: {id}")
+        else:
+            return fetch[0]
 
     @with_connection
     def insert_local_path(self, id: str, path: str) -> None:
