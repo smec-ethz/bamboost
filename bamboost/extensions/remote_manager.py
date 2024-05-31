@@ -53,8 +53,12 @@ def _extend_manager_from_uid_getitem(original_getitem: Callable):
         if key.startswith("ssh://"):
             remote_name = key.split("/")[2]
             key = key.split("/")[3]
-            remote = Remote(remote_name, skip_update=True)
-            return remote[key]
+            try:
+                remote = Remote(remote_name, skip_update=True)
+                return remote[key]
+            except KeyError:
+                remote = Remote(remote_name, skip_update=False)
+                return remote[key]
 
         return original_getitem(self, key)
 
@@ -171,7 +175,11 @@ class Remote(IndexAPI, SQLiteHandler):
     @with_connection
     def get_path(self, id: str) -> str:
         self._cursor.execute("SELECT path FROM dbindex WHERE id=?", (id,))
-        return self._cursor.fetchone()[0]
+        fetch = self._cursor.fetchone()
+        if fetch is None:
+            raise KeyError(f"No database found with id: {id}")
+        else:
+            return fetch[0]
 
     @with_connection
     def insert_local_path(self, id: str, path: str) -> None:
