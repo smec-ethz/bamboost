@@ -53,8 +53,12 @@ def _extend_manager_from_uid_getitem(original_getitem: Callable):
         if key.startswith("ssh://"):
             remote_name = key.split("/")[2]
             key = key.split("/")[3]
-            remote = Remote(remote_name, skip_update=True)
-            return remote[key]
+            try:
+                remote = Remote(remote_name, skip_update=True)
+                return remote[key]
+            except KeyError:
+                remote = Remote(remote_name, skip_update=False)
+                return remote[key]
 
         return original_getitem(self, key)
 
