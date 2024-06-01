@@ -13,7 +13,7 @@ import datetime
 import logging
 import os
 import shutil
-from typing import Union
+from typing import Dict, Union
 
 import numpy as np
 from typing_extensions import deprecated
@@ -214,6 +214,21 @@ class SimulationWriter(Simulation):
                 vec = self._file["data"][name][str(self.step)]
                 vec.attrs["t"] = time  # add time as attribute to dataset
                 vec.attrs["mesh"] = mesh  # add link to mesh as attribute
+
+    def add_fields(
+        self,
+        fields: Dict[str, np.array],
+        time: float = None,
+        mesh: str = None,
+    ) -> None:
+        """Add multiple fields at once.
+
+        Args:
+            fields: Dictionary with fields
+            time: Optional. time
+        """
+        for name, vector in fields.items():
+            self.add_field(name, vector, time, mesh)
 
     def add_global_field(
         self, name: str, value: Union[float, int], dtype: str = None
