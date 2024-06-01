@@ -375,16 +375,16 @@ class Simulation:
                 xdmf_writer.add_timeseries(nb_steps + 1, fields)
             xdmf_writer.write_file()
 
-    def create_batch_script(
+    def create_run_script(
         self,
         commands: list = None,
-        nnodes=1,
-        ntasks=4,
-        ncpus=1,
-        time="04:00:00",
-        mem_per_cpu=2048,
+        nnodes: int = 1,
+        ntasks: int = 4,
+        ncpus: int = 1,
+        time: str = "04:00:00",
+        mem_per_cpu: int = 2048,
         tmp=None,
-        euler=True,
+        euler: bool = True,
     ) -> None:
         """Create a batch job and put it into the folder.
 
@@ -393,25 +393,12 @@ class Simulation:
             nnodes: nb of nodes (default=1)
             ntasks: nb of tasks (default=4)
             ncpus: nb of cpus per task (default=1)
-            time: requested time (default=4 hours)
+            time: requested time, format "HH:MM:SS" (default=4 hours)
             mem_per_cpu: memory (default=2048)
             tmp: temporary storage, set None to exclude option (default=8000)
             euler: If false, a local bash script will be written
         """
         job = Job()
-        if not commands:
-            if hasattr(self, "executable"):
-                if ".py" in self.executable:
-                    command = (
-                        f"{{MPI}} python3 {os.path.join(self.path, self.executable)} "
-                        f"--path {self.path_database} --uid {self.uid}"
-                    )
-                    commands = [command]
-            else:
-                raise AttributeError(
-                    """Either you must specify an executable or have it 
-                                     copied before with `copy_executable`!"""
-                )
 
         if euler:
             job.create_sbatch_script(
@@ -431,10 +418,15 @@ class Simulation:
                 commands,
                 path=os.path.abspath(self.path_database),
                 uid=self.uid,
+                db_id=self.database_id,
                 ntasks=ntasks,
             )
         with self._file("a") as file:
             file.attrs.update({"submitted": False})
+
+    @deprecated("use `create_run_script` instead")
+    def create_batch_script(self, *args, **kwargs):
+        return self.create_run_script(*args, **kwargs)
 
     def submit(self) -> None:
         """Submit the job for this simulation."""
