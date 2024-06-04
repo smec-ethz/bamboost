@@ -177,9 +177,9 @@ class IndexAPI(sql.SQLiteHandler):
             str: path of the database
         """
         self._cursor.execute("SELECT path FROM dbindex WHERE id=?", (id,))
-        path_db = self._cursor.fetchone()[0]
-        if _check_path(id, path_db):
-            return path_db
+        path_db = self._cursor.fetchone()
+        if path_db and _check_path(id, path_db[0]):
+            return path_db[0]
 
         # if path is wrong, try to find it
         for root_dir in get_known_paths():
