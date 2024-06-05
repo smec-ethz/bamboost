@@ -446,7 +446,7 @@ class DatabaseTable:
                 continue
             dtype = sql.get_sqlite_column_type(val)
             self._cursor.execute(
-                f"ALTER TABLE {self.tablename_db} ADD COLUMN {key} {dtype}"
+                f"ALTER TABLE {self.tablename_db} ADD COLUMN [{key}] {dtype}"
             )
 
         # insert data into table
