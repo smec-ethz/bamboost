@@ -446,15 +446,15 @@ class DatabaseTable:
                 continue
             dtype = sql.get_sqlite_column_type(val)
             self._cursor.execute(
-                f"ALTER TABLE {self.tablename_db} ADD COLUMN {key} {dtype}"
+                f"ALTER TABLE {self.tablename_db} ADD COLUMN [{key}] {dtype}"
             )
 
         # insert data into table
         data.pop("id", None)
 
-        keys = ", ".join([f"{key}" for key in data.keys()])
+        keys = ", ".join([f"[{key}]" for key in data.keys()])
         values = ", ".join([f":{key}" for key in data.keys()])
-        updates = ", ".join([f"{key} = excluded.{key}" for key in data.keys()])
+        updates = ", ".join([f"[{key}] = excluded.[{key}]" for key in data.keys()])
 
         query = f"""
         INSERT INTO {self.tablename_db} (id, {keys})
