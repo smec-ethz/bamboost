@@ -173,5 +173,7 @@ class SQLiteHandler:
             >>>     table._cursor.execute("SELECT * FROM database")
         """
         self.connect()
-        yield self
-        self.close(ensure_commit=ensure_commit, force=force_close)
+        try:
+            yield self
+        finally:
+            self.close(ensure_commit=ensure_commit, force=force_close)
