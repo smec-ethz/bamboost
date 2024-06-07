@@ -230,32 +230,35 @@ class SimulationWriter(Simulation):
         for name, vector in fields.items():
             self.add_field(name, vector, time, mesh)
 
-    def add_global_field(
-        self, name: str, value: Any, dtype: str = None
-    ) -> None:
+    def add_global_field(self, name: str, value: Any, dtype: str = None) -> None:
         """Add a gobal field. These are stored at `globals/` as an array in a
         single dataset.
 
         Args:
             name: Name for the data
-            value: Data
+            value: Data. Can be a numpy array or a single value.
         """
+        if isinstance(value, np.ndarray):
+            shape = (self.step + 1, *value.shape)
+        else:
+            shape = (self.step + 1,)
+
         if self._prank == 0:
             with self._file("a") as f:
                 grp = f.require_group("globals")
                 if name not in grp.keys():
                     vec = grp.create_dataset(
                         name,
-                        shape=(self.step + 1,),
+                        shape=shape,
                         dtype=dtype if dtype else np.array(value).dtype,
                         chunks=True,
-                        maxshape=(None,),
+                        maxshape=(None, *shape[1:]) if len(shape) > 1 else (None,),
                         fillvalue=np.nan,
                     )
                     vec[-1] = value
                 else:
                     vec = grp[name]
-                    vec.resize((self.step + 1,))
+                    vec.resize(shape)
                     vec[-1] = value
 
     def add_global_fields(self, fields: Dict[str, Any]) -> None:
