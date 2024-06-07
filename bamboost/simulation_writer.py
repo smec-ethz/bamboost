@@ -13,7 +13,7 @@ import datetime
 import logging
 import os
 import shutil
-from typing import Dict, Union
+from typing import Any, Dict, Union
 
 import numpy as np
 from typing_extensions import deprecated
@@ -231,7 +231,7 @@ class SimulationWriter(Simulation):
             self.add_field(name, vector, time, mesh)
 
     def add_global_field(
-        self, name: str, value: Union[float, int], dtype: str = None
+        self, name: str, value: Any, dtype: str = None
     ) -> None:
         """Add a gobal field. These are stored at `globals/` as an array in a
         single dataset.
@@ -257,6 +257,15 @@ class SimulationWriter(Simulation):
                     vec = grp[name]
                     vec.resize((self.step + 1,))
                     vec[-1] = value
+
+    def add_global_fields(self, fields: Dict[str, Any]) -> None:
+        """Add multiple global fields at once.
+
+        Args:
+            fields: Dictionary with fields
+        """
+        for name, value in fields.items():
+            self.add_global_field(name, value)
 
     @deprecated("Use `copy_file` instead.")
     def add_additional(self, name: str, file: str) -> None:
