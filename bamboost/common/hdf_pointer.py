@@ -194,7 +194,6 @@ class MutableGroup(Group):
 
         return super().__getitem__(key)
 
-    @with_file_open("a", driver="mpio")
     def __setitem__(self, key, newvalue):
         """Used to set an attribute.
         Will be written as an attribute to the group.
@@ -258,7 +257,7 @@ class MutableGroup(Group):
 
         log.info(f"Written {name} as userdata to {self._file.file_name}...")
 
-    def require_group(self, name: str) -> Group:
+    def require_group(self, name: str) -> MutableGroup:
         """Add a new group to the current group. If exists, return existing.
 
         Returns:
