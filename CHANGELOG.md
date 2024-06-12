@@ -1,6 +1,6 @@
 # Change log for bamboost
 
-## v0.6.0 (??)
+## v0.7.0 (12Jun24)
 
 **Major design change**: Using an sqlite database to store an up-to-date and cheaply
 accessible "copy" of all bamboost databases, including parameters and metadata.
@@ -12,10 +12,9 @@ This also replaces the "unsafe" json database index we had before.
 
 **Advantages:**
 
-- Significant speed up (10x up to magnitudes depending on database size) for
-  creation of metadata/parameter table (especially on Euler & for larger
-  databases) because we avoid reading every single hdf5 file if it not
-  necessary.
+- Significant speed up for creation of metadata/parameter table (especially on
+  Euler & for larger databases) because we avoid reading every single hdf5 file
+  if it not necessary.
 - Database IDs, Simulation IDs and metadata is available outside the bamboost
   ecosystem -> Useful for remote access (RemoteManager). We can now fetch the
   sqlite database and know of all our data and it's location on the remote.
@@ -25,35 +24,26 @@ This also replaces the "unsafe" json database index we had before.
 
 **Other news:**
 
+- FEAT: Added CI tests (not extensive yet).
 - FEAT: [Extension] Remote and RemoteManager classes to access databases on a remote server. Lazily caching requested simulations.
-- FEAT: [Extension] FenicsWriter -> optimized writer for fenics meshes and functions (fully functional in paralell). It is significantly faster than any other method I tried. It allows to write fenics functions directly (sim.add_field('name', fe.project(expr, space))).
-- FEAT: [Extension] Slurm. Automatically store slurm info when simulation ends
-  (or fails). Used by starting your script with:
-  ```python
-  from bamboost import extensions
-  extensions.install_slurm()
-  ```
 - FEAT: Config file at `~/.config/bamboost/config.toml` to store user settings
   (e.g. default sort order for tables, paths to search, etc.)
-- FEAT: global config dictionary `from bamboost import config`
 - FEAT: Command line interface to print index, table info, etc. to the terminal
-  or to submit a simulation (e.g. all unsubmitted ones).
+  or to submit a simulation (e.g. all unsubmitted ones). Run `bamboostcli -h`
+  for help.
+- FEAT: Introduced TUI (terminal user interface). Not sure whether it should be included in
+  this repo. (https://gitlab.com/zrlf/bamboost-tui)
 - FEAT: utility function `show_differences` to show only the differences in
   pandas dataframes.
-- FEAT: TUI (terminal user interface). Not sure whether it should be included in
-  this repo. It's code base is messy but I already use it all the time.
-- FEAT: `sim.add_field` got an aditional argument `center` specifying whether
-  the data is cell-centered or node-centered. Default is `center='Node'`.
-  Implemented in generated xdmf file and thus readable by paraview.
 
-- API: requires `sqlite3` -> on Euler, make sure to load the module sqlite
+- API: requires `sqlite3 > 3.0` -> make sure to load the module sqlite
 - API: paths to search moved to general config file `config.toml`
 - API: `SimulationWriter.add_field` does not reshape 1D arrays to 2D anymore.
   Arrays are written as they are.
 - API: `SimulationWriter.add_field` now accepts arrays of any shape, not only
   1D or 2D arrays.
+
 - FIX: fixed `XDMFWriter` to correctly write Tensors/Matrices.
-- FIX: slurm job submission now works (sim.submit()) from within python files.
 
 and many small fixes and improvements.
 
