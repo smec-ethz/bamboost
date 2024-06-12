@@ -16,14 +16,19 @@ from typing import Any
 
 import h5py
 
-from bamboost.common.mpi import MPI, MPI_ON
+from bamboost.common import mpi
 
 log = logging.getLogger(__name__)
 
-__all__ = ["open_h5file", "FileHandler", "with_file_open", "capture_key_error"]
+__all__ = [
+    "open_h5file",
+    "FileHandler",
+    "with_file_open",
+    "capture_key_error",
+]
 
 HAS_MPIO = "mpio" in h5py.registered_drivers()
-if HAS_MPIO and MPI_ON:
+if HAS_MPIO and mpi.MPI_ON:
     MPI_ACTIVE = h5py.h5.get_config().mpi
 else:
     MPI_ACTIVE = False
@@ -47,7 +52,7 @@ def open_h5file(file: str, mode, driver=None, comm=None):
     """
     while True:
         try:
-            if driver == "mpio" and HAS_MPIO and MPI_ACTIVE:
+            if driver == "mpio" and MPI_ACTIVE and mpi.MPI_ON:
                 return h5py.File(file, mode, driver=driver, comm=comm)
             else:
                 return h5py.File(file, mode)
@@ -107,7 +112,7 @@ class FileHandler:
         _comm: MPI communicator
     """
 
-    def __init__(self, file_name: str, _comm: MPI.Comm = MPI.COMM_WORLD) -> None:
+    def __init__(self, file_name: str, _comm: mpi.MPI.Comm = mpi.MPI.COMM_WORLD) -> None:
         self.file_object: h5py.File = None
         self.file_name = file_name
         self.simulation_uid = os.path.basename(file_name)

@@ -159,7 +159,7 @@ class XDMFWriter:
         """Write an attribute/field."""
         with h5py.File(self.h5file, "r") as f:
             data = f[f"data/{field_name}/{step}"]
-            
+
             if data.ndim == 1 or data.shape[1] <= 1:
                 att_type = "Scalar"
             elif data.ndim == 2:

@@ -13,15 +13,15 @@ import datetime
 import logging
 import os
 import shutil
-from typing import Iterable, Union
+from typing import Any, Dict, Union
 
 import numpy as np
 from typing_extensions import deprecated
 
-from .common.git_utility import GitStateGetter
-from .common.mpi import MPI
-from .common.utilities import flatten_dict
-from .simulation import Simulation
+from bamboost.common.git_utility import GitStateGetter
+from bamboost.common.mpi import MPI
+from bamboost.common.utilities import flatten_dict
+from bamboost.simulation import Simulation
 
 __all__ = ["SimulationWriter"]
 
@@ -77,12 +77,14 @@ class SimulationWriter(Simulation):
         nb_proc = self._comm.Get_size()
         if self._prank == 0:
             with self._file("a"):
-                self._file.attrs["time_stamp"] = str(
-                    datetime.datetime.now().replace(microsecond=0)
-                )
-                self._file.attrs["id"] = self.uid
-                self._file.attrs["processors"] = nb_proc
-                self._file.attrs["notes"] = self._file.attrs.get("notes", "")
+                data = {
+                    "time_stamp": str(datetime.datetime.now().replace(microsecond=0)),
+                    "id": self.uid,
+                    "processors": nb_proc,
+                    "notes": self._file.attrs.get("notes", ""),
+                }
+                self._file.attrs.update(data)
+            self._push_update_to_sqlite(data)
 
     def add_parameters(self, parameters: dict) -> None:
         """Add parameters to simulation.
@@ -103,8 +105,7 @@ class SimulationWriter(Simulation):
                         grp.create_dataset(key, data=val)
                     elif val is not None:
                         grp.attrs[key] = val
-                    else:
-                        pass
+            self._push_update_to_sqlite(parameters)
 
     def add_mesh(
         self, coordinates: np.ndarray, connectivity: np.ndarray, mesh_name: str = None
@@ -150,8 +151,12 @@ class SimulationWriter(Simulation):
             if mesh_location in self._file.file_object:
                 del self._file.file_object[mesh_location]
             grp = f.require_group(mesh_location)
-            coord = grp.require_dataset("geometry", shape=coord_shape, dtype=coordinates.dtype)
-            conn = grp.require_dataset("topology", shape=conn_shape, dtype=connectivity.dtype)
+            coord = grp.require_dataset(
+                "geometry", shape=coord_shape, dtype=coordinates.dtype
+            )
+            conn = grp.require_dataset(
+                "topology", shape=conn_shape, dtype=connectivity.dtype
+            )
 
             coord[idx_start:idx_end] = coordinates
             conn[idx_start_cells:idx_end_cells] = connectivity
@@ -214,33 +219,60 @@ class SimulationWriter(Simulation):
                 vec.attrs["mesh"] = mesh  # add link to mesh as attribute
                 vec.attrs["center"] = center
 
-    def add_global_field(
-        self, name: str, value: Union[float, int], dtype: str = None
+    def add_fields(
+        self,
+        fields: Dict[str, np.array],
+        time: float = None,
+        mesh: str = None,
     ) -> None:
+        """Add multiple fields at once.
+
+        Args:
+            fields: Dictionary with fields
+            time: Optional. time
+        """
+        for name, vector in fields.items():
+            self.add_field(name, vector, time, mesh)
+
+    def add_global_field(self, name: str, value: Any, dtype: str = None) -> None:
         """Add a gobal field. These are stored at `globals/` as an array in a
         single dataset.
 
         Args:
             name: Name for the data
-            value: Data
+            value: Data. Can be a numpy array or a single value.
         """
+        if isinstance(value, np.ndarray):
+            shape = (self.step + 1, *value.shape)
+        else:
+            shape = (self.step + 1,)
+
         if self._prank == 0:
             with self._file("a") as f:
                 grp = f.require_group("globals")
                 if name not in grp.keys():
                     vec = grp.create_dataset(
                         name,
-                        shape=(self.step + 1,),
+                        shape=shape,
                         dtype=dtype if dtype else np.array(value).dtype,
                         chunks=True,
-                        maxshape=(None,),
+                        maxshape=(None, *shape[1:]) if len(shape) > 1 else (None,),
                         fillvalue=np.nan,
                     )
                     vec[-1] = value
                 else:
                     vec = grp[name]
-                    vec.resize((self.step + 1,))
+                    vec.resize(shape)
                     vec[-1] = value
+
+    def add_global_fields(self, fields: Dict[str, Any]) -> None:
+        """Add multiple global fields at once.
+
+        Args:
+            fields: Dictionary with fields
+        """
+        for name, value in fields.items():
+            self.add_global_field(name, value)
 
     @deprecated("Use `copy_file` instead.")
     def add_additional(self, name: str, file: str) -> None:

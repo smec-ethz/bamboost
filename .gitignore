@@ -16,4 +16,5 @@ docs/
 frontend/
 extract-docs/
 tests/_out
-tests/trials.ipynb
+tests/*.ipynb
+.coverage

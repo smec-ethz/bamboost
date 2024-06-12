@@ -10,6 +10,8 @@
 import argparse
 import os
 
+from bamboost._config import paths
+
 __all__ = ["Job"]
 
 
@@ -17,11 +19,22 @@ class Job:
     def __init__(self):
         pass
 
+    def _set_environment_variables(self, db_id: str, uid: str) -> str:
+        # access sqlite database and get path
+        tmp_str = ""
+        tmp_str += f"""DATABASE_DIR=$(sqlite3 {paths['DATABASE_FILE']} "SELECT path FROM dbindex WHERE id='{db_id}'")\n"""
+
+        # set further environment variables
+        tmp_str += f"SIMULATION_DIR=$DATABASE_DIR/{uid}\n"
+        tmp_str += f"SIMULATION_ID={db_id}:{uid}\n\n"
+        return tmp_str
+
     def create_sbatch_script(
         self,
         commands: list,
         path: str,
         uid: str = None,
+        db_id: str = None,
         nnodes: int = 1,
         ntasks: int = 4,
         ncpus: int = 1,
@@ -53,7 +66,8 @@ class Job:
         script += f"#SBATCH --output={os.path.join(path, uid)}/{uid}.out\n"
 
         # add SCRIPT_DIR as environment variable
-        script += 'SCRIPT_DIR=$( cd -- "$( dirname -- "${BASH_SOURCE[0]}" )" &> /dev/null && pwd )\n\n'
+        script += f"""path=$(sqlite3 {paths['DATABASE_FILE']} "SELECT path FROM dbindex WHERE id='{db_id}'")\n"""
+        script += f"SCRIPT_DIR=$path/{uid}\n\n"
 
         # user defined commands
         script += "\n"
@@ -67,9 +81,22 @@ class Job:
             file.write(script)
 
     def create_bash_script_local(
-        self, commands: list, path: str, uid: str, ntasks: int = 4
-    ):
-        """Write bash script for local execution."""
+        self, commands: list, path: str, uid: str, db_id: str = None, ntasks: int = 4
+    ) -> None:
+        """Write bash script for local execution.
+
+        The following environment variables are written to the script:
+            - DATABASE_DIR: Path to the database directory.
+            - SIMULATION_DIR: Path to the simulation directory.
+            - SIMULATION_ID: Full id of the simulation.
+
+        Args:
+            commands (list): List of commands to be executed.
+            path (str): Path to the database directory.
+            uid (str): Unique identifier of the simulation.
+            db_id (str): Database ID. Defaults to None.
+            ntasks (int): Number of tasks. Defaults to 4.
+        """
 
         # define how mpirun is called
         mpicommand = ""
@@ -78,8 +105,8 @@ class Job:
 
         script = f"#!/bin/bash\n\n"
 
-        # add SCRIPT_DIR as environment variable
-        script += 'SCRIPT_DIR=$( cd -- "$( dirname -- "${BASH_SOURCE[0]}" )" &> /dev/null && pwd )\n\n'
+        # add paths as environment variables
+        script += self._set_environment_variables(db_id, uid)
 
         # user defined commands
         for cmd in commands:

@@ -1,11 +1,21 @@
 stages:
+  - test
   - docs
+
+test:
+  stage: test
+  image: dhna/mpi4py
+  script:
+    - pip install ".[test]"
+    - cd tests/
+    - pytest --cov=bamboost --cov-report term
+  coverage: /(?i)total.*? (100(?:\.0+)?\%|[1-9]?\d(?:\.\d+)?\%)$/
 
 build_doc_source:
   stage: docs
   image: dhna/mpi4py
   before_script:
-    - 'which ssh-agent || ( apt-get update -qy && apt-get install openssh-client -qqy )'
+    - "which ssh-agent || ( apt-get update -qy && apt-get install openssh-client -qqy )"
     - eval `ssh-agent -s`
     - echo "${SSH_PRIVATE_KEY}" | tr -d '\r' | ssh-add - > /dev/null
     # Setup known ssh hosts
@@ -30,7 +40,3 @@ build_doc_source:
     - git push
   only:
     - tags
-
-
-
-

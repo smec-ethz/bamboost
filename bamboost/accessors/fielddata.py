@@ -16,9 +16,9 @@ import h5py
 import numpy as np
 import pandas as pd
 
-from ..common import hdf_pointer
-from ..common.file_handler import FileHandler, with_file_open
-from .meshes import Mesh, MeshGroup
+from bamboost.common import hdf_pointer
+from bamboost.common.file_handler import FileHandler, with_file_open
+from bamboost.accessors.meshes import Mesh, MeshGroup
 
 __all__ = ["DataGroup", "FieldData"]
 
@@ -94,11 +94,16 @@ class FieldData(hdf_pointer.Group):
         return self._get_full_data()[key]
 
     def _get_full_data(self) -> h5py.Dataset:
-        try:
-            return self.obj[self._vds_key]
-        except KeyError:
+        if self._vds_key not in self.keys():
             self._create_vds()
             return self.obj[self._vds_key]
+
+        if len(self) > self.obj.attrs.get("virtual_dataset_length", 0):
+            self._create_vds()
+            self._create_times()
+            return self.obj[self._vds_key]
+
+        return self.obj[self._vds_key]
 
     @with_file_open("r")
     def __len__(self) -> int:
@@ -205,4 +210,5 @@ class FieldData(hdf_pointer.Group):
         with self._file("r+"):
             if self._vds_key in self.obj.keys():
                 del self.obj[self._vds_key]
+            self.obj.attrs["virtual_dataset_length"] = length
             self.obj.create_virtual_dataset(self._vds_key, layout)

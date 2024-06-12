@@ -20,17 +20,21 @@ import numpy as np
 import pandas as pd
 from typing_extensions import Self, deprecated
 
-from . import index
-from .accessors.fielddata import DataGroup
-from .accessors.globals import GlobalGroup
-from .accessors.meshes import MeshGroup
-from .common import hdf_pointer, utilities
-from .common.file_handler import FileHandler, with_file_open
-from .common.job import Job
-from .common.mpi import MPI
-from .xdmf import XDMFWriter
+from bamboost import index
+from bamboost._config import config
+from bamboost.accessors.fielddata import DataGroup
+from bamboost.accessors.globals import GlobalGroup
+from bamboost.accessors.meshes import MeshGroup
+from bamboost.common import hdf_pointer, utilities
+from bamboost.common.file_handler import FileHandler, with_file_open
+from bamboost.common.job import Job
+from bamboost.common.mpi import MPI
+from bamboost.xdmf import XDMFWriter
 
-__all__ = ["Simulation", "Links"]
+__all__ = [
+    "Simulation",
+    "Links",
+]
 
 log = logging.getLogger(__name__)
 
@@ -97,15 +101,21 @@ class Simulation:
         path: str,
         comm: MPI.Comm = MPI.COMM_WORLD,
         create_if_not_exists: bool = False,
+        *,
+        _db_id: str = None,
     ):
         self.uid: str = uid
+        path = comm.bcast(path, root=0)
         self.path_database: str = os.path.abspath(path)
+        self.database_id = _db_id or index.get_uid_from_path(self.path_database)
         self.path: str = os.path.abspath(os.path.join(path, uid))
         self.h5file: str = os.path.join(self.path, f"{self.uid}.h5")
         self.xdmffile: str = os.path.join(self.path, f"{self.uid}.xdmf")
 
         if not os.path.exists(self.h5file) and not create_if_not_exists:
-            raise FileNotFoundError(f"Simulation {self.uid} does not exist in {self.path}.")
+            raise FileNotFoundError(
+                f"Simulation {self.uid} does not exist in {self.path}."
+            )
 
         os.makedirs(self.path, exist_ok=True)
 
@@ -127,15 +137,17 @@ class Simulation:
         self.links: Links = Links(self._file)
 
     @classmethod
-    def fromUID(cls, full_uid: str) -> Self:
+    def fromUID(cls, full_uid: str, *, index_database: index.IndexAPI = None) -> Self:
         """Return the `Simulation` with given UID.
 
         Args:
             full_uid: the full id (Database uid : simulation uid)
         """
+        if index_database is None:
+            index_database = index.IndexAPI()
         db_uid, sim_uid = full_uid.split(":")
-        db_path = index.get_path(db_uid)
-        return cls(sim_uid, db_path)
+        db_path = index_database.get_path(db_uid)
+        return cls(sim_uid, db_path, create_if_not_exists=False)
 
     @with_file_open()
     def __getitem__(self, key) -> hdf_pointer.BasePointer:
@@ -201,11 +213,27 @@ class Simulation:
         )
         return html_string
 
+    def _push_update_to_sqlite(self, update_dict: dict) -> None:
+        """Push update to sqlite database.
+
+        Args:
+            - update_dict (dict): key value pair to push
+        """
+        if not config["options"].get("sync_table", True):
+            return
+        try:
+            index.DatabaseTable(self.database_id).update_entry(self.uid, update_dict)
+        except index.Error as e:
+            log.warning(f"Could not update sqlite database: {e}")
+
     @property
     def parameters(self) -> dict:
         tmp_dict = dict()
         if self._prank == 0:
             with self._file("r"):
+                # return if parameters is not in the file
+                if "parameters" not in self._file.keys():
+                    return {}
                 tmp_dict.update(self._file["parameters"].attrs)
                 for key in self._file["parameters"].keys():
                     tmp_dict.update({key: self._file[f"parameters/{key}"][()]})
@@ -221,6 +249,8 @@ class Simulation:
         if self._prank == 0:
             with self._file("r") as file:
                 tmp_dict.update(file.attrs)
+
+        tmp_dict = utilities.unflatten_dict(tmp_dict)
         tmp_dict = self._comm.bcast(tmp_dict, root=0)
         return tmp_dict
 
@@ -277,14 +307,20 @@ class Simulation:
             self._file.attrs["status"] = status
             self._file.close()
 
+        self._push_update_to_sqlite({"status": status})
+
     def update_metadata(self, update_dict: dict) -> None:
         """Update the metadata attributes.
 
         Args:
             update_dict: dictionary to push
         """
-        with self._file("a") as file:
-            file.attrs.update(update_dict)
+        if self._prank == 0:
+            update_dict = utilities.flatten_dict(update_dict)
+            with self._file("a") as file:
+                file.attrs.update(update_dict)
+
+            self._push_update_to_sqlite(update_dict)
 
     def update_parameters(self, update_dict: dict) -> None:
         """Update the parameters dictionary.
@@ -293,8 +329,11 @@ class Simulation:
             update_dict: dictionary to push
         """
         if self._prank == 0:
+            update_dict = utilities.flatten_dict(update_dict)
             with self._file("a") as file:
-                file["parameters"].attrs.update(utilities.flatten_dict(update_dict))
+                file["parameters"].attrs.update(update_dict)
+
+            self._push_update_to_sqlite(update_dict)
 
     def create_xdmf_file(self, fields: list = None, nb_steps: int = None) -> None:
         """Create the xdmf file to read in paraview.
@@ -307,7 +346,7 @@ class Simulation:
 
         if self._prank == 0:
             with self._file("r") as f:
-                if 'data' not in f.keys():
+                if "data" not in f.keys():
                     fields, nb_steps = [], 0
                 if fields is None:
                     fields = list(f["data"].keys())
@@ -337,16 +376,16 @@ class Simulation:
                 xdmf_writer.add_timeseries(nb_steps + 1, fields)
             xdmf_writer.write_file()
 
-    def create_batch_script(
+    def create_run_script(
         self,
         commands: list = None,
-        nnodes=1,
-        ntasks=4,
-        ncpus=1,
-        time="04:00:00",
-        mem_per_cpu=2048,
+        nnodes: int = 1,
+        ntasks: int = 4,
+        ncpus: int = 1,
+        time: str = "04:00:00",
+        mem_per_cpu: int = 2048,
         tmp=None,
-        euler=True,
+        euler: bool = True,
     ) -> None:
         """Create a batch job and put it into the folder.
 
@@ -355,31 +394,19 @@ class Simulation:
             nnodes: nb of nodes (default=1)
             ntasks: nb of tasks (default=4)
             ncpus: nb of cpus per task (default=1)
-            time: requested time (default=4 hours)
+            time: requested time, format "HH:MM:SS" (default=4 hours)
             mem_per_cpu: memory (default=2048)
             tmp: temporary storage, set None to exclude option (default=8000)
             euler: If false, a local bash script will be written
         """
         job = Job()
-        if not commands:
-            if hasattr(self, "executable"):
-                if ".py" in self.executable:
-                    command = (
-                        f"{{MPI}} python3 {os.path.join(self.path, self.executable)} "
-                        f"--path {self.path_database} --uid {self.uid}"
-                    )
-                    commands = [command]
-            else:
-                raise AttributeError(
-                    """Either you must specify an executable or have it 
-                                     copied before with `copy_executable`!"""
-                )
 
         if euler:
             job.create_sbatch_script(
                 commands,
                 path=os.path.abspath(self.path_database),
                 uid=self.uid,
+                db_id=self.database_id,
                 nnodes=nnodes,
                 ntasks=ntasks,
                 ncpus=ncpus,
@@ -392,10 +419,15 @@ class Simulation:
                 commands,
                 path=os.path.abspath(self.path_database),
                 uid=self.uid,
+                db_id=self.database_id,
                 ntasks=ntasks,
             )
         with self._file("a") as file:
             file.attrs.update({"submitted": False})
+
+    @deprecated("use `create_run_script` instead")
+    def create_batch_script(self, *args, **kwargs):
+        return self.create_run_script(*args, **kwargs)
 
     def submit(self) -> None:
         """Submit the job for this simulation."""
@@ -404,12 +436,12 @@ class Simulation:
                 os.path.join(self.path, f"sbatch_{self.uid}.sh")
             )
             env = os.environ.copy()
-            _ = env.pop("BAMBOOST_NO_MPI", None)
+            _ = env.pop("BAMBOOST_MPI", None)
             subprocess.run(["sbatch", f"{batch_script}"], env=env)
         elif f"{self.uid}.sh" in os.listdir(self.path):
             bash_script = os.path.abspath(os.path.join(self.path, f"{self.uid}.sh"))
             env = os.environ.copy()
-            _ = env.pop("BAMBOOST_NO_MPI", None)
+            _ = env.pop("BAMBOOST_MPI", None)
             subprocess.run(["bash", f"{bash_script}"], env=env)
         else:
             raise FileNotFoundError(
@@ -421,9 +453,13 @@ class Simulation:
         with self._file("a") as file:
             file.attrs.update({"submitted": True})
 
+        self._push_update_to_sqlite({"submitted": True})
+
     @with_file_open("a")
     def change_note(self, note) -> None:
-        self._file.attrs["notes"] = note
+        if self._prank == 0:
+            self._file.attrs["notes"] = note
+            self._push_update_to_sqlite({"notes": note})
 
     # Ex-Simulation reader methods
     # ----------------------------
@@ -460,6 +496,12 @@ class Simulation:
         """
         if mesh_name is None:
             mesh_name = self._default_mesh
+
+        # Raise an error if the mesh is not found
+        if (self._mesh_location.split("/")[0] not in self._file.keys()) or (
+            mesh_name not in self._file[self._mesh_location].keys()
+        ):
+            raise KeyError(f"Mesh location {self._mesh_location} not found in file.")
 
         mesh = self.meshes[mesh_name]
         return mesh.coordinates, mesh.connectivity

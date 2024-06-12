@@ -22,6 +22,7 @@ try:
 except ImportError:
     raise ImportError("FEniCS not found. Module unavailable.")
 
+__all__ = ["FenicsWriter"]
 
 class FenicsWriter(SimulationWriter):
     """

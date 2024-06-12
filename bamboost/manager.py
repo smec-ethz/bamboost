@@ -15,44 +15,41 @@ import pkgutil
 import shutil
 import uuid
 from ctypes import ArgumentError
-from typing import Union
+from typing import Generator, Union
 
 import h5py
 import pandas as pd
 
-from . import index
-from .common.file_handler import open_h5file
-from .common.mpi import MPI
-from .simulation import Simulation
-from .simulation_writer import SimulationWriter
 
-__all__ = ["Manager", "ManagerFromUID", "ManagerFromName"]
+# forward declaration
+class Manager:
+    pass
+
+
+from bamboost import index
+from bamboost.common.file_handler import open_h5file
+from bamboost.common.mpi import MPI
+from bamboost.index import DatabaseTable, IndexAPI, config
+from bamboost.simulation import Simulation
+from bamboost.simulation_writer import SimulationWriter
+
+__all__ = [
+    "Manager",
+    "ManagerFromUID",
+    "ManagerFromName",
+]
 
 log = logging.getLogger(__name__)
-
-
-META_INFO = """
-This database has been created using `bamboost`, a python package developed at
-the CMBM group of ETH zurich. It has been built for data management using the
-HDF5 file format.
-
-https://gitlab.ethz.ch/compmechmat/research/libs/dbmanager
-"""
-
-# Setup Manager getters
-# ---------------------
 
 
 class ManagerFromUID(object):
     """Get a database by its UID. This is used for autocompletion in ipython."""
 
     def __init__(self) -> None:
-        ids = index.get_index_dict()
+        # or [] to circumvent Null type (MPI)
+        ids = IndexAPI().fetch(f"SELECT id, path FROM dbindex") or []
         self.completion_keys = tuple(
-            [
-                f'{key} - {"..."+val[-25:] if len(val)>=25 else val}'
-                for key, val in ids.items()
-            ]
+            [f'{key} - {"..."+val[-25:] if len(val)>=25 else val}' for key, val in ids]
         )
 
     def _ipython_key_completions_(self):
@@ -67,7 +64,8 @@ class ManagerFromName(object):
     """Get a database by its path/name. This is used for autocompletion in ipython."""
 
     def __init__(self) -> None:
-        self.completion_keys = tuple(index.get_index_dict().values())
+        paths = IndexAPI().fetch("SELECT path FROM dbindex") or []
+        self.completion_keys = tuple(paths)
 
     def _ipython_key_completions_(self):
         return self.completion_keys
@@ -107,8 +105,10 @@ class Manager:
         uid: str = None,
         create_if_not_exist: bool = True,
     ):
+        # provided uid has precedence
         if uid is not None:
-            path = index.get_path(uid.upper())
+            path = self._index.get_path(uid.upper())
+            path = comm.bcast(path, root=0)
         self.path = path
         self.comm = comm
 
@@ -118,11 +118,19 @@ class Manager:
                 raise NotADirectoryError("Specified path is not a valid path.")
             log.info(f"Created new database ({path})")
             self._make_new(path)
-        self.UID = self._retrieve_uid()
-        # self._store_uid_in_index()
-        self._all_uids = self._get_uids()
-        self._dataframe: pd.DataFrame = None
-        self._meta_folder = os.path.join(path, ".database")
+
+        # retrieve the UID of the database from the id file
+        # if not found, a new one is generated
+        self.UID = uid or self._retrieve_uid()
+
+        # Update the SQL table for the database
+        try:
+            with self._index.open():
+                self._index.insert_path(self.UID, self.path)
+                self._table.create_database_table()
+                self._table.sync()
+        except index.Error as e:
+            log.warning(f"index error: {e}")
 
     def __getitem__(self, key: Union[str, int]) -> Simulation:
         """Returns the simulation in the specified row of the dataframe.
@@ -153,18 +161,30 @@ class Manager:
     def __len__(self) -> int:
         return len(self.all_uids)
 
-    def __iter__(self) -> Simulation:
+    def __iter__(self) -> Generator[Simulation]:
         for sim in self.sims():
             yield sim
 
     def _ipython_key_completions_(self):
         return self.all_uids
 
+    @property
+    def _index(self) -> IndexAPI:
+        """The index which contains this database."""
+        return IndexAPI()
+
+    @property
+    def _table(self) -> DatabaseTable:
+        """The table in the sql database for this database."""
+        return self._index.get_database_table(self.UID)
+
     def _retrieve_uid(self) -> str:
         """Get the UID of this database from the file tree."""
-        for file in os.listdir(self.path):
-            if file.startswith(".BAMBOOST"):
-                return file.split("-")[1]
+        try:
+            return index.get_uid_from_path(self.path)
+        except FileNotFoundError:
+            pass
+
         log.warning("Database exists but no UID found. Generating new UID.")
         return self._make_new(self.path)
 
@@ -182,24 +202,32 @@ class Manager:
             f.write(self.UID + "\n")
             f.write(f'Date of creation: {datetime.now().strftime("%d/%m/%Y %H:%M:%S")}')
         os.chmod(uid_file, 0o444)  # read only for uid file
+
         log.info(f"Registered new database (uid = {self.UID})")
-        self._store_uid_in_index()
+        self._index.insert_path(self.UID, path)
         return self.UID
 
-    def _store_uid_in_index(self) -> None:
-        """Stores the UID of this database with the current path."""
-        index.record_database(self.UID, os.path.abspath(self.path))
-
-    def _init_meta_folder(self) -> None:
-        os.makedirs(self._meta_folder, exist_ok=True)
-        with open(os.path.join(self._meta_folder, "README.txt"), "w") as f:
-            f.write(META_INFO)
-
     @property
-    def all_uids(self) -> set:
-        if self.FIX_DF:
-            return self._all_uids
-        return self._get_uids()
+    def all_uids(self) -> list:
+        if not self.FIX_DF or not hasattr(self, "_all_uids"):
+            self._all_uids = self._get_uids()
+        return self._all_uids
+
+    @all_uids.setter
+    def all_uids(self, value: set | list):
+        self._all_uids = value
+
+    def _get_uids(self) -> list:
+        """Get all simulation names in the database."""
+        all_uids = list()
+        for dir in os.listdir(self.path):
+            if not os.path.isdir(os.path.join(self.path, dir)):
+                continue
+            if any(
+                [i.endswith(".h5") for i in os.listdir(os.path.join(self.path, dir))]
+            ):
+                all_uids.append(dir)
+        return all_uids
 
     @property
     def df(self) -> pd.DataFrame:
@@ -208,39 +236,95 @@ class Manager:
         Returns:
             :class:`pd.DataFrame`
         """
+        if not hasattr(self, "_dataframe"):
+            return self.get_view()
         if self.FIX_DF and self._dataframe is not None:
             return self._dataframe
         return self.get_view()
 
+    def _get_parameters_for_uid(
+        self, uid: str, include_linked_sims: bool = False
+    ) -> dict:
+        """Get the parameters for a given uid.
+
+        Args:
+            uid (`str`): uid of the simulation
+            include_linked_sims (`bool`): if True, include the parameters of linked sims
+        """
+        h5file_for_uid = os.path.join(self.path, uid, f"{uid}.h5")
+        tmp_dict = dict()
+
+        with open_h5file(h5file_for_uid, "r") as f:
+            if "parameters" in f.keys():
+                tmp_dict.update(f["parameters"].attrs)
+            if "additionals" in f.keys():
+                tmp_dict.update({"additionals": dict(f["additionals"].attrs)})
+            tmp_dict.update(f.attrs)
+
+        if include_linked_sims:
+            for linked, full_uid in self.sim(uid).links.attrs.items():
+                sim = Simulation.fromUID(full_uid)
+                tmp_dict.update(
+                    {f"{linked}.{key}": val for key, val in sim.parameters.items()}
+                )
+        return tmp_dict
+
     def get_view(self, include_linked_sims: bool = False) -> pd.DataFrame:
-        """View of the database and its parametric space.
+        """View of the database and its parametric space. Read from the sql
+        database. If `include_linked_sims` is True, the individual h5 files are
+        scanned.
 
         Args:
             include_linked_sims: if True, include the parameters of linked sims
 
-        Returns:
-            :class:`pd.DataFrame`
+        Examples:
+            >>> db.get_view()
+            >>> db.get_view(include_linked_sims=True)
         """
-        all_uids = self.all_uids
+        if include_linked_sims:
+            return self.get_view_from_hdf_files(include_linked_sims=include_linked_sims)
+
+        try:
+            with self._table.open():
+                self._table.sync()
+                df = self._table.read_table()
+        except index.Error as e:
+            log.warning(f"index error: {e}")
+            return self.get_view_from_hdf_files(include_linked_sims=include_linked_sims)
+
+        if df.empty:
+            return df
+        df["time_stamp"] = pd.to_datetime(df["time_stamp"])
+
+        # Sort dataframe columns
+        columns_start = ["id", "notes", "status", "time_stamp"]
+        self._dataframe = df[[*columns_start, *df.columns.difference(columns_start)]]
+
+        opts = config.get("options", {})
+        if "sort_table_key" in opts:
+            self._dataframe.sort_values(
+                opts.get("sort_table_key", "id"),
+                ascending=opts.get("sort_table_order", "asc") == "asc",
+                inplace=True,
+            )
+        return self._dataframe
+
+    def get_view_from_hdf_files(
+        self, include_linked_sims: bool = False
+    ) -> pd.DataFrame:
+        """View of the database and its parametric space. Read from the h5
+        files metadata.
+
+        Args:
+            include_linked_sims: if True, include the parameters of linked sims
+        """
+        all_uids = self._get_uids()
         data = list()
 
         for uid in all_uids:
-            h5file_for_uid = os.path.join(self.path, uid, f"{uid}.h5")
-            tmp_dict = dict()
-
-            with open_h5file(h5file_for_uid, "r") as f:
-                if "parameters" in f.keys():
-                    tmp_dict.update(f["parameters"].attrs)
-                if "additionals" in f.keys():
-                    tmp_dict.update({"additionals": dict(f["additionals"].attrs)})
-                tmp_dict.update(f.attrs)
-
-            if include_linked_sims:
-                for linked, full_uid in self.sim(uid).links.attrs.items():
-                    sim = Simulation.fromUID(full_uid)
-                    tmp_dict.update(
-                        {f"{linked}.{key}": val for key, val in sim.parameters.items()}
-                    )
+            tmp_dict = self._get_parameters_for_uid(
+                uid, include_linked_sims=include_linked_sims
+            )
             data.append(tmp_dict)
 
         df = pd.DataFrame.from_records(data)
@@ -264,15 +348,18 @@ class Manager:
         for uid in self.all_uids:
             h5file_for_uid = os.path.join(self.path, uid, f"{uid}.h5")
             with open_h5file(h5file_for_uid, "r") as file:
-                tmp_dict = dict()
-                tmp_dict = {
-                    key: (
-                        len(file[f"data/{key}"]),
-                        file[f"data/{key}/0"].shape,
-                        file[f"data/{key}/0"].dtype,
-                    )
-                    for key in file["data"].keys()
-                }
+                try:
+                    tmp_dict = dict()
+                    tmp_dict = {
+                        key: (
+                            len(file[f"data/{key}"]),
+                            file[f"data/{key}/0"].shape,
+                            file[f"data/{key}/0"].dtype,
+                        )
+                        for key in file["data"].keys()
+                    }
+                except KeyError:
+                    tmp_dict = dict()
                 data.append(tmp_dict)
         return pd.DataFrame.from_records(data)
 
@@ -295,7 +382,7 @@ class Manager:
         """
         if return_writer:
             return writer_type(uid, self.path, self.comm)
-        return Simulation(uid, self.path, self.comm)
+        return Simulation(uid, self.path, self.comm, _db_id=self.UID)
 
     def sims(
         self,
@@ -391,10 +478,11 @@ class Manager:
 
         new_sim = SimulationWriter(uid, self.path, self.comm)
         new_sim.initialize()  # sets metadata and status
-        self.all_uids.append(new_sim.uid)
-        if parameters is None:
-            parameters = dict()
-        new_sim.add_parameters(parameters)
+        # add the id to the (fixed) _all_uids list
+        if hasattr(self, "_all_uids"):
+            self._all_uids.append(new_sim.uid)
+        if parameters:
+            new_sim.add_parameters(parameters)
         return new_sim
 
     def remove(self, uid: str) -> None:
@@ -404,16 +492,6 @@ class Manager:
             uid (`str`): uid
         """
         shutil.rmtree(os.path.join(self.path, uid))
-
-    def _get_uids(self) -> list:
-        """Get all simulation names in the database."""
-        all_uids = list()
-        for dir in [i for i in os.listdir(self.path) if not i.startswith(".")]:
-            if any(
-                [i.endswith(".h5") for i in os.listdir(os.path.join(self.path, dir))]
-            ):
-                all_uids.append(dir)
-        return all_uids
 
     def _check_duplicate(self, parameters: dict, uid: str) -> tuple:
         """Checking whether the parameters dictionary exists already.

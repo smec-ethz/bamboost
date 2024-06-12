@@ -10,9 +10,12 @@
 from __future__ import annotations
 
 import pandas as pd
+import numpy as np
 
 from bamboost.common.file_handler import FileHandler
 from bamboost.common.hdf_pointer import Group
+
+__all__ = ["GlobalGroup"]
 
 
 class GlobalGroup(Group):
@@ -30,4 +33,6 @@ class GlobalGroup(Group):
     def df(self) -> pd.DataFrame:
         """Return a pandas DataFrame with all datasets."""
         d = {key: self[key][()] for key in self.datasets()}
+        for key, val in d.items():
+            d[key] = [i for i in val]
         return pd.DataFrame.from_dict(d)

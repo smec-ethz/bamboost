@@ -12,14 +12,19 @@ from typing import Any, Union
 
 log = logging.getLogger(__name__)
 
-from ._mock_mpi import MockMPI
+from bamboost._config import config
+
+from bamboost.common._mock_mpi import MockMPI
 
 MPIType = Union[MockMPI, Any]
 
-MPI_ON: bool = False if os.environ.get("BAMBOOST_NO_MPI", "0") == "1" else True
-"""Indicates the use of `mpi4py.MPI`. If `False`, the `MockMPI` class is used
-instead. Is set by reading the environment variable `BAMBOOST_NO_MPI` [0 or 1].
+MPI_ON = config.get("options", {}).get("mpi", True)
+ENV_BAMBOOST_MPI: bool = os.environ.get("BAMBOOST_MPI", None)
+"""Indicates the use of `mpi4py.MPI`. If `0`, the `MockMPI` class is used
+instead. Is set by reading the environment variable `BAMBOOST_MPI` [0 or 1].
 """
+if ENV_BAMBOOST_MPI is not None:
+    MPI_ON = ENV_BAMBOOST_MPI == "1"
 
 
 def _get_mpi_module():
@@ -31,7 +36,8 @@ def _get_mpi_module():
 
         return MPI
     except ImportError:
-        log.warning("MPI is not available, using MockMPI")
+        log.info("`mpi4py` unavailable [using a mock MPI module]")
         return MockMPI
+
 
 MPI: Union[MockMPI, Any] = _get_mpi_module()

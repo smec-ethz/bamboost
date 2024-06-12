@@ -11,6 +11,16 @@ class ExtensionsLazyLoader:
         return FenicsWriter
 
     @property
+    def Remote(self):
+        from .remote_manager import Remote
+        return Remote
+
+    @property
+    def RemoteManager(self):
+        from .remote_manager import RemoteManager
+        return RemoteManager
+
+    @property
     def install_slurm(self):
         from .slurm import install
         return install

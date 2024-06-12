@@ -1,0 +1,18 @@
+# Config file for bamboost
+
+[options]
+# uncomment to disable mpi support
+# mpi = false
+
+# default column to sort dataframes by
+# sort_table_key = 'time_stamp'
+# sort_table_order = 'asc' / 'desc'
+
+# master switch to enable/disable on the fly syncing of the database table from
+# within simulation methods that do so (e.g. change_status, update_parameters)
+# DEFAULT: true
+# sync_table = true
+
+[index]
+# the list of paths to search for databases
+paths = []

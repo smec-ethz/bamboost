@@ -1,15 +1,16 @@
 __author__ = "florez@ethz.ch"
 __copyright__ = ""
 __license__ = "LGPLv3"
-__version__ = "0.6.2"
+__version__ = "0.7.0"
 
 import logging
 import os
 
-from .manager import Manager
-from .simulation import Simulation
-from .simulation_writer import SimulationWriter
-from .extensions import extensions
+from bamboost.manager import Manager
+from bamboost.simulation import Simulation
+from bamboost.simulation_writer import SimulationWriter
+from bamboost._config import config
+from bamboost.extensions import extensions
 
 
 def set_log_level(level: int = 30):

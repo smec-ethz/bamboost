@@ -18,10 +18,14 @@ import numpy as np
 import pandas as pd
 
 import bamboost
+from bamboost.common.file_handler import FileHandler, with_file_open
 
-from .file_handler import FileHandler, with_file_open
-
-__all__ = ["BasePointer", "Group", "MutableGroup", "Dataset"]
+__all__ = [
+    "BasePointer",
+    "Group",
+    "MutableGroup",
+    "Dataset",
+]
 
 log = logging.getLogger(__name__)
 
@@ -190,7 +194,6 @@ class MutableGroup(Group):
 
         return super().__getitem__(key)
 
-    @with_file_open("a", driver="mpio")
     def __setitem__(self, key, newvalue):
         """Used to set an attribute.
         Will be written as an attribute to the group.
@@ -219,7 +222,9 @@ class MutableGroup(Group):
         """
         self.obj.attrs.update(attrs)
 
-    def add_dataset(self, name: str, vector: np.ndarray, attrs: dict = None, dtype: str = None) -> None:
+    def add_dataset(
+        self, name: str, vector: np.ndarray, attrs: dict = None, dtype: str = None
+    ) -> None:
         """Add a dataset to the group. Error is thrown if attempting to overwrite
         with different shape than before. If same shape, data is overwritten
         (this is inherited from h5py -> require_dataset)
@@ -243,14 +248,16 @@ class MutableGroup(Group):
         idx_end = idx_start + length_local
 
         with self._file("a", driver="mpio"):
-            dataset = self.obj.require_dataset(name, shape=vec_shape, dtype=dtype if dtype else vector.dtype)
+            dataset = self.obj.require_dataset(
+                name, shape=vec_shape, dtype=dtype if dtype else vector.dtype
+            )
             dataset[idx_start:idx_end] = vector
             for key, item in attrs.items():
                 dataset.attrs[key] = item
 
         log.info(f"Written {name} as userdata to {self._file.file_name}...")
 
-    def require_group(self, name: str) -> Group:
+    def require_group(self, name: str) -> MutableGroup:
         """Add a new group to the current group. If exists, return existing.
 
         Returns:

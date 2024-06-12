@@ -16,8 +16,11 @@ from functools import wraps
 from bamboost.common.utilities import to_camel_case
 from bamboost.simulation_writer import SimulationWriter
 
+__all__ = ["install"]
+
 
 NAME_OF_DICT = "_slurm"
+
 
 def _extend_enter_slurm_info(original_enter):
     @wraps(original_enter)
