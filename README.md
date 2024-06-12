@@ -45,14 +45,12 @@ will totally break if you load it heavily. Just kidding, bamboo can fully carry 
 <a href="https://gitlab.com/cmbm-ethz/bamboost/-/commits/test-ci"><img alt="coverage report" src="https://gitlab.com/cmbm-ethz/bamboost/badges/test-ci/coverage.svg" /></a>
 </div>
 
-## Documentation
 
 ## Installation
-Install the latest release from the Package repository:
+Install the latest release from the package repository:
 ```
 pip install bamboost
 ```
-> :warning: If you're system runs into problems installing `mpi4py`, make sure python header files are installed. Quickly google what you need (something like `python3-dev`, `libpython3.8-dev`, etc.). 
 
 
 Install the package in editable mode for more flexibility, $e.g.$ if you plan to make changes yourself:
@@ -65,29 +63,30 @@ pip install -e .
 > you won't need to reinstall when pulling a new version or changing something in the
 > package.
 
-### h5py with parallel support
-For mpi support, `h5py` must be installed with parallel support. Otherwise, eachp
-process writes one after the other which takes forever. The default installation on
-Euler is not enough.
-
-It's simple, do the following:
+### MPI support
+For parallel writing, you need `mpi4py`. Furthermore, the HDF5 library must have
+been built with MPI support and the python interface `h5py` must be installed
+with parallel support (https://docs.h5py.org/en/stable/mpi.html).
 ```
 export CC=mpicc
 export HDF5_MPI="ON"
 pip install --force-reinstall --no-deps --no-binary=h5py h5py
 ```
 
+> :warning: If you're system runs into problems installing `mpi4py`, make sure python header files are installed. Quickly google what you need (something like `python3-dev`, `libpython3.8-dev`, etc.). 
+
+
 ## Requirements
 
-> `python > 3.7` (if you're version is too low, it's very likely only because of typehints.
-Please report and we can remove/change it)
+- **Python** >= 3.7 
+- **HDF5** >= 1.10.0
+- **sqlite3** (comes with python) >= 3.0
 
-`bamboost` depends on the following packages:
+Optional:
+- **MPICC** or **OpenMPI** for parallel writing
+- **HDF5** with MPI support
 
-- `numpy`
-- `pandas`
-- `h5py`
-- `mpi4py`
+
     
 ## Usage
 
