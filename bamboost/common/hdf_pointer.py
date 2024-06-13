@@ -11,6 +11,7 @@ from __future__ import annotations
 
 import logging
 import pkgutil
+from collections.abc import Iterable
 from typing import Any
 
 import h5py
@@ -198,12 +199,10 @@ class MutableGroup(Group):
         """Used to set an attribute.
         Will be written as an attribute to the group.
         """
-        if isinstance(newvalue, (int, float, bytes, str)):
+        if isinstance(newvalue, str) or not isinstance(newvalue, Iterable):
             self.update_attrs({key: newvalue})
-        elif isinstance(newvalue, (list, np.ndarray, tuple)):
-            self.add_dataset(key, np.array(newvalue))
         else:
-            raise TypeError("New value has unsupported type.")
+            self.add_dataset(key, np.array(newvalue))
 
     @with_file_open("a")
     def __delitem__(self, key) -> None:
