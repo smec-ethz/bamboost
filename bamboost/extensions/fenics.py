@@ -10,6 +10,7 @@
 from __future__ import annotations
 
 from contextlib import contextmanager
+from typing import Literal
 
 import numpy as np
 
@@ -23,6 +24,7 @@ except ImportError:
     raise ImportError("FEniCS not found. Module unavailable.")
 
 __all__ = ["FenicsWriter"]
+
 
 class FenicsWriter(SimulationWriter):
     """
@@ -67,29 +69,12 @@ class FenicsWriter(SimulationWriter):
         mesh = mesh if mesh is not None else self._default_mesh
         time = time if time is not None else self.step
 
-        # get global dofs ordering and vector
-        if center == "Node":
-            data = self._get_global_dofs(func)
-        elif center == "Cell":
-            data = self._get_global_dofs_cell_data(func)
-        else:
-            raise ValueError("Center must be 'Node' or 'Cell'.")
-        vector = data["vector"]
-        global_map = data["global_map"]
-        global_size = data["global_size"]
-
-        dim = data["vector"].shape[1:] if data["vector"].ndim > 1 else None
-
-        # Write vector to file
-        with self._file("a", driver="mpio", comm=self._comm) as f:
-            data = f.require_group("data")
-            grp = data.require_group(name)
-            vec = grp.require_dataset(
-                str(self.step),
-                shape=(global_size, *dim) if dim else (global_size,),
-                dtype=dtype if dtype else vector.dtype,
-            )
-            vec[global_map] = vector
+        self._dump_fenics_field(
+            f"data/{name}/{self.step}",
+            func,
+            dtype=dtype,
+            center=center,
+        )
 
         if self._prank == 0:
             with self._file("a"):
@@ -97,6 +82,69 @@ class FenicsWriter(SimulationWriter):
                 vec.attrs["t"] = time  # add time as attribute to dataset
                 vec.attrs["mesh"] = mesh  # add link to mesh as attribute
                 vec.attrs["center"] = center
+
+    def dump_intermediate_field(
+        self,
+        name: str,
+        sub_step: int,
+        func: fe.Function,
+        center: str = "Node",
+        dtype: str = None,
+        attrs: dict = None,
+    ) -> None:
+        """Dump an intermediate field to the file. The data is stored at
+        `data/<name>/<step>_intermediates/<sub_step>`.
+
+        Args:
+            name: Name of the field
+            sub_step: Sub-step number
+            func: FEniCS function to store
+            center: Optional. Center of the data. Can be 'Node' or 'Cell'.
+                Default is 'Node'.
+            dtype: Optional. Numpy style datatype, see h5py documentation,
+            attrs: Optional. Additional attributes to store.
+        """
+        location = f"data/{name}/{self.step}_intermediates/{sub_step}"
+        self._dump_fenics_field(location, func, dtype=dtype, center=center)
+
+        if attrs:
+            if self._prank == 0:
+                with self._file("a"):
+                    vec = self._file[location]
+                    vec.attrs.update(attrs)
+
+    def _dump_fenics_field(
+        self,
+        location: str,
+        field: fe.Function,
+        dtype: str = None,
+        center: Literal["Node", "Cell"] = "Node",
+    ) -> None:
+        # get global dofs ordering and vector
+        if center == "Node":
+            data = self._get_global_dofs(field)
+        elif center == "Cell":
+            data = self._get_global_dofs_cell_data(field)
+        else:
+            raise ValueError("Center must be 'Node' or 'Cell'.")
+
+        vector = data["vector"]
+        global_map = data["global_map"]
+        global_size = data["global_size"]
+
+        dim = data["vector"].shape[1:] if data["vector"].ndim > 1 else None
+
+        group_name, dataset_name = location.rstrip("/").rsplit("/", 1)
+
+        # Write vector to file
+        with self._file("a", driver="mpio", comm=self._comm) as f:
+            grp = f.require_group(group_name)
+            vec = grp.require_dataset(
+                dataset_name,
+                shape=(global_size, *dim) if dim else (global_size,),
+                dtype=dtype if dtype else vector.dtype,
+            )
+            vec[global_map] = vector
 
     def _get_global_dofs(self, func: fe.Function) -> dict:
         """

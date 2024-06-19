@@ -353,7 +353,13 @@ class Simulation:
                     grp_name = list(f["data"].keys())[0]
                     nb_steps = list(f[f"data/{grp_name}"].keys())
                     nb_steps = max(
-                        [int(step) for step in nb_steps if not step.startswith("__")]
+                        [
+                            int(step)
+                            for step in nb_steps
+                            if not (
+                                step.startswith("__") or step.endswith("_intermediates")
+                            )
+                        ]
                     )
 
                 # temporary fix to load coordinates/geometry

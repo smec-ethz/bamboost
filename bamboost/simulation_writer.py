@@ -189,15 +189,62 @@ class SimulationWriter(Simulation):
         if mesh is None:
             mesh = self._default_mesh
 
-        dim = vector.shape[1:] if vector.ndim > 1 else None
-
         if time is None:
             time = self.step
 
-        length_local = vector.shape[0]
-        length_p = np.array(self._comm.allgather(length_local))
+        self._dump_array(f"data/{name}/{self.step}", vector, dtype=dtype)
 
+        if self._prank == 0:
+            with self._file("a"):
+                vec = self._file["data"][name][str(self.step)]
+                vec.attrs.update({"center": center, "mesh": mesh, "t": time})
+                # vec.attrs["t"] = time  # add time as attribute to dataset
+                # vec.attrs["mesh"] = mesh  # add link to mesh as attribute
+                # vec.attrs["center"] = center
+
+    def dump_intermediate_field(
+        self,
+        name: str,
+        sub_step: int,
+        arr: np.array,
+        dtype: str = None,
+        attrs: dict = None,
+    ) -> None:
+        """Dump an intermediate field to the file. The data is stored at
+        `data/<name>/<step>_intermediates/<sub_step>`.
+
+        Args:
+            name: Name of the field
+            sub_step: Sub-step number
+            arr: Array to dump
+            dtype: Optional. Numpy style datatype, see h5py documentation,
+            attrs: Optional. Additional attributes to store.
+        """
+        location = f"data/{name}/{self.step}_intermediates/{sub_step}"
+        self._dump_array(location, arr, dtype=dtype)
+
+        if attrs:
+            if self._prank == 0:
+                with self._file("a"):
+                    vec = self._file[location]
+                    vec.attrs.update(attrs)
+
+    def _dump_array(self, location: str, arr: np.ndarray, dtype: str = None) -> None:
+        """Dump an array to the file. Correctly patch together multi-rank arrays.
+
+        Args:
+            location: Location in the file
+            arr: Array to dump
+            dtype: Optional. Numpy style datatype, see h5py documentation,
+                defaults to the dtype of the vector.
+        """
+        dim = arr.shape[1:] if arr.ndim > 1 else None
+        length_local = arr.shape[0]
+        length_p = np.array(self._comm.allgather(length_local))
         length = np.sum(length_p)
+
+        # split location into group and dataset
+        group_name, dataset_name = location.rstrip("/").rsplit("/", 1)
 
         # global indices
         idx_start = np.sum(length_p[self._ranks < self._prank])
@@ -205,23 +252,13 @@ class SimulationWriter(Simulation):
 
         # open file
         with self._file("a", driver="mpio", comm=self._comm) as f:
-            data = f.require_group(
-                "data"
-            )  # Require group data to store all point data in
-            grp = data.require_group(name)
+            grp = f.require_group(group_name)
             vec = grp.require_dataset(
-                str(self.step),
+                dataset_name,
                 shape=(length, *dim) if dim else (length,),
-                dtype=dtype if dtype else vector.dtype,
+                dtype=dtype if dtype else arr.dtype,
             )
-            vec[idx_start:idx_end] = vector
-
-        if self._prank == 0:
-            with self._file("a"):
-                vec = self._file["data"][name][str(self.step)]
-                vec.attrs["t"] = time  # add time as attribute to dataset
-                vec.attrs["mesh"] = mesh  # add link to mesh as attribute
-                vec.attrs["center"] = center
+            vec[idx_start:idx_end] = arr
 
     def add_fields(
         self,

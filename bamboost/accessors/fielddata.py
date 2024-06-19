@@ -9,7 +9,8 @@
 
 from __future__ import annotations
 
-from typing import Tuple
+import logging
+from typing import Generator, Tuple
 
 import h5py
 import numpy as np
@@ -47,7 +48,7 @@ class DataGroup(hdf_pointer.Group):
     def __getitem__(self, key) -> FieldData:
         return FieldData(self._file, f"{self.path_to_data}/{key}", meshes=self.meshes)
 
-    def __iter__(self) -> FieldData:
+    def __iter__(self) -> Generator[FieldData]:
         for key in self.keys():
             yield self.__getitem__(key)
 
@@ -94,6 +95,11 @@ class FieldData(hdf_pointer.Group):
         return self._get_full_data()[key]
 
     def _get_full_data(self) -> h5py.Dataset:
+        """Return a HDF5 virtual dataset including all steps of the field.
+        
+        If the virtual dataset exists with the correct shape it will be
+        returned, otherwise it will be created.
+        """
         if self._vds_key not in self.keys():
             self._create_vds()
             return self.obj[self._vds_key]
@@ -108,7 +114,7 @@ class FieldData(hdf_pointer.Group):
     @with_file_open("r")
     def __len__(self) -> int:
         non_field_keys = set({self._vds_key, self._times_key})
-        return len(self.keys() - non_field_keys)
+        return len(self.datasets() - non_field_keys)
 
     @property
     @with_file_open("r")
