@@ -11,7 +11,7 @@ from __future__ import annotations
 
 import pkgutil
 from collections.abc import Iterable
-from typing import Any
+from typing import Any, Literal
 
 import h5py
 import numpy as np
@@ -116,6 +116,29 @@ class Group(BasePointer):
     @with_file_open("r")
     def datasets(self) -> set:
         return {key for key in self.keys() if isinstance(self.obj[key], h5py.Dataset)}
+
+    @with_file_open("r")
+    def extract_attrs(
+        self, variant: Literal["group", "dataset", "all"] = "all"
+    ) -> dict:
+        """Extract the attributes of all members of the group.
+
+        Args:
+            variant: one of 'group', 'dataset', 'all'
+        """
+        if variant == "group":
+            keys = self.groups()
+        elif variant == "dataset":
+            keys = self.datasets()
+        elif variant == "all":
+            keys = self.keys()
+        else:
+            raise ValueError("variant must be one of 'group', 'dataset', 'all'")
+
+        attrs = {}
+        for key in keys:
+            attrs[key] = dict(self.obj[key].attrs)
+        return attrs
 
     @with_file_open("r")
     def _repr_html_(self):
