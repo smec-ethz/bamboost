@@ -113,8 +113,11 @@ class FieldData(hdf_pointer.Group):
 
     @with_file_open("r")
     def __len__(self) -> int:
-        non_field_keys = set({self._vds_key, self._times_key})
-        return len(self.datasets() - non_field_keys)
+        return len(self.datasets())
+
+    @with_file_open("r")
+    def datasets(self) -> set:
+        return super().datasets() - {self._vds_key, self._times_key}
 
     @property
     @with_file_open("r")
