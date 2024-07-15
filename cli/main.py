@@ -67,7 +67,7 @@ def main():
     # List
     # ----------------
     function_map["list"] = list_databases
-    parser_list = subparsers.add_parser("list", help="List all databases")
+    parser_list = subparsers.add_parser("list", help="List all databases")  # noqa: F841
 
     # ----------------
     # Clean
@@ -88,13 +88,15 @@ def main():
         rich.print("Scanned known paths")
     function_map["scan"] = scan_known_paths
 
-    parser_scan = subparsers.add_parser("scan", help="Scan known paths")
+    parser_scan = subparsers.add_parser("scan", help="Scan known paths")  # noqa: F841
 
     # ----------------
     # Open config file
     # ----------------
     function_map["config"] = open_config
     parser_config = subparsers.add_parser("config", help="Open the config file")
+    parser_config.add_argument("--tui", "-t", action="store_true", help="Open the tui config file")
+    parser_config.add_argument("--functions", "-f", action="store_true", help="Open the tui functions file")
 
     # ----------------
     # Parse
@@ -154,4 +156,9 @@ def open_config(args):
     import os
     import subprocess
 
-    subprocess.run([f"{os.environ.get('EDITOR', 'vi')}", f"{_config.CONFIG_FILE}"])
+    if args.tui:
+        subprocess.run([f"{os.environ.get('EDITOR', 'vi')}", f"{_config.paths['CONFIG_DIR']}/tui.toml"])
+    elif args.functions:
+        subprocess.run([f"{os.environ.get('EDITOR', 'vi')}", f"{_config.paths['CONFIG_DIR']}/custom_functions.py"])
+    else:
+        subprocess.run([f"{os.environ.get('EDITOR', 'vi')}", f"{_config.paths['CONFIG_FILE']}"])
