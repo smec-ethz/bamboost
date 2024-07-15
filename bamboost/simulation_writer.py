@@ -283,17 +283,31 @@ class SimulationWriter(Simulation):
             name: Name for the data
             value: Data. Can be a numpy array or a single value.
         """
+        self._dump_global_data(f"globals/{name}", value, self.step, dtype=dtype)
+
+    def _dump_global_data(self, location: str, value: Any, step: int, dtype: str = None) -> None:
+        """Dump a global value / array to the file at location `location`.
+
+        Args:
+            location: Location in the file
+            value: Data to dump
+            dtype: Optional. Numpy style datatype, see h5py documentation,
+                defaults to the dtype of the vector.
+        """
+        # split location into group and dataset
+        group_name, dataset_name = location.rstrip("/").rsplit("/", 1)
+
         if isinstance(value, np.ndarray):
-            shape = (self.step + 1, *value.shape)
+            shape = (step + 1, *value.shape)
         else:
-            shape = (self.step + 1,)
+            shape = (step + 1,)
 
         if self._prank == 0:
             with self._file("a") as f:
-                grp = f.require_group("globals")
-                if name not in grp.keys():
+                grp = f.require_group(group_name)
+                if dataset_name not in grp.keys():
                     vec = grp.create_dataset(
-                        name,
+                        dataset_name,
                         shape=shape,
                         dtype=dtype if dtype else np.array(value).dtype,
                         chunks=True,
@@ -302,7 +316,7 @@ class SimulationWriter(Simulation):
                     )
                     vec[-1] = value
                 else:
-                    vec = grp[name]
+                    vec = grp[dataset_name]
                     vec.resize(shape)
                     vec[-1] = value
 
