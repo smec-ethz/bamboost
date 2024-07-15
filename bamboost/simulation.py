@@ -23,7 +23,7 @@ from bamboost import BAMBOOST_LOGGER, index
 from bamboost._config import config, paths
 from bamboost.accessors.fielddata import DataGroup
 from bamboost.accessors.globals import GlobalGroup
-from bamboost.accessors.meshes import MeshGroup
+from bamboost.accessors.meshes import Mesh, MeshGroup
 from bamboost.common import hdf_pointer, utilities
 from bamboost.common.file_handler import FileHandler, with_file_open
 from bamboost.common.mpi import MPI
@@ -500,13 +500,13 @@ class Simulation:
         return self._file(mode, driver, comm)
 
     @property
-    def mesh(self) -> Tuple[np.ndarray, np.ndarray]:
-        """Return coordinates and connectivity of default mesh.
+    def mesh(self) -> Mesh:
+        """Return the default mesh.
 
         Returns:
-            Tuple of np.arrays (coordinates, connectivity)
+            MeshGroup
         """
-        return self.get_mesh()
+        return self.meshes[self._default_mesh]
 
     @with_file_open("r")
     def get_mesh(self, mesh_name: str = None) -> Tuple[np.ndarray, np.ndarray]:
