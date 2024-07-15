@@ -20,12 +20,6 @@ import h5py
 import numpy as np
 import pandas as pd
 
-
-# forward declaration
-class Manager:
-    pass
-
-
 from bamboost import BAMBOOST_LOGGER, index
 from bamboost.common.file_handler import open_h5file
 from bamboost.common.mpi import MPI
