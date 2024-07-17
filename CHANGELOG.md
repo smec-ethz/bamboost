@@ -1,5 +1,10 @@
 # Change log for bamboost
 
+## v0.7.1 (17Jul24)
+
+- FEAT: Add possiblity to add custom sbatch options when creating sbatch
+  submission script. E.g. "--mail=BEGIN,END,FAIL"
+- FIX: numpy 2.0 compatibility
 
 ## v0.7.0 (12Jun24)
 

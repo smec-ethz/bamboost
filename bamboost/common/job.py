@@ -40,9 +40,30 @@ class Job:
         ncpus: int = 1,
         time: str = "04:00:00",
         mem_per_cpu: int = 2048,
-        tmp: int = 8000,
+        tmp: int = None,
+        sbatch_kwargs: list = None,
     ) -> None:
-        """Write sbatch script for new simulation."""
+        """Write sbatch script for new simulation.
+
+        The following environment variables are written to the script:
+            - DATABASE_DIR: Path to the database directory.
+            - SIMULATION_DIR: Path to the simulation directory.
+            - SIMULATION_ID: Full id of the simulation.
+
+        Args:
+            commands (list): List of commands to be executed.
+            path (str): Path to the database directory.
+            uid (str): Unique identifier of the simulation.
+            db_id (str): Database ID. Defaults to None.
+            nnodes (int): Number of nodes. Defaults to 1.
+            ntasks (int): Number of tasks. Defaults to 4.
+            ncpus (int): Number of cpus. Defaults to 1.
+            time (str): Time limit. Defaults to "04:00:00".
+            mem_per_cpu (int): Memory per cpu. Defaults to 2048.
+            tmp (int): Temporary space.
+            sbatch_kwargs (list): Additional sbatch arguments. allow to provide
+                additional sbatch arguments. in the format ["--mail=BEGIN,END,FAIL", ...].
+        """
         nb_tasks_per_node = int(ntasks / nnodes)
 
         # define how mpirun is called
@@ -50,7 +71,7 @@ class Job:
         if ntasks > 1:
             mpicommand = "mpirun "
 
-        script = f"#!/bin/bash\n\n"
+        script = "#!/bin/bash\n\n"
 
         # sbatch commands
         script += f"#SBATCH --ntasks={ntasks}\n"
@@ -59,15 +80,20 @@ class Job:
             script += f"#SBATCH --cpus-per-task={ncpus}\n"
             script += f"#SBATCH --ntasks-per-node={nb_tasks_per_node}\n"
         script += f"#SBATCH --time={time}\n"
-        script += f"#SBATCH --job-name={uid}\n"
+        script += f"#SBATCH --job-name={db_id}:{uid}\n"
         script += f"#SBATCH --mem-per-cpu={mem_per_cpu}\n"
         if tmp:
             script += f"#SBATCH --tmp={tmp}\n"
         script += f"#SBATCH --output={os.path.join(path, uid)}/{uid}.out\n"
 
-        # add SCRIPT_DIR as environment variable
-        script += f"""path=$(sqlite3 {paths['DATABASE_FILE']} "SELECT path FROM dbindex WHERE id='{db_id}'")\n"""
-        script += f"SCRIPT_DIR=$path/{uid}\n\n"
+        if sbatch_kwargs is not None:
+            for s in sbatch_kwargs:
+                script += f"#SBATCH {s}\n"
+
+        # add paths as environment variables
+        script += self._set_environment_variables(db_id, uid)
+        # backwards compatibility: add SCRIPT_DIR as environment variable
+        script += "SCRIPT_DIR=$SIMULATION_DIR\n\n"
 
         # user defined commands
         script += "\n"

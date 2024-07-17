@@ -64,7 +64,7 @@ def _register_sqlite_adapters():
     # Numpy generic types
     adapt_numpy_number = lambda val: val.item()
     sqlite3.register_adapter(np.int_, adapt_numpy_number)
-    sqlite3.register_adapter(np.float_, adapt_numpy_number)
+    sqlite3.register_adapter(np.float64, adapt_numpy_number)
     sqlite3.register_adapter(np.datetime64, adapt_numpy_number)
     sqlite3.register_adapter(bool, int)
 
