@@ -86,9 +86,8 @@ def capture_key_error(method):
         try:
             return method(self, *args, **kwargs)
         except KeyError as e:
-            raise KeyError(
-                f'[uid: {self.simulation_uid.split(".")[0]}] content not in file: {self.file_name}'
-            ) from e
+            e.add_note(f'[file: {self.file_name}]')
+            raise e
 
     return inner
 
@@ -112,7 +111,9 @@ class FileHandler:
         _comm: MPI communicator
     """
 
-    def __init__(self, file_name: str, _comm: mpi.MPI.Comm = mpi.MPI.COMM_WORLD) -> None:
+    def __init__(
+        self, file_name: str, _comm: mpi.MPI.Comm = mpi.MPI.COMM_WORLD
+    ) -> None:
         self.file_object: h5py.File = None
         self.file_name = file_name
         self.simulation_uid = os.path.basename(file_name)
@@ -142,7 +143,7 @@ class FileHandler:
     def __getattr__(self, __name: str) -> Any:
         try:
             return self.file_object.__getattribute__(__name)
-        except:
+        except AttributeError:
             return self.__getattribute__(__name)
 
     def __enter__(self):
