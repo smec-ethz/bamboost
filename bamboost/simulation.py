@@ -386,6 +386,7 @@ class Simulation:
         mem_per_cpu: int = 2048,
         tmp=None,
         euler: bool = True,
+        sbatch_kwargs: list = None,
     ) -> None:
         """Create a batch job and put it into the folder.
 
@@ -398,6 +399,8 @@ class Simulation:
             mem_per_cpu: memory (default=2048)
             tmp: temporary storage, set None to exclude option (default=8000)
             euler: If false, a local bash script will be written
+            sbatch_kwargs: Additional sbatch arguments. allow to provide
+                additional sbatch arguments. in the format ["--mail=BEGIN,END,FAIL", ...].
         """
         job = Job()
 
@@ -413,6 +416,7 @@ class Simulation:
                 time=time,
                 mem_per_cpu=mem_per_cpu,
                 tmp=tmp,
+                sbatch_kwargs=sbatch_kwargs,
             )
         else:
             job.create_bash_script_local(
@@ -562,7 +566,7 @@ class Simulation:
     def show_h5tree(self) -> None:
         """Print the tree inside the h5 file."""
         # print('\U00002B57 ' + os.path.basename(self.h5file))
-        print("\U0001F43C " + os.path.basename(self.h5file))
+        print("\U0001f43c " + os.path.basename(self.h5file))
         utilities.h5_tree(self._file.file_object)
 
     @contextmanager
