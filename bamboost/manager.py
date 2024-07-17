@@ -388,7 +388,7 @@ class Manager:
         reverse: bool = False,
         exclude: set = None,
         return_writer: bool = False,
-    ) -> list:
+    ) -> list[Simulation]:
         """Get all simulations in a list. Optionally, get all simulations matching the
         given selection using pandas.
 
