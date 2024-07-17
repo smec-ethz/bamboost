@@ -259,9 +259,10 @@ class RemoteManager(Manager):
             .replace("$db_size", str(len(self)))
         )
 
-    def _get_uids(self) -> list:
+    def _get_uids(self) -> list[str]:
         """Override the simulation list to fetch from databasetable."""
-        return self._index.fetch(f"SELECT id FROM db_{self.UID}")
+        uids_in_tuple = self._index.fetch(f"SELECT id FROM db_{self.UID}")
+        return [uid for (uid,) in uids_in_tuple]
 
     @property
     def _index(self) -> IndexAPI:
@@ -311,18 +312,35 @@ class RemoteManager(Manager):
 
         return RemoteSimulation(uid, self)
 
-    def rsync(self, uid: str) -> None:
-        """Transfer data using rsync."""
+    def rsync(self, uid: str | None = None) -> None:
+        """Transfer data using rsync.
+
+        Args:
+            uid: The unique id of the simulation to be transferred. If None,
+                all simulations are synced.
+        """
+        if uid is not None:
+            subprocess.call(
+                [
+                    "rsync",
+                    "-ravh",
+                    f"{self.remote.remote_name}:{self.remote_path_db}/{uid}",
+                    f"{self.path}",
+                ],
+            )
+            log.info(f"Data for {uid} synced with {self.path}")
+            return
+
+        # else, sync entire database directory
         subprocess.call(
             [
                 "rsync",
-                "-r",
-                f"{self.remote.remote_name}:{self.remote_path_db}/{uid}",
+                "-ravh",
+                f"{self.remote.remote_name}:{self.remote_path_db}/*",
                 f"{self.path}",
             ],
-            stdout=subprocess.PIPE,
         )
-        log.info(f"Data for {uid} synced with {self.path}")
+        log.info(f"Database synced with {self.path}")
 
 
 class RemoteSimulation(Simulation):
