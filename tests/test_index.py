@@ -12,7 +12,6 @@ from bamboost.manager import Manager
 
 from test_manager import temp_manager
 
-
 # --------------------------------------------------------------------------
 # Index creation and database addition (SQLite)
 # The index.Index is rerouted to a temporary file -> empty at the beginning
@@ -38,11 +37,10 @@ def test_if_database_added(temp_manager: Manager):
     assert temp_manager.path == index.loc[index.id == temp_manager.UID].path.values[0]
 
 
-@pytest.mark.skip(reason="Not implemented yet")
 def test_if_database_removed(temp_manager: Manager):
     # check if database is removed from index if deleted
     shutil.rmtree(temp_manager.path)
-    index = IndexAPI().read_table()
+    index = IndexAPI().clean().read_table()
     assert temp_manager.UID not in index.id.values
 
 
@@ -83,12 +81,12 @@ def test_get_id_from_path(temp_manager: Manager):
 # --------------------------------------------------------------------------
 # Correct transformation and retrieval of data types when writing to SQLite
 # --------------------------------------------------------------------------
-@pytest.mark.parametrize("value", [True, False])
+@pytest.mark.parametrize("value", [True, False, np.True_, np.False_])
 def test_datatype_parsing_bool(temp_manager: Manager, value: bool):
     # check if boolean is parsed correctly
     sim = temp_manager.create_simulation(parameters={"test": value})
     series = DatabaseTable(temp_manager.UID).read_entry(sim.uid)
-    assert type(series.test) == bool
+    assert series.test == value
 
 
 @pytest.mark.parametrize("value", [1, 1.0])

@@ -9,6 +9,7 @@
 """
 This module provides a class to handle sqlite databases.
 """
+
 from __future__ import annotations
 
 import json
@@ -62,20 +63,30 @@ def _register_sqlite_adapters():
     sqlite3.register_adapter(set, lambda val: json.dumps(val))
 
     # Numpy generic types
-    adapt_numpy_number = lambda val: val.item()
+    def adapt_numpy_number(val):
+        return val.item()
+
     sqlite3.register_adapter(np.int_, adapt_numpy_number)
     sqlite3.register_adapter(np.float64, adapt_numpy_number)
     sqlite3.register_adapter(np.datetime64, adapt_numpy_number)
-    sqlite3.register_adapter(bool, int)
+    sqlite3.register_adapter(np.bool_, bool)
 
 
 def _register_sqlite_converters():
     # Converts JSON to np.array & Iterable when selecting
     sqlite3.register_converter("ARRAY", lambda text: np.array(json.loads(text)))
     sqlite3.register_converter("JSON", lambda text: json.loads(text))
-    sqlite3.register_converter(
-        "BOOl", lambda x: bool(int.from_bytes(x, byteorder="big"))
-    )
+
+    def convert_bool(val):
+        # from now on, all bools should be stored as integers
+        try:
+            return bool(int(val))
+        # for a while, booleans were stored as bytes
+        # this exception handles the conversion of these bytes to bool for old databases
+        except ValueError:
+            return bool(int.from_bytes(val, "big"))
+
+    sqlite3.register_converter("BOOL", convert_bool)
 
 
 # ----------------

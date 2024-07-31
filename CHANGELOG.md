@@ -5,6 +5,7 @@
 - FEAT: Add possiblity to add custom sbatch options when creating sbatch
   submission script. E.g. "--mail=BEGIN,END,FAIL"
 - FIX: numpy 2.0 compatibility
+- FIX: boolean values are now correctly stored in the sqlite database
 
 ## v0.7.0 (12Jun24)
 
