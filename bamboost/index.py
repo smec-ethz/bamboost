@@ -10,18 +10,19 @@
 
 from __future__ import annotations
 
+from bamboost import BAMBOOST_LOGGER
+
 __all__ = [
-    'Null',
-    'IndexAPI',
-    'DatabaseTable',
-    'Entry',
-    'find',
-    'get_uid_from_path',
-    'get_known_paths'
+    "Null",
+    "IndexAPI",
+    "DatabaseTable",
+    "Entry",
+    "find",
+    "get_uid_from_path",
+    "get_known_paths",
 ]
 
 import json
-import logging
 import os
 import subprocess
 from dataclasses import dataclass
@@ -35,7 +36,8 @@ from bamboost._config import config, paths
 from bamboost.common.file_handler import open_h5file
 from bamboost.common.mpi import MPI
 
-log = logging.getLogger(__name__)
+log = BAMBOOST_LOGGER.getChild(__name__.split(".")[-1])
+
 
 PREFIX = ".BAMBOOST-"  # prefix for databaseID identifier file
 DOT_REPLACEMENT = "DOT"  # replace dots with this in column names for sqlite
@@ -99,7 +101,7 @@ class IndexAPI(sql.SQLiteHandler):
     def __new__(cls, *, _file: str = None) -> IndexAPI:
         if _comm.rank != 0:
             return Null()
-        
+
         _file = _file or paths["DATABASE_FILE"]
         if _file not in cls._instances:
             cls._instances[_file] = super().__new__(cls)
@@ -620,18 +622,19 @@ def _check_path(uid: str, path: str) -> bool:
         return True
     return False
 
+
 def _remove_illegal_column_characters(key: str) -> str:
     """Remove illegal characters in sqlite column names from a string.
-    
+
     Args:
         key (str): key to clean
 
     Removes all content in parenthesis and replaces dashes with underscores.
     """
     import re
+
     # clean from parenthesis
     key = re.sub(r"[()]", "", re.sub(r"\(.*?\)", "", key))
     # clean from dashes
     key = re.sub(r"-", "_", key)
     return key
-

@@ -9,17 +9,17 @@
 
 from __future__ import annotations
 
-import logging
 from typing import Tuple
 
 import numpy as np
 
+from bamboost import BAMBOOST_LOGGER
 from bamboost.common import hdf_pointer
 from bamboost.common.file_handler import FileHandler, with_file_open
 
 __all__ = ["MeshGroup", "Mesh"]
 
-log = logging.getLogger(__name__)
+log = BAMBOOST_LOGGER.getChild(__name__.split(".")[-1])
 
 
 class MeshGroup(hdf_pointer.Group):

@@ -9,20 +9,20 @@
 
 from __future__ import annotations
 
-import logging
 from typing import Tuple
 
 import h5py
 import numpy as np
 import pandas as pd
 
+from bamboost import BAMBOOST_LOGGER
+from bamboost.accessors.meshes import Mesh, MeshGroup
 from bamboost.common import hdf_pointer
 from bamboost.common.file_handler import FileHandler, with_file_open
-from bamboost.accessors.meshes import Mesh, MeshGroup
 
 __all__ = ["DataGroup", "FieldData"]
 
-log = logging.getLogger(__name__)
+log = BAMBOOST_LOGGER.getChild(__name__.split(".")[-1])
 
 
 # -----------------------------------------------------------------------------

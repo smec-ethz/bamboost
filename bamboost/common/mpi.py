@@ -6,15 +6,14 @@
 # Copyright 2024 Flavio Lorez and contributors
 #
 # There is no warranty for this code
-import logging
 import os
 from typing import Any, Union
 
-log = logging.getLogger(__name__)
-
+from bamboost import BAMBOOST_LOGGER
 from bamboost._config import config
-
 from bamboost.common._mock_mpi import MockMPI
+
+log = BAMBOOST_LOGGER.getChild(__name__.split(".")[-1])
 
 MPIType = Union[MockMPI, Any]
 
