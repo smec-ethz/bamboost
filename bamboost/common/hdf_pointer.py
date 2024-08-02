@@ -9,7 +9,6 @@
 
 from __future__ import annotations
 
-import logging
 import pkgutil
 from collections.abc import Iterable
 from typing import Any
@@ -28,7 +27,7 @@ __all__ = [
     "Dataset",
 ]
 
-log = logging.getLogger(__name__)
+log = bamboost.BAMBOOST_LOGGER.getChild(__name__.split(".")[-1])
 
 
 class BasePointer:

@@ -10,7 +10,6 @@
 from __future__ import annotations
 
 import datetime
-import logging
 import os
 import shutil
 from typing import Any, Dict, Union
@@ -18,6 +17,7 @@ from typing import Any, Dict, Union
 import numpy as np
 from typing_extensions import deprecated
 
+from bamboost import BAMBOOST_LOGGER
 from bamboost.common.git_utility import GitStateGetter
 from bamboost.common.mpi import MPI
 from bamboost.common.utilities import flatten_dict
@@ -25,7 +25,7 @@ from bamboost.simulation import Simulation
 
 __all__ = ["SimulationWriter"]
 
-log = logging.getLogger(__name__)
+log = BAMBOOST_LOGGER.getChild(__name__.split(".")[-1])
 
 
 class SimulationWriter(Simulation):

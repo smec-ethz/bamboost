@@ -8,17 +8,17 @@
 # There is no warranty for this code
 from __future__ import annotations
 
-import logging
 import os
 import time
 from functools import wraps
-from typing import Any
+from typing import Any, Literal, Type
 
 import h5py
 
 from bamboost.common import mpi
+from bamboost import BAMBOOST_LOGGER
 
-log = logging.getLogger(__name__)
+log = BAMBOOST_LOGGER.getChild(__name__.split(".")[-1])
 
 __all__ = [
     "open_h5file",
@@ -41,7 +41,12 @@ FILE_MODE_HIRARCHY = {
 }
 
 
-def open_h5file(file: str, mode, driver=None, comm=None):
+def open_h5file(
+    file: str,
+    mode: Literal["mpio"] | Type[None],
+    driver: bool | Type[None] = None,
+    comm=None,
+):
     """Open h5 file. Waiting if file is not available.
 
     Args:
@@ -57,9 +62,9 @@ def open_h5file(file: str, mode, driver=None, comm=None):
             else:
                 return h5py.File(file, mode)
 
-        except OSError:
-            log.warning(f"File {file} not accessible, waiting")
-            time.sleep(0.1)
+        except BlockingIOError:
+            log.warning(f"file locked --> {file}")
+            time.sleep(0.2)
 
 
 def with_file_open(mode: str = "r", driver=None, comm=None):
@@ -86,7 +91,7 @@ def capture_key_error(method):
         try:
             return method(self, *args, **kwargs)
         except KeyError as e:
-            e.add_note(f'[file: {self.file_name}]')
+            e.add_note(f"[file: {self.file_name}]")
             raise e
 
     return inner
@@ -154,7 +159,7 @@ class FileHandler:
         self.close()
 
     def open(self, mode: str = "r", driver=None, comm=None):
-        if self._lock == 0:
+        if self._lock <= 0:
             log.debug(f"[{id(self)}] Open {self.file_name}")
             self.file_object = open_h5file(self.file_name, mode, driver, comm)
 

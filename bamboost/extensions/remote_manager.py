@@ -9,7 +9,6 @@
 
 from __future__ import annotations
 
-import logging
 import os
 import pkgutil
 import sqlite3
@@ -19,6 +18,7 @@ from typing import Callable
 
 import pandas as pd
 
+from bamboost import BAMBOOST_LOGGER
 from bamboost._config import config
 from bamboost._sqlite_database import SQLiteHandler, with_connection
 from bamboost.common.mpi import MPI
@@ -32,7 +32,7 @@ __all__ = [
     "RemoteSimulation",
 ]
 
-log = logging.getLogger(__name__)
+log = BAMBOOST_LOGGER.getChild(__name__.split(".")[-1])
 
 HOME = os.path.expanduser("~")
 CACHE_DIR = os.path.join(HOME, ".cache", "bamboost")
@@ -197,7 +197,6 @@ class Remote(IndexAPI, SQLiteHandler):
 
 
 class RemoteDatabaseTable(DatabaseTable):
-
     def sync(self) -> None:
         """Don't sync a remote database."""
         return None

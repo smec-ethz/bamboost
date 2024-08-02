@@ -13,7 +13,6 @@ This module provides a class to handle sqlite databases.
 from __future__ import annotations
 
 import json
-import logging
 import sqlite3
 from contextlib import contextmanager
 from functools import wraps
@@ -22,12 +21,13 @@ from typing import Generator, Iterable
 import numpy as np
 from typing_extensions import Self
 
+from bamboost import BAMBOOST_LOGGER
 from bamboost._config import config
 from bamboost.common.mpi import MPI
 
 __all__ = ["SQLiteHandler"]
 
-log = logging.getLogger(__name__)
+log = BAMBOOST_LOGGER.getChild(__name__.split(".")[-1])
 
 _type_to_sql_column_type = {
     np.ndarray: "ARRAY",

@@ -9,7 +9,6 @@
 
 from __future__ import annotations
 
-import logging
 import os
 import pkgutil
 import subprocess
@@ -20,7 +19,7 @@ import numpy as np
 import pandas as pd
 from typing_extensions import Self, deprecated
 
-from bamboost import index
+from bamboost import BAMBOOST_LOGGER, index
 from bamboost._config import config
 from bamboost.accessors.fielddata import DataGroup
 from bamboost.accessors.globals import GlobalGroup
@@ -36,7 +35,7 @@ __all__ = [
     "Links",
 ]
 
-log = logging.getLogger(__name__)
+log = BAMBOOST_LOGGER.getChild(__name__.split(".")[-1])
 
 
 class Links(hdf_pointer.MutableGroup):

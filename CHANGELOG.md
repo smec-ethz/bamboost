@@ -6,6 +6,12 @@
   submission script. E.g. "--mail=BEGIN,END,FAIL"
 - FIX: numpy 2.0 compatibility
 - FIX: boolean values are now correctly stored in the sqlite database
+- FIX: When we try to open an h5 file, we now only put the program into a
+  waiting state if we catch the `BlockedIOError`. All other `OSError` are raised
+  immediately.
+- FEAT: Improved logging. Bamboost logger available as
+  `bamboost.BAMBOOST_LOGGER`. You can assign it a handler to log to a file, etc.
+  See the logging module for more information.
 
 ## v0.7.0 (12Jun24)
 

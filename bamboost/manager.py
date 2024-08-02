@@ -8,7 +8,6 @@
 # There is no warranty for this code
 from __future__ import annotations
 
-import logging
 import numbers
 import os
 import pkgutil
@@ -26,7 +25,7 @@ class Manager:
     pass
 
 
-from bamboost import index
+from bamboost import BAMBOOST_LOGGER, index
 from bamboost.common.file_handler import open_h5file
 from bamboost.common.mpi import MPI
 from bamboost.index import DatabaseTable, IndexAPI, config
@@ -39,7 +38,7 @@ __all__ = [
     "ManagerFromName",
 ]
 
-log = logging.getLogger(__name__)
+log = BAMBOOST_LOGGER.getChild(__name__.split(".")[-1])
 
 
 class ManagerFromUID(object):
@@ -459,7 +458,9 @@ class Manager:
             >>> db.create_simulation(uid="my_sim", parameters={"a": 1, "b": 2}, prefix="test")
         """
         if parameters and not skip_duplicate_check:
-            go_on, uid = self._check_duplicate(parameters, uid, duplicate_action=duplicate_action)
+            go_on, uid = self._check_duplicate(
+                parameters, uid, duplicate_action=duplicate_action
+            )
             if not go_on:
                 print("Aborting by user desire...")
                 return None
@@ -496,7 +497,9 @@ class Manager:
         """
         shutil.rmtree(os.path.join(self.path, uid))
 
-    def _check_duplicate(self, parameters: dict, uid: str, duplicate_action: str = "prompt") -> tuple:
+    def _check_duplicate(
+        self, parameters: dict, uid: str, duplicate_action: str = "prompt"
+    ) -> tuple:
         """Checking whether the parameters dictionary exists already.
         May need to be improved...
 
@@ -540,8 +543,10 @@ class Manager:
 
         if duplicate_action == "prompt":
             # What should be done?
-            prompt = input("Replace first duplicate ('r'), Create with altered uid (`c`), "
-                           + "Create new with new id (`n`), Abort (`a`): ")
+            prompt = input(
+                "Replace first duplicate ('r'), Create with altered uid (`c`), "
+                + "Create new with new id (`n`), Abort (`a`): "
+            )
         else:
             prompt = duplicate_action
 
