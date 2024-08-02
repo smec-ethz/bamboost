@@ -432,6 +432,7 @@ class Manager:
         parameters: dict = None,
         skip_duplicate_check: bool = False,
         prefix: str = None,
+        duplicate_action: str = "prompt",
     ) -> SimulationWriter:
         """Get a writer object for a new simulation. This is written for paralell use
         as it is likely that this may be used in an executable, creating multiple runs
@@ -445,7 +446,9 @@ class Manager:
                 specified later with :func:`~bamboost.simulation.SimulationWriter.add_parameters`.
             skip_duplicate_check (`bool`): if True, the duplicate check is skipped.
             prefix (`str`): Prefix for the uid. If not specified, no prefix is used.
-
+            duplicate_action (`str`): how to deal with duplicates.
+            `Replace first duplicate ('r'), Create with altered uid (`c`), Create new with new id (`n`), Abort (`a`)
+             default "prompt" for each duplicate on a case by case basis.
         Returns:
             sim (:class:`~bamboost.simulation.SimulationWriter`)
 
@@ -456,7 +459,7 @@ class Manager:
             >>> db.create_simulation(uid="my_sim", parameters={"a": 1, "b": 2}, prefix="test")
         """
         if parameters and not skip_duplicate_check:
-            go_on, uid = self._check_duplicate(parameters, uid)
+            go_on, uid = self._check_duplicate(parameters, uid, duplicate_action=duplicate_action)
             if not go_on:
                 print("Aborting by user desire...")
                 return None
@@ -493,7 +496,7 @@ class Manager:
         """
         shutil.rmtree(os.path.join(self.path, uid))
 
-    def _check_duplicate(self, parameters: dict, uid: str) -> tuple:
+    def _check_duplicate(self, parameters: dict, uid: str, duplicate_action: str = "prompt") -> tuple:
         """Checking whether the parameters dictionary exists already.
         May need to be improved...
 
@@ -529,17 +532,19 @@ class Manager:
         if not duplicates:
             return True, uid
 
-        # What should be done?
         print(
             f"The parameter space may already exist. Here are the duplicates:",
             flush=True,
         )
         print(self.df[self.df["id"].isin([i[0] for i in duplicates])], flush=True)
 
-        prompt = input(
-            "Replace first duplicate ('r'), Create with altered uid (`c`), "
-            + "Create new with new id (`n`), Abort (`a`): "
-        )
+        if duplicate_action == "prompt":
+            # What should be done?
+            prompt = input("Replace first duplicate ('r'), Create with altered uid (`c`), "
+                           + "Create new with new id (`n`), Abort (`a`): ")
+        else:
+            prompt = duplicate_action
+
         if prompt == "r":
             self.remove(duplicates[0][0])
             return True, uid

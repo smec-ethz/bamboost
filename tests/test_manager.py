@@ -7,7 +7,7 @@ import tempfile
 import numpy as np
 import pytest
 
-from bamboost import Manager, Simulation, index
+from bamboost import Manager, Simulation, index, SimulationWriter
 
 
 @pytest.fixture()
@@ -51,6 +51,37 @@ class TestManager:
         sim = db.sim(sim_uid)
         assert isinstance(sim, Simulation)
         assert sim.path == os.path.join(temp_manager.path, sim_uid)
+
+
+class TestManagerDuplicate:
+
+    def test_prompt(self, monkeypatch, temp_manager: Manager):
+        def patchinput(*args, **kwargs):
+            raise RuntimeError("input called")
+
+        monkeypatch.setattr('builtins.input', patchinput)
+        with pytest.raises(RuntimeError, match="input called"):
+            params = dict(a=1, b=2)
+            temp_manager.create_simulation(parameters=params)
+            sim = temp_manager.create_simulation(parameters=params, duplicate_action="prompt")
+
+        # Check that there is no prompt here
+        params = dict(a=1, b=2)
+        sim = temp_manager.create_simulation(parameters=params, duplicate_action="a")
+
+    def test_abort(self, temp_manager: Manager):
+        params = dict(a=1, b=2)
+        temp_manager.create_simulation(parameters=params)
+        sim = temp_manager.create_simulation(parameters=params, duplicate_action="a")
+        assert sim is None
+        assert len(temp_manager) == 1
+
+    def test_create_new(self, temp_manager: Manager):
+        params = dict(a=1, b=2)
+        temp_manager.create_simulation(parameters=params)
+        sim = temp_manager.create_simulation(parameters=params, duplicate_action="c")
+        assert isinstance(sim, SimulationWriter)
+        assert len(temp_manager) == 2
 
 
 # --------------------------------------------------------------------------
