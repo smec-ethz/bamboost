@@ -52,7 +52,7 @@ class FenicsWriter(SimulationWriter):
         time: float = None,
         mesh: str = None,
         dtype: str = None,
-        center: str = "Node",
+        center: Literal["Node", "Cell"] = "Node",
     ) -> None:
         """Add a dataset to the file. The data is stored at `data/`.
 
@@ -88,7 +88,7 @@ class FenicsWriter(SimulationWriter):
         name: str,
         sub_step: int,
         func: fe.Function,
-        center: str = "Node",
+        center: Literal["Node", "Cell"] = "Node",
         dtype: str = None,
         attrs: dict = None,
     ) -> None:
