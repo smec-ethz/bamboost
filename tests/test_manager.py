@@ -171,3 +171,25 @@ def test_duplicates_handles_nan(temp_manager: Manager):
     params3 = dict(a=1, b=2, c=4)
     # Simulation 2 shall not be regarded as duplicate of simulation 1, because of the NaN
     assert len(db._list_duplicates(params3)) == 0
+
+
+def test_duplicates_lists(temp_manager: Manager):
+    db = temp_manager
+    params1 = dict(a=[1, 2, 3])
+    db.create_simulation("1", params1)
+
+    params2 = dict(a=[2, 3, 4])
+    assert len(db._list_duplicates(params2)) == 0
+
+    db.create_simulation("2", params2)
+
+    assert len(db._list_duplicates(params2)) == 1
+    assert len(db._list_duplicates(params1)) == 1
+
+    # Works with arrays
+    params2 = dict(a=np.array([2, 3, 4]))
+    assert len(db._list_duplicates(params2)) == 1
+    db.create_simulation("3", params2, duplicate_action="c")
+    assert len(db._list_duplicates(params2)) == 2
+
+    # We do not plan to support sets

@@ -14,9 +14,10 @@ import pkgutil
 import shutil
 import uuid
 from ctypes import ArgumentError
-from typing import Generator, Union
+from typing import Generator, Union, Iterable
 
 import h5py
+import numpy as np
 import pandas as pd
 
 
@@ -503,12 +504,27 @@ class Manager:
         df: pd.DataFrame = self._table.read_table()
 
         params = flatten_dict(parameters)
+
+        class ComparableIterable():
+            def __init__(self, ori):
+                self.ori = np.asarray(ori)
+            def __eq__(self, other):
+                other = np.asarray(other)
+                if other.shape != self.ori.shape:
+                    return False
+                return (other == self.ori).all()
+
+        for k in params.keys():
+            if isinstance(params[k], Iterable) and not isinstance(params[k], str):
+                params[k] = ComparableIterable(params[k])
+
         s = pd.Series(params)
 
         for p in params:
             if p not in df.keys():
                 # print("New key is in introduced, it cannot be duplicate")
                 return []
+
 
         # get matching rows where all values of the series are equal to the corresponding values in the dataframe
         match = df.loc[(df[s.keys()] == s).all(axis=1)]
