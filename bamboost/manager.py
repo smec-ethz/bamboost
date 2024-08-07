@@ -535,7 +535,7 @@ class Manager:
             return True, uid
 
         print(
-            f"The parameter space may already exist. Here are the duplicates:",
+            f"The parameter space already exists. Here are the duplicates:",
             flush=True,
         )
         print(self.df[self.df["id"].isin([i for i in duplicates])], flush=True)
