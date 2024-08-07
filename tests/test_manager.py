@@ -133,3 +133,41 @@ def test_dataframe_integrity(temp_manager: Manager):
 
     for uid, val in booleans.items():
         assert df.loc[uid, "boolean"] == val
+
+
+def test_duplicates_detect(temp_manager: Manager):
+    db = temp_manager
+    params1 = dict(a=1, b=2)
+    db.create_simulation("1", params1)
+    db.create_simulation("2", dict(a=4, b=5))
+
+    assert db._list_duplicates(params1)[0] == "1"
+
+    sim = db.create_simulation(parameters=params1, duplicate_action="c")
+
+    assert {"1", sim.uid} == set(db._list_duplicates(params1))
+
+
+def test_duplicates_new_key(temp_manager: Manager):
+    db = temp_manager
+    params1 = dict(a=1, b=2)
+    db.create_simulation("1", params1)
+
+    params2 = dict(a=1, b=2, c=3)
+
+    assert len(db._list_duplicates(params2)) == 0
+
+
+def test_duplicates_handles_nan(temp_manager: Manager):
+    db = temp_manager
+    params1 = dict(a=1, b=2)
+    db.create_simulation("1", params1)
+
+    params2 = dict(a=1, b=2, c=3)
+    db.create_simulation("2", params2)
+    # This introduces a nan entry in simulation "1"
+    assert np.isnan(db.df[db.df.id == "1"].c.iloc[0])
+
+    params3 = dict(a=1, b=2, c=4)
+    # Simulation 2 shall not be regarded as duplicate of simulation 1, because of the NaN
+    assert len(db._list_duplicates(params3)) == 0

@@ -20,11 +20,12 @@ import h5py
 import pandas as pd
 
 
+
 # forward declaration
 class Manager:
     pass
 
-
+from bamboost.common.utilities import flatten_dict
 from bamboost import BAMBOOST_LOGGER, index
 from bamboost.common.file_handler import open_h5file
 from bamboost.common.mpi import MPI
@@ -497,6 +498,24 @@ class Manager:
         """
         shutil.rmtree(os.path.join(self.path, uid))
 
+
+    def _list_duplicates(self, parameters: dict) -> list:
+        df: pd.DataFrame = self._table.read_table()
+
+        params = flatten_dict(parameters)
+        s = pd.Series(params)
+
+        for p in params:
+            if p not in df.keys():
+                # print("New key is in introduced, it cannot be duplicate")
+                return []
+
+        # get matching rows where all values of the series are equal to the corresponding values in the dataframe
+        match = df.loc[(df[s.keys()] == s).all(axis=1)]
+        return match.id.tolist()
+
+
+
     def _check_duplicate(
         self, parameters: dict, uid: str, duplicate_action: str = "prompt"
     ) -> tuple:
@@ -509,28 +528,8 @@ class Manager:
         Returns:
             Tuple(Bool, uid) wheter to continue and with what uid.
         """
-        duplicates = list()
 
-        for _uid in self.all_uids:
-            with open_h5file(
-                os.path.join(os.path.join(self.path, _uid), f"{_uid}.h5"), "r"
-            ) as f:
-                if "parameters" not in f.keys():
-                    continue
-
-                tmp_dict = dict()
-                tmp_dict.update(f["parameters"].attrs)
-
-                if tmp_dict == parameters:
-                    duplicates.append((_uid, "equal"))
-                    continue
-
-                shared_keys = tmp_dict.keys() & parameters.keys()
-                if {key: tmp_dict[key] for key in shared_keys} == {
-                    key: parameters[key] for key in shared_keys
-                }:
-                    duplicates.append((_uid, "shared_equal"))
-                    continue
+        duplicates = self._list_duplicates(parameters)
 
         if not duplicates:
             return True, uid
