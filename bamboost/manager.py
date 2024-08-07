@@ -14,7 +14,7 @@ import pkgutil
 import shutil
 import uuid
 from ctypes import ArgumentError
-from typing import Generator, Iterable, Union
+from typing import Any, Generator, Iterable, Union
 
 import h5py
 import numpy as np
@@ -366,7 +366,7 @@ class Manager:
 
     def sim(
         self,
-        uid,
+        uid: str,
         return_writer: bool = False,
         writer_type: SimulationWriter = SimulationWriter,
     ) -> Simulation:
@@ -387,7 +387,7 @@ class Manager:
 
     def sims(
         self,
-        select: pd.Series = None,
+        select: pd.Series | pd.DataFrame = None,
         sort: str = None,
         reverse: bool = False,
         exclude: set = None,
@@ -397,7 +397,8 @@ class Manager:
         given selection using pandas.
 
         Args:
-            select (`pd.Series`): pandas boolean series
+            select (`pd.Series`): pandas boolean series or pandas DataFrame
+                (being a subset of the full dataframe)
             sort (`str`): Optionally sort the list with this keyword
             reverse (`bool`): swap sort direction
             exclude (`list[str]`): sims to exclude
@@ -410,10 +411,15 @@ class Manager:
         Examples:
             >>> db.sims(select=db.df["status"] == "finished", sort="time_stamp")
         """
-        if select is not None:
+        if select is None:
+            id_list = self.all_uids
+        elif isinstance(select, pd.DataFrame):
+            id_list = select["id"].values
+        elif isinstance(select, pd.Series):
             id_list = self.df[select]["id"].values
         else:
-            id_list = self.all_uids
+            raise ArgumentError('Invalid argument for argument "select"')
+
         if exclude is not None:
             exclude = list([exclude]) if isinstance(exclude, str) else exclude
             id_list = [id for id in id_list if id not in exclude]
@@ -498,6 +504,39 @@ class Manager:
             uid (`str`): uid
         """
         shutil.rmtree(os.path.join(self.path, uid))
+
+    def find(self, parameter_selection: dict[str, Any]) -> pd.DataFrame:
+        """Find simulations with the given parameters.
+
+        The dictionary can contain callables to filter inequalities or other
+        filters. Alternatively, strings starting with >, >=, <, <=, ==, != are
+        evaluated using `eval`.
+
+        Args:
+            parameter_selection (dict): parameter selection dictionary
+        """
+        parameter_selection = flatten_dict(parameter_selection)
+        expr = (">", ">=", "<", "<=", "==", "!=")
+        params = {}
+        filters = {}
+        for key, val in parameter_selection.items():
+            if callable(val):
+                filters[key] = val
+            elif isinstance(val, str) and val.strip().startswith(expr):
+                filters[key] = lambda x: eval(f"x {parameter_selection[key]}")
+            else:
+                params[key] = val
+
+        df = self._table.read_table()
+        matches = self._list_duplicates(params)
+        matches = df[df.id.isin(matches)]
+        if len(matches) == 0:
+            return matches
+
+        for key, func in filters.items():
+            matches = matches[func(matches[key])]
+
+        return matches
 
     def _list_duplicates(self, parameters: dict) -> list[str]:
         """List ids of duplicates of the given parameters.
