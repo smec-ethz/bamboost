@@ -192,4 +192,17 @@ def test_duplicates_lists(temp_manager: Manager):
     db.create_simulation("3", params2, duplicate_action="c")
     assert len(db._list_duplicates(params2)) == 2
 
+    # different length -> dnot duplicates
+    # Works with arrays
+    params2 = dict(a=np.array([2, 3, 4, 5]))
+    assert len(db._list_duplicates(params2)) == 0
+
+    # 2D arrays
+    params2 = dict(a=np.array([[2, 3], [4, 5]]))
+    assert len(db._list_duplicates(params2)) == 0
+    db.create_simulation(parameters=params2, duplicate_action="c")
+    assert len(db._list_duplicates(params2)) == 1
+
+
+
     # We do not plan to support sets
