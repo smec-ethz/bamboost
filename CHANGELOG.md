@@ -1,5 +1,11 @@
 # Change log for bamboost
 
+## v0.7.2 (08Au24)
+
+- ENH: duplicate check speed up by using sql database
+- ENH: duplicate check can compare lists and numpy arrays
+
+
 ## v0.7.1 (17Jul24)
 
 - FEAT: Add possiblity to add custom sbatch options when creating sbatch
