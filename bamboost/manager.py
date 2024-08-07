@@ -538,7 +538,7 @@ class Manager:
             f"The parameter space may already exist. Here are the duplicates:",
             flush=True,
         )
-        print(self.df[self.df["id"].isin([i[0] for i in duplicates])], flush=True)
+        print(self.df[self.df["id"].isin([i for i in duplicates])], flush=True)
 
         if duplicate_action == "prompt":
             # What should be done?
