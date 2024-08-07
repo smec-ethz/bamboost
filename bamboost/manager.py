@@ -14,22 +14,22 @@ import pkgutil
 import shutil
 import uuid
 from ctypes import ArgumentError
-from typing import Generator, Union, Iterable
+from typing import Generator, Iterable, Union
 
 import h5py
 import numpy as np
 import pandas as pd
 
 
-
 # forward declaration
 class Manager:
     pass
 
-from bamboost.common.utilities import flatten_dict
+
 from bamboost import BAMBOOST_LOGGER, index
 from bamboost.common.file_handler import open_h5file
 from bamboost.common.mpi import MPI
+from bamboost.common.utilities import flatten_dict
 from bamboost.index import DatabaseTable, IndexAPI, config
 from bamboost.simulation import Simulation
 from bamboost.simulation_writer import SimulationWriter
@@ -499,38 +499,39 @@ class Manager:
         """
         shutil.rmtree(os.path.join(self.path, uid))
 
+    def _list_duplicates(self, parameters: dict) -> list[str]:
+        """List ids of duplicates of the given parameters.
 
-    def _list_duplicates(self, parameters: dict) -> list:
+        Args:
+            parameters (dict): parameter dictionary
+        """
         df: pd.DataFrame = self._table.read_table()
-
         params = flatten_dict(parameters)
 
-        class ComparableIterable():
+        class ComparableIterable:
             def __init__(self, ori):
                 self.ori = np.asarray(ori)
+
             def __eq__(self, other):
                 other = np.asarray(other)
                 if other.shape != self.ori.shape:
                     return False
                 return (other == self.ori).all()
 
+        # make all iterables comparable by converting them to ComparableIterable
         for k in params.keys():
             if isinstance(params[k], Iterable) and not isinstance(params[k], str):
                 params[k] = ComparableIterable(params[k])
 
-        s = pd.Series(params)
-
+        # if any of the parameters is not in the dataframe, no duplicates
         for p in params:
             if p not in df.keys():
-                # print("New key is in introduced, it cannot be duplicate")
                 return []
 
-
         # get matching rows where all values of the series are equal to the corresponding values in the dataframe
+        s = pd.Series(params)
         match = df.loc[(df[s.keys()] == s).all(axis=1)]
         return match.id.tolist()
-
-
 
     def _check_duplicate(
         self, parameters: dict, uid: str, duplicate_action: str = "prompt"
@@ -551,7 +552,7 @@ class Manager:
             return True, uid
 
         print(
-            f"The parameter space already exists. Here are the duplicates:",
+            "The parameter space already exists. Here are the duplicates:",
             flush=True,
         )
         print(self.df[self.df["id"].isin([i for i in duplicates])], flush=True)
