@@ -117,7 +117,7 @@ def test_dataframe_integrity(temp_manager: Manager):
                     "boolean": booleans[args[1]],
                     "boolean2": False,
                     "array": np.array([1, 2, 3]),
-                },
+                }, skip_duplicate_check=True,
             )
 
     create_sims(booleans)
