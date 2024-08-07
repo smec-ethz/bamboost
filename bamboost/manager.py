@@ -14,9 +14,10 @@ import pkgutil
 import shutil
 import uuid
 from ctypes import ArgumentError
-from typing import Generator, Union
+from typing import Generator, Iterable, Union
 
 import h5py
+import numpy as np
 import pandas as pd
 
 
@@ -28,6 +29,7 @@ class Manager:
 from bamboost import BAMBOOST_LOGGER, index
 from bamboost.common.file_handler import open_h5file
 from bamboost.common.mpi import MPI
+from bamboost.common.utilities import flatten_dict
 from bamboost.index import DatabaseTable, IndexAPI, config
 from bamboost.simulation import Simulation
 from bamboost.simulation_writer import SimulationWriter
@@ -497,6 +499,40 @@ class Manager:
         """
         shutil.rmtree(os.path.join(self.path, uid))
 
+    def _list_duplicates(self, parameters: dict) -> list[str]:
+        """List ids of duplicates of the given parameters.
+
+        Args:
+            parameters (dict): parameter dictionary
+        """
+        df: pd.DataFrame = self._table.read_table()
+        params = flatten_dict(parameters)
+
+        class ComparableIterable:
+            def __init__(self, ori):
+                self.ori = np.asarray(ori)
+
+            def __eq__(self, other):
+                other = np.asarray(other)
+                if other.shape != self.ori.shape:
+                    return False
+                return (other == self.ori).all()
+
+        # make all iterables comparable by converting them to ComparableIterable
+        for k in params.keys():
+            if isinstance(params[k], Iterable) and not isinstance(params[k], str):
+                params[k] = ComparableIterable(params[k])
+
+        # if any of the parameters is not in the dataframe, no duplicates
+        for p in params:
+            if p not in df.keys():
+                return []
+
+        # get matching rows where all values of the series are equal to the corresponding values in the dataframe
+        s = pd.Series(params)
+        match = df.loc[(df[s.keys()] == s).all(axis=1)]
+        return match.id.tolist()
+
     def _check_duplicate(
         self, parameters: dict, uid: str, duplicate_action: str = "prompt"
     ) -> tuple:
@@ -509,37 +545,17 @@ class Manager:
         Returns:
             Tuple(Bool, uid) wheter to continue and with what uid.
         """
-        duplicates = list()
 
-        for _uid in self.all_uids:
-            with open_h5file(
-                os.path.join(os.path.join(self.path, _uid), f"{_uid}.h5"), "r"
-            ) as f:
-                if "parameters" not in f.keys():
-                    continue
-
-                tmp_dict = dict()
-                tmp_dict.update(f["parameters"].attrs)
-
-                if tmp_dict == parameters:
-                    duplicates.append((_uid, "equal"))
-                    continue
-
-                shared_keys = tmp_dict.keys() & parameters.keys()
-                if {key: tmp_dict[key] for key in shared_keys} == {
-                    key: parameters[key] for key in shared_keys
-                }:
-                    duplicates.append((_uid, "shared_equal"))
-                    continue
+        duplicates = self._list_duplicates(parameters)
 
         if not duplicates:
             return True, uid
 
         print(
-            f"The parameter space may already exist. Here are the duplicates:",
+            "The parameter space already exists. Here are the duplicates:",
             flush=True,
         )
-        print(self.df[self.df["id"].isin([i[0] for i in duplicates])], flush=True)
+        print(self.df[self.df["id"].isin([i for i in duplicates])], flush=True)
 
         if duplicate_action == "prompt":
             # What should be done?
