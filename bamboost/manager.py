@@ -509,21 +509,21 @@ class Manager:
         """Find simulations with the given parameters.
 
         The dictionary can contain callables to filter inequalities or other
-        filters. Alternatively, strings starting with >, >=, <, <=, ==, != are
-        evaluated using `eval`.
+        filters.
+
+        Examples:
+            >>> db.find({"a": 1, "b": lambda x: x > 2})
+            >>> db.find({"a": 1, "b": 2})
 
         Args:
             parameter_selection (dict): parameter selection dictionary
         """
         parameter_selection = flatten_dict(parameter_selection)
-        expr = (">", ">=", "<", "<=", "==", "!=")
         params = {}
         filters = {}
         for key, val in parameter_selection.items():
             if callable(val):
                 filters[key] = val
-            elif isinstance(val, str) and val.strip().startswith(expr):
-                filters[key] = lambda x: eval(f"x {parameter_selection[key]}")
             else:
                 params[key] = val
 
