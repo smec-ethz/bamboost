@@ -1,6 +1,11 @@
 # Change log for bamboost
 
-## v0.7.2 (12Au24)
+## v0.7.3 (13Aug24)
+
+- FIX: fixed bug in manager that dataframe can't be displayed if one of the
+  metadata keys is missing
+
+## v0.7.2 (12Aug24)
 
 - ENH: duplicate check speed up by using sql database
 - ENH: duplicate check can compare lists and numpy arrays

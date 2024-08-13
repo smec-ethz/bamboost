@@ -299,6 +299,7 @@ class Manager:
 
         # Sort dataframe columns
         columns_start = ["id", "notes", "status", "time_stamp"]
+        columns_start = [col for col in columns_start if col in df.columns]
         self._dataframe = df[[*columns_start, *df.columns.difference(columns_start)]]
 
         opts = config.get("options", {})
@@ -335,6 +336,7 @@ class Manager:
 
         # Sort dataframe columns
         columns_start = ["id", "notes", "status", "time_stamp"]
+        columns_start = [col for col in columns_start if col in df.columns]
         self._dataframe = df[[*columns_start, *df.columns.difference(columns_start)]]
         return self._dataframe
 
