@@ -566,14 +566,14 @@ class Manager:
             prompt = duplicate_action
 
         if prompt == "r":
-            self.remove(duplicates[0][0])
+            self.remove(duplicates[0])
             return True, uid
         if prompt == "a":
             return False, uid
         if prompt == "n":
             return True, uid
         if prompt == "c":
-            return True, self._generate_subuid(duplicates[0][0].split(".")[0])
+            return True, self._generate_subuid(duplicates[0].split(".")[0])
 
         raise ArgumentError("Answer not valid! Aborting")
 

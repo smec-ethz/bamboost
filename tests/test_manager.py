@@ -206,3 +206,28 @@ def test_duplicates_lists(temp_manager: Manager):
 
 
     # We do not plan to support sets
+
+
+def test_replace_duplicates(temp_manager: Manager):
+    db = temp_manager
+    params1 = dict(a=[1, 2, 3])
+    db.create_simulation(parameters=params1)
+    assert len(db.df) == 1
+
+    db.create_simulation(parameters=params1, duplicate_action="r")
+    db.get_view()
+    assert len(db.df) == 1
+
+def test_altered_uid(temp_manager: Manager):
+    db = temp_manager
+    params1 = dict(a=[1, 2, 3])
+    db.create_simulation("1", parameters=params1)
+    assert len(db.df) == 1
+
+    db.create_simulation(parameters=params1, duplicate_action="c")
+    db.get_view()
+
+    assert len(db.df) == 2
+
+    assert set(db.df["id"]) == {"1", "1.1"}
+
