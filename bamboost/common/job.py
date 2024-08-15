@@ -60,8 +60,9 @@ class Job:
             sbatch_kwargs (list): Additional sbatch arguments. allow to provide
                 additional sbatch arguments. in the format ["--mail=BEGIN,END,FAIL", ...].
                 use it to specify the number of tasks cpu cores etc... in an mpi job
-            mpicommand (str): replace the string MPI in the jobscript with this command,
-            allowing to change between mpirun, srun etc... or providing debugging option like -xterm
+            mpicommand (str): replace the format group {MPI} in the jobscript with this command,
+            allowing to change between mpirun, srun etc... or providing debugging option like -xterm.
+            i.e. one of the commands is "{MPI} python3 ..."
         """
 
 
