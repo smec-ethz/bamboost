@@ -438,8 +438,12 @@ class Manager:
         uid: str = None,
         parameters: dict = None,
         skip_duplicate_check: bool = False,
+        *,
         prefix: str = None,
         duplicate_action: str = "prompt",
+        note: str = None,
+        files: list[str] = None,
+        links: dict[str, str] = None,
     ) -> SimulationWriter:
         """Get a writer object for a new simulation. This is written for paralell use
         as it is likely that this may be used in an executable, creating multiple runs
@@ -458,9 +462,13 @@ class Manager:
                     - If the value is a list/array, it is stored as a dataset.
             skip_duplicate_check (`bool`): if True, the duplicate check is skipped.
             prefix (`str`): Prefix for the uid. If not specified, no prefix is used.
-            duplicate_action (`str`): how to deal with duplicates.
-                `Replace first duplicate ('r'), Create with altered uid (`c`), Create new with new id (`n`), Abort (`a`)
-                 default "prompt" for each duplicate on a case by case basis.
+            duplicate_action (`str`): how to deal with duplicates. Replace
+                first duplicate ('r'), Create with altered uid (`c`), Create new
+                with new id (`n`), Abort (`a`) default "prompt" for each
+                duplicate on a case by case basis.
+            note (`str`): Note for the simulation.
+            files (`list`): List of files to copy to the simulation directory.
+            links (`dict`): Dictionary of links to other simulations.
 
         Note:
             The files and links are copied to the simulation directory. The files are
@@ -503,8 +511,19 @@ class Manager:
         # add the id to the (fixed) _all_uids list
         if hasattr(self, "_all_uids"):
             self._all_uids.append(new_sim.uid)
-        if parameters:
-            new_sim.add_parameters(parameters)
+
+        # Add parameters, note, files, and links
+        if not any([parameters, note, files, links]):
+            return new_sim
+        with new_sim._file("r+"):
+            if parameters:
+                new_sim.add_parameters(parameters)
+            if note:
+                new_sim.change_note(note)
+            if files:
+                new_sim.copy_file(files)
+            if links:
+                [new_sim.links.__setitem__(name, uid) for name, uid in links.items()]
         return new_sim
 
     def remove(self, uid: str) -> None:
