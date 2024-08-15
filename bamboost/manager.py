@@ -468,9 +468,12 @@ class Manager:
             >>> db.create_simulation(uid="my_sim", parameters={"a": 1, "b": 2}, prefix="test")
         """
         if parameters and not skip_duplicate_check:
-            go_on, uid = self._check_duplicate(
-                parameters, uid, duplicate_action=duplicate_action
-            )
+            go_on = True
+            if self.comm.rank == 0:
+                go_on, uid = self._check_duplicate(
+                    parameters, uid, duplicate_action=duplicate_action
+                )
+            self.comm.bcast((go_on, uid), root=0)
             if not go_on:
                 print("Aborting by user desire...")
                 return None
