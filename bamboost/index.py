@@ -236,7 +236,7 @@ class IndexAPI(sql.SQLiteHandler):
         """Scan known paths for databases and update the index."""
         for path in get_known_paths():
             completed_process = subprocess.run(
-                ["find", path, "-iname", f"{PREFIX}*", "-not", "-path", "*/\.git/*"],
+                ["find", path, "-iname", f"{PREFIX}*", "-not", "-path", r"*/\.git/*"],
                 capture_output=True,
             )
             databases_found = completed_process.stdout.decode("utf-8").splitlines()
@@ -595,7 +595,7 @@ def get_known_paths() -> list:
 def _find_posix(uid, root_dir) -> list:
     """Find function using system `find` on linux."""
     completed_process = subprocess.run(
-        ["find", root_dir, "-iname", uid2(uid), "-not", "-path", "*/\.git/*"],
+        ["find", root_dir, "-iname", uid2(uid), "-not", "-path", r"*/\.git/*"],
         capture_output=True,
     )
     paths_found = completed_process.stdout.decode("utf-8").splitlines()

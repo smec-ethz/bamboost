@@ -14,22 +14,22 @@ import pkgutil
 import shutil
 import uuid
 from ctypes import ArgumentError
-from typing import Generator, Union, Iterable
+from typing import Any, Generator, Iterable, Union
 
 import h5py
 import numpy as np
 import pandas as pd
 
 
-
 # forward declaration
 class Manager:
     pass
 
-from bamboost.common.utilities import flatten_dict
+
 from bamboost import BAMBOOST_LOGGER, index
 from bamboost.common.file_handler import open_h5file
 from bamboost.common.mpi import MPI
+from bamboost.common.utilities import flatten_dict
 from bamboost.index import DatabaseTable, IndexAPI, config
 from bamboost.simulation import Simulation
 from bamboost.simulation_writer import SimulationWriter
@@ -299,6 +299,7 @@ class Manager:
 
         # Sort dataframe columns
         columns_start = ["id", "notes", "status", "time_stamp"]
+        columns_start = [col for col in columns_start if col in df.columns]
         self._dataframe = df[[*columns_start, *df.columns.difference(columns_start)]]
 
         opts = config.get("options", {})
@@ -335,6 +336,7 @@ class Manager:
 
         # Sort dataframe columns
         columns_start = ["id", "notes", "status", "time_stamp"]
+        columns_start = [col for col in columns_start if col in df.columns]
         self._dataframe = df[[*columns_start, *df.columns.difference(columns_start)]]
         return self._dataframe
 
@@ -366,7 +368,7 @@ class Manager:
 
     def sim(
         self,
-        uid,
+        uid: str,
         return_writer: bool = False,
         writer_type: SimulationWriter = SimulationWriter,
     ) -> Simulation:
@@ -387,7 +389,7 @@ class Manager:
 
     def sims(
         self,
-        select: pd.Series = None,
+        select: pd.Series | pd.DataFrame = None,
         sort: str = None,
         reverse: bool = False,
         exclude: set = None,
@@ -397,7 +399,8 @@ class Manager:
         given selection using pandas.
 
         Args:
-            select (`pd.Series`): pandas boolean series
+            select (`pd.Series`): pandas boolean series or pandas DataFrame
+                (being a subset of the full dataframe)
             sort (`str`): Optionally sort the list with this keyword
             reverse (`bool`): swap sort direction
             exclude (`list[str]`): sims to exclude
@@ -410,10 +413,15 @@ class Manager:
         Examples:
             >>> db.sims(select=db.df["status"] == "finished", sort="time_stamp")
         """
-        if select is not None:
+        if select is None:
+            id_list = self.all_uids
+        elif isinstance(select, pd.DataFrame):
+            id_list = select["id"].values
+        elif isinstance(select, pd.Series):
             id_list = self.df[select]["id"].values
         else:
-            id_list = self.all_uids
+            raise ArgumentError('Invalid argument for argument "select"')
+
         if exclude is not None:
             exclude = list([exclude]) if isinstance(exclude, str) else exclude
             id_list = [id for id in id_list if id not in exclude]
@@ -499,38 +507,72 @@ class Manager:
         """
         shutil.rmtree(os.path.join(self.path, uid))
 
+    def find(self, parameter_selection: dict[str, Any]) -> pd.DataFrame:
+        """Find simulations with the given parameters.
 
-    def _list_duplicates(self, parameters: dict) -> list:
+        The dictionary can contain callables to filter inequalities or other
+        filters.
+
+        Examples:
+            >>> db.find({"a": 1, "b": lambda x: x > 2})
+            >>> db.find({"a": 1, "b": 2})
+
+        Args:
+            parameter_selection (dict): parameter selection dictionary
+        """
+        parameter_selection = flatten_dict(parameter_selection)
+        params = {}
+        filters = {}
+        for key, val in parameter_selection.items():
+            if callable(val):
+                filters[key] = val
+            else:
+                params[key] = val
+
+        df = self._table.read_table()
+        matches = self._list_duplicates(params)
+        matches = df[df.id.isin(matches)]
+        if len(matches) == 0:
+            return matches
+
+        for key, func in filters.items():
+            matches = matches[func(matches[key])]
+
+        return matches
+
+    def _list_duplicates(self, parameters: dict) -> list[str]:
+        """List ids of duplicates of the given parameters.
+
+        Args:
+            parameters (dict): parameter dictionary
+        """
         df: pd.DataFrame = self._table.read_table()
-
         params = flatten_dict(parameters)
 
-        class ComparableIterable():
+        class ComparableIterable:
             def __init__(self, ori):
                 self.ori = np.asarray(ori)
+
             def __eq__(self, other):
                 other = np.asarray(other)
                 if other.shape != self.ori.shape:
                     return False
                 return (other == self.ori).all()
 
+        # make all iterables comparable by converting them to ComparableIterable
         for k in params.keys():
             if isinstance(params[k], Iterable) and not isinstance(params[k], str):
                 params[k] = ComparableIterable(params[k])
 
-        s = pd.Series(params)
-
+        # if any of the parameters is not in the dataframe, no duplicates
         for p in params:
             if p not in df.keys():
-                # print("New key is in introduced, it cannot be duplicate")
                 return []
 
-
         # get matching rows where all values of the series are equal to the corresponding values in the dataframe
+        s = pd.Series(params)
         match = df.loc[(df[s.keys()] == s).all(axis=1)]
         return match.id.tolist()
-
-
 
     def _check_duplicate(
         self, parameters: dict, uid: str, duplicate_action: str = "prompt"
@@ -551,7 +593,7 @@ class Manager:
             return True, uid
 
         print(
-            f"The parameter space already exists. Here are the duplicates:",
+            "The parameter space already exists. Here are the duplicates:",
             flush=True,
         )
         print(self.df[self.df["id"].isin([i for i in duplicates])], flush=True)

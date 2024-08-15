@@ -5,9 +5,10 @@ import shutil
 import tempfile
 
 import numpy as np
+import pandas as pd
 import pytest
 
-from bamboost import Manager, Simulation, index, SimulationWriter
+from bamboost import Manager, Simulation, SimulationWriter, index
 
 
 @pytest.fixture()
@@ -28,7 +29,6 @@ def test_if_new_manager_created():
 
 
 class TestManager:
-
     def test_create_simulation_creates_new_file(self, temp_manager: Manager):
         sim_uid = "this"
         writer = temp_manager.create_simulation(uid=sim_uid)
@@ -54,16 +54,17 @@ class TestManager:
 
 
 class TestManagerDuplicate:
-
     def test_prompt(self, monkeypatch, temp_manager: Manager):
         def patchinput(*args, **kwargs):
             raise RuntimeError("input called")
 
-        monkeypatch.setattr('builtins.input', patchinput)
+        monkeypatch.setattr("builtins.input", patchinput)
         with pytest.raises(RuntimeError, match="input called"):
             params = dict(a=1, b=2)
             temp_manager.create_simulation(parameters=params)
-            sim = temp_manager.create_simulation(parameters=params, duplicate_action="prompt")
+            sim = temp_manager.create_simulation(
+                parameters=params, duplicate_action="prompt"
+            )
 
         # Check that there is no prompt here
         params = dict(a=1, b=2)
@@ -117,7 +118,8 @@ def test_dataframe_integrity(temp_manager: Manager):
                     "boolean": booleans[args[1]],
                     "boolean2": False,
                     "array": np.array([1, 2, 3]),
-                }, skip_duplicate_check=True,
+                },
+                skip_duplicate_check=True,
             )
 
     create_sims(booleans)
@@ -230,4 +232,29 @@ def test_altered_uid(temp_manager: Manager):
     assert len(db.df) == 2
 
     assert set(db.df["id"]) == {"1", "1.1"}
+
+
+@pytest.mark.parametrize(
+    "params,expected",
+    [
+        (dict(a=1, b=2), ("1", "2", "3")),
+        (dict(a=1, b=2, c=3), ("2",)),
+        (dict(c=lambda c: c < 4), ("2",)),
+    ],
+)
+def test_find(temp_manager: Manager, params: dict, expected: tuple):
+    db = temp_manager
+    # mock the database dataframe from sql
+    db._table.read_table = lambda: pd.DataFrame.from_records(
+        [
+            dict(id="1", a=1, b=2),
+            dict(id="2", a=1, b=2, c=3),
+            dict(id="3", a=1, b=2, c=4),
+            dict(id="4", a=1, b=10),
+        ]
+    )
+
+    assert isinstance(db.find(params), pd.DataFrame)
+    assert set(db.find(params).id) == set(expected)
+
 

@@ -1,5 +1,16 @@
 # Change log for bamboost
 
+## v0.7.3 (13Aug24)
+
+- FIX: fixed bug in manager that dataframe can't be displayed if one of the
+  metadata keys is missing
+
+## v0.7.2 (12Aug24)
+
+- ENH: duplicate check speed up by using sql database
+- ENH: duplicate check can compare lists and numpy arrays
+- API: new method db.find() to search for matching simulations
+
 ## v0.7.1 (17Jul24)
 
 - FEAT: Add possiblity to add custom sbatch options when creating sbatch
@@ -54,9 +65,8 @@ This also replaces the "unsafe" json database index we had before.
 
 ## v0.6.2 (02May24)
 
-- FEAT: `Simulation`: Context manager that moves in and out of the simulation path 
+- FEAT: `Simulation`: Context manager that moves in and out of the simulation path
 - FIX: Simulation: `submit` function fixed to work for paralell jobs
-
 
 ## v0.6.1 (26Apr24)
 
@@ -74,9 +84,9 @@ This also replaces the "unsafe" json database index we had before.
 ## v0.6.0 (25Apr24)
 
 - FEAT: Added `extensions`.
-    - `extensions.fenics.FenicsWriter`: optimized writer for FEniCS. Can write a fenics space directly.
-    - `extensions.slurm.install()`: Monkey patches the simulation context
-      manager, storing the slurm job info on Euler.
+  - `extensions.fenics.FenicsWriter`: optimized writer for FEniCS. Can write a fenics space directly.
+  - `extensions.slurm.install()`: Monkey patches the simulation context
+    manager, storing the slurm job info on Euler.
 - FEAT: new utility function `show_differences` to show a DataFrame with only
   the differences between simulations.
 - FIX: `sim.add_global_field` now works if previous steps were not written

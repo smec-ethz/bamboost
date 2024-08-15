@@ -123,13 +123,9 @@ def submit_simulation(args):
 
 def manage_db(args):
     if args.subcommand == "list":
-        with IndexAPI().open():
-            rich.print(
-                pd.read_sql(
-                    f"""SELECT id, submitted, status, time_stamp FROM db_{args.db_id}""",
-                    IndexAPI()._conn,
-                )
-            )
+        rich.print(
+            Manager(uid=args.db_id).df
+        )
     if args.subcommand == "reset":
         with IndexAPI().open():
             IndexAPI()._conn.execute(f"DROP TABLE IF EXISTS db_{args.db_id}")
