@@ -198,9 +198,6 @@ class SimulationWriter(Simulation):
             with self._file("a"):
                 vec = self._file["data"][name][str(self.step)]
                 vec.attrs.update({"center": center, "mesh": mesh, "t": time})
-                # vec.attrs["t"] = time  # add time as attribute to dataset
-                # vec.attrs["mesh"] = mesh  # add link to mesh as attribute
-                # vec.attrs["center"] = center
 
     def dump_intermediate_field(
         self,
