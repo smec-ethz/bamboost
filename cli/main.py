@@ -86,6 +86,7 @@ def main():
     def scan_known_paths(args):
         IndexAPI().scan_known_paths()
         rich.print("Scanned known paths")
+
     function_map["scan"] = scan_known_paths
 
     parser_scan = subparsers.add_parser("scan", help="Scan known paths")  # noqa: F841
@@ -95,8 +96,19 @@ def main():
     # ----------------
     function_map["config"] = open_config
     parser_config = subparsers.add_parser("config", help="Open the config file")
-    parser_config.add_argument("--tui", "-t", action="store_true", help="Open the tui config file")
-    parser_config.add_argument("--functions", "-f", action="store_true", help="Open the tui functions file")
+    parser_config.add_argument(
+        "--tui", "-t", action="store_true", help="Open the tui config file"
+    )
+    parser_config.add_argument(
+        "--functions", "-f", action="store_true", help="Open the tui functions file"
+    )
+
+    # ----------------
+    # New database
+    # ----------------
+    function_map["new"] = create_new_database
+    parser_new = subparsers.add_parser("new", help="Create a new database")
+    parser_new.add_argument("path", type=str, help="Path to the database")
 
     # ----------------
     # Parse
@@ -124,10 +136,20 @@ def submit_simulation(args):
 
 
 def manage_db(args):
+    # test if the database exists
+    df = IndexAPI().read_table()
+    if args.db_id not in df["id"].values:
+        match = df[df["path"].astype(str).str.contains(args.db_id, na=False)].reset_index(drop=True)
+        choice = 0
+        if len(match) > 1:
+            rich.print(
+                f"Database ID {args.db_id} is ambiguous. Possible matches: \n{match.to_string()}"
+            )
+            choice = int(input("Choose one of the above databases to continue: "))
+        args.db_id = match.iloc[choice]["id"]
+
     if args.subcommand == "list":
-        rich.print(
-            Manager(uid=args.db_id).df
-        )
+        rich.print(Manager(uid=args.db_id).df)
     if args.subcommand == "reset":
         with IndexAPI().open():
             IndexAPI()._conn.execute(f"DROP TABLE IF EXISTS db_{args.db_id}")
@@ -157,8 +179,29 @@ def open_config(args):
     import subprocess
 
     if args.tui:
-        subprocess.run([f"{os.environ.get('EDITOR', 'vi')}", f"{_config.paths['CONFIG_DIR']}/tui.toml"])
+        subprocess.run(
+            [
+                f"{os.environ.get('EDITOR', 'vi')}",
+                f"{_config.paths['CONFIG_DIR']}/tui.toml",
+            ]
+        )
     elif args.functions:
-        subprocess.run([f"{os.environ.get('EDITOR', 'vi')}", f"{_config.paths['CONFIG_DIR']}/custom_functions.py"])
+        subprocess.run(
+            [
+                f"{os.environ.get('EDITOR', 'vi')}",
+                f"{_config.paths['CONFIG_DIR']}/custom_functions.py",
+            ]
+        )
     else:
-        subprocess.run([f"{os.environ.get('EDITOR', 'vi')}", f"{_config.paths['CONFIG_FILE']}"])
+        subprocess.run(
+            [f"{os.environ.get('EDITOR', 'vi')}", f"{_config.paths['CONFIG_FILE']}"]
+        )
+
+
+def create_new_database(args):
+    try:
+        path = index.get_uid_from_path(args.path)
+        rich.print(f"Database at {args.path} already exists. ID: {path}")
+    except FileNotFoundError:
+        db = Manager(args.path, create_if_not_exist=True)
+        rich.print(f"Database at {args.path} created. ID: {db.UID}")
