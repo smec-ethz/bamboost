@@ -162,7 +162,7 @@ class Manager:
     def __len__(self) -> int:
         return len(self.all_uids)
 
-    def __iter__(self) -> Generator[Simulation]:
+    def __iter__(self) -> Generator[Simulation, None, None]:
         for sim in self.sims():
             yield sim
 
@@ -452,18 +452,15 @@ class Manager:
                 will be assigned.
             parameters (`dict`): Parameter dictionary. If provided, the parameters will be
                 checked against the existing sims for duplication. Otherwise, they may be
-                specified later with :func:`~bamboost.simulation.SimulationWriter.add_parameters`.
+                specified later with :func:`~bamboost.simulation_writer.SimulationWriter.add_parameters`.
             skip_duplicate_check (`bool`): if True, the duplicate check is skipped.
             prefix (`str`): Prefix for the uid. If not specified, no prefix is used.
             duplicate_action (`str`): how to deal with duplicates.
-            `Replace first duplicate ('r'), Create with altered uid (`c`), Create new with new id (`n`), Abort (`a`)
-             default "prompt" for each duplicate on a case by case basis.
-        Returns:
-            sim (:class:`~bamboost.simulation.SimulationWriter`)
+                `Replace first duplicate ('r'), Create with altered uid (`c`), Create new with new id (`n`), Abort (`a`)
+                 default "prompt" for each duplicate on a case by case basis.
 
         Examples:
             >>> db.create_simulation(parameters={"a": 1, "b": 2})
-            apple
 
             >>> db.create_simulation(uid="my_sim", parameters={"a": 1, "b": 2}, prefix="test")
         """
