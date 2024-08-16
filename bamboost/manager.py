@@ -556,7 +556,7 @@ class Manager:
             else:
                 params[key] = val
 
-        df = self._table.read_table()
+        df = self.df
         matches = self._list_duplicates(params)
         matches = df[df.id.isin(matches)]
         if len(matches) == 0:
