@@ -598,7 +598,7 @@ class Manager:
 
         # get matching rows where all values of the series are equal to the corresponding values in the dataframe
         s = pd.Series(params)
-        match = df.loc[(df[s.keys()] == s).all(axis=1)]
+        match = df.loc[(df[s.keys()].apply(lambda row: (s == row).all(), axis=1))]
         return match.id.tolist()
 
     def _check_duplicate(
