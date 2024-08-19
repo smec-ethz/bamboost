@@ -75,13 +75,14 @@ class FenicsWriter(SimulationWriter):
             dtype=dtype,
             center=center,
         )
+        self._comm.barrier()  # attempt to fix bug (see SimulationWriter add_field)
 
         if self._prank == 0:
             with self._file("a"):
                 vec = self._file["data"][name][str(self.step)]
-                vec.attrs["t"] = time  # add time as attribute to dataset
-                vec.attrs["mesh"] = mesh  # add link to mesh as attribute
-                vec.attrs["center"] = center
+                vec.attrs.update({"center": center, "mesh": mesh, "t": time})
+
+        self._comm.barrier()  # attempt to fix bug (see SimulationWriter add_field)
 
     def dump_intermediate_field(
         self,

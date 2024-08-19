@@ -196,11 +196,19 @@ class SimulationWriter(Simulation):
             time = self.step
 
         self._dump_array(f"data/{name}/{self.step}", vector, dtype=dtype)
+        self._comm.barrier()  # attempt to fix bug (see SimulationWriter add_field)
 
         if self._prank == 0:
             with self._file("a"):
+                # Sometimes this fails with (if simultaneously trying to read the file)
+                # KeyError: 'Unable to synchronously open object (addr overflow, addr = 247903512, size = 328, eoa = 247903240)'
+                # I don't know exactly what is going on.
+                # It could be that some process is still writing and then it's opened again and the dataset doesn't exist properly
+                # OR the other processes try to open the file already for the next time while this one is waiting
                 vec = self._file["data"][name][str(self.step)]
                 vec.attrs.update({"center": center, "mesh": mesh, "t": time})
+
+        self._comm.barrier()  # attempt to fix bug (see SimulationWriter add_field)
 
     def dump_intermediate_field(
         self,
@@ -285,7 +293,9 @@ class SimulationWriter(Simulation):
         """
         self._dump_global_data(f"globals/{name}", value, self.step, dtype=dtype)
 
-    def _dump_global_data(self, location: str, value: Any, step: int, dtype: str = None) -> None:
+    def _dump_global_data(
+        self, location: str, value: Any, step: int, dtype: str = None
+    ) -> None:
         """Dump a global value / array to the file at location `location`.
 
         Args:
