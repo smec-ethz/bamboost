@@ -60,6 +60,9 @@ class SimulationWriter(Simulation):
     def __exit__(self, exc_type, exc_val, exc_tb):
         if exc_type:
             self.change_status(f"Failed [{exc_type.__name__}]")
+            log.error(f"Simulation failed with {exc_type.__name__}: {exc_val}")
+            log.error(exc_tb)
+            raise RuntimeError(f"Simulation failed [Process {self._prank}]")
         self._comm.barrier()
 
     def initialize(self) -> SimulationWriter:
