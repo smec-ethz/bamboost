@@ -246,7 +246,7 @@ def test_altered_uid(temp_manager: Manager):
 def test_find(temp_manager: Manager, params: dict, expected: tuple):
     db = temp_manager
     # mock the database dataframe from sql
-    db._table.read_table = lambda: pd.DataFrame.from_records(
+    db._dataframe = pd.DataFrame.from_records(
         [
             dict(id="1", a=1, b=2),
             dict(id="2", a=1, b=2, c=3),

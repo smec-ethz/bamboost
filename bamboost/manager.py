@@ -557,7 +557,7 @@ class Manager:
                 params[key] = val
 
         df = self.df
-        matches = self._list_duplicates(params)
+        matches = self._list_duplicates(params, df=df)
         matches = df[df.id.isin(matches)]
         if len(matches) == 0:
             return matches
@@ -567,13 +567,18 @@ class Manager:
 
         return matches
 
-    def _list_duplicates(self, parameters: dict) -> list[str]:
+    def _list_duplicates(
+        self, parameters: dict, *, df: pd.DataFrame = None
+    ) -> list[str]:
         """List ids of duplicates of the given parameters.
 
         Args:
             parameters (dict): parameter dictionary
+            df (pd.DataFrame): dataframe to search in. If not provided, the
+                dataframe from the sql database is used.
         """
-        df: pd.DataFrame = self._table.read_table()
+        if df is None:
+            df: pd.DataFrame = self._table.read_table()
         params = flatten_dict(parameters)
 
         class ComparableIterable:
