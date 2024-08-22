@@ -164,6 +164,12 @@ class FenicsWriter(SimulationWriter):
             func, "function_space"
         ), "Input is likely an indexed coefficient. Project to it's own function space first."
 
+        # Project to CG1 if necessary
+        if func.ufl_element().degree() != 1:
+            func = fe.project(
+                func, fe.FunctionSpace(func.function_space().mesh(), "CG", 1)
+            )
+
         mesh = func.function_space().mesh()
         global_size = mesh.num_entities_global(0)
         shape = (-1, *func.ufl_shape) if func.ufl_shape else (-1,)
