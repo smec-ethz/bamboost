@@ -563,7 +563,7 @@ class Manager:
             return matches
 
         for key, func in filters.items():
-            matches = matches[func(matches[key])]
+            matches = matches[matches[key].apply(func)]
 
         return matches
 

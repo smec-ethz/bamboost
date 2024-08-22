@@ -12,7 +12,7 @@ from __future__ import annotations
 import datetime
 import os
 import shutil
-from typing import Any, Dict, Union
+from typing import Any, Dict, Literal, Tuple, Union
 
 import numpy as np
 from typing_extensions import deprecated
@@ -175,7 +175,7 @@ class SimulationWriter(Simulation):
         time: float = None,
         mesh: str = None,
         dtype: str = None,
-        center: str = "Node",
+        center: Literal["Node", "Cell"] = "Node",
     ) -> None:
         """Add a dataset to the file. The data is stored at `data/`.
 
@@ -270,18 +270,23 @@ class SimulationWriter(Simulation):
 
     def add_fields(
         self,
-        fields: Dict[str, np.array],
+        fields: Dict[str, np.ndarray | Tuple[np.ndarray, str]],
         time: float = None,
         mesh: str = None,
     ) -> None:
         """Add multiple fields at once.
 
         Args:
-            fields: Dictionary with fields
+            fields: Dictionary with fields. The value can be a tuple with the
+                data and a string "Node" or "Cell".
             time: Optional. time
         """
-        for name, vector in fields.items():
-            self.add_field(name, vector, time, mesh)
+        for key, value in fields.items():
+            if isinstance(value, tuple):
+                vector, center = value
+            else:
+                vector, center = value, "Node"
+            self.add_field(key, vector, time, mesh, center=center)
 
     def add_global_field(self, name: str, value: Any, dtype: str = None) -> None:
         """Add a gobal field. These are stored at `globals/` as an array in a
