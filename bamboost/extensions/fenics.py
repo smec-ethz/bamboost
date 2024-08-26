@@ -10,7 +10,7 @@
 from __future__ import annotations
 
 from contextlib import contextmanager
-from typing import Literal
+from typing import Literal, TypedDict
 
 import numpy as np
 
@@ -117,7 +117,12 @@ class FenicsWriter(SimulationWriter):
             )
             vec[global_map] = vector
 
-    def _get_global_dofs(self, func: fe.Function) -> dict:
+    class FenicsFieldInformation(TypedDict):
+        vector: np.ndarray
+        global_map: np.ndarray
+        global_size: int
+
+    def _get_global_dofs(self, func: fe.Function) -> FenicsFieldInformation:
         """
         Get global dofs for a given function.
 
@@ -167,7 +172,7 @@ class FenicsWriter(SimulationWriter):
             "global_size": global_size,
         }
 
-    def _get_global_dofs_cell_data(self, func: fe.Function) -> dict:
+    def _get_global_dofs_cell_data(self, func: fe.Function) -> FenicsFieldInformation:
         """
         Get global dofs for a given function.
 
