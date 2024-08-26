@@ -210,33 +210,6 @@ class SimulationWriter(Simulation):
 
         self._comm.barrier()  # attempt to fix bug (see SimulationWriter add_field)
 
-    def dump_intermediate_field(
-        self,
-        name: str,
-        sub_step: int,
-        arr: np.array,
-        dtype: str = None,
-        attrs: dict = None,
-    ) -> None:
-        """Dump an intermediate field to the file. The data is stored at
-        `data/<name>/<step>_intermediates/<sub_step>`.
-
-        Args:
-            name: Name of the field
-            sub_step: Sub-step number
-            arr: Array to dump
-            dtype: Optional. Numpy style datatype, see h5py documentation,
-            attrs: Optional. Additional attributes to store.
-        """
-        location = f"data/{name}/{self.step}_intermediates/{sub_step}"
-        self._dump_array(location, arr, dtype=dtype)
-
-        if attrs:
-            if self._prank == 0:
-                with self._file("a"):
-                    vec = self._file[location]
-                    vec.attrs.update(attrs)
-
     def _dump_array(self, location: str, arr: np.ndarray, dtype: str = None) -> None:
         """Dump an array to the file. Correctly patch together multi-rank arrays.
 

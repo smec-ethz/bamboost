@@ -84,36 +84,6 @@ class FenicsWriter(SimulationWriter):
 
         self._comm.barrier()  # attempt to fix bug (see SimulationWriter add_field)
 
-    def dump_intermediate_field(
-        self,
-        name: str,
-        sub_step: int,
-        func: fe.Function,
-        center: Literal["Node", "Cell"] = "Node",
-        dtype: str = None,
-        attrs: dict = None,
-    ) -> None:
-        """Dump an intermediate field to the file. The data is stored at
-        `data/<name>/<step>_intermediates/<sub_step>`.
-
-        Args:
-            name: Name of the field
-            sub_step: Sub-step number
-            func: FEniCS function to store
-            center: Optional. Center of the data. Can be 'Node' or 'Cell'.
-                Default is 'Node'.
-            dtype: Optional. Numpy style datatype, see h5py documentation,
-            attrs: Optional. Additional attributes to store.
-        """
-        location = f"data/{name}/{self.step}_intermediates/{sub_step}"
-        self._dump_fenics_field(location, func, dtype=dtype, center=center)
-
-        if attrs:
-            if self._prank == 0:
-                with self._file("a"):
-                    vec = self._file[location]
-                    vec.attrs.update(attrs)
-
     def _dump_fenics_field(
         self,
         location: str,
