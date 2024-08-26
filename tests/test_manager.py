@@ -213,12 +213,13 @@ def test_duplicates_lists(temp_manager: Manager):
 def test_replace_duplicates(temp_manager: Manager):
     db = temp_manager
     params1 = dict(a=[1, 2, 3])
-    db.create_simulation(parameters=params1)
+    db.create_simulation("1", parameters=params1)
     assert len(db.df) == 1
 
-    db.create_simulation(parameters=params1, duplicate_action="r")
-    db.get_view()
+    db.create_simulation("2", parameters=params1, duplicate_action="r")
     assert len(db.df) == 1
+    assert db._get_uids()[0] == "2"
+
 
 def test_altered_uid(temp_manager: Manager):
     db = temp_manager
