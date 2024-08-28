@@ -35,13 +35,12 @@ class Job:
         path: str,
         uid: str = None,
         db_id: str = None,
-        nnodes: int = 1,
-        ntasks: int = 4,
-        ncpus: int = 1,
         time: str = "04:00:00",
         mem_per_cpu: int = 2048,
         tmp: int = None,
         sbatch_kwargs: list = None,
+        mpicommand: str ="",
+
     ) -> None:
         """Write sbatch script for new simulation.
 
@@ -55,30 +54,20 @@ class Job:
             path (str): Path to the database directory.
             uid (str): Unique identifier of the simulation.
             db_id (str): Database ID. Defaults to None.
-            nnodes (int): Number of nodes. Defaults to 1.
-            ntasks (int): Number of tasks. Defaults to 4.
-            ncpus (int): Number of cpus. Defaults to 1.
             time (str): Time limit. Defaults to "04:00:00".
             mem_per_cpu (int): Memory per cpu. Defaults to 2048.
             tmp (int): Temporary space.
             sbatch_kwargs (list): Additional sbatch arguments. allow to provide
                 additional sbatch arguments. in the format ["--mail=BEGIN,END,FAIL", ...].
+                use it to specify the number of tasks cpu cores etc... in an mpi job
+            mpicommand (str): replace the format group {MPI} in the jobscript with this command,
+            allowing to change between mpirun, srun etc... or providing debugging option like -xterm.
+            i.e. one of the commands is "{MPI} python3 ..."
         """
-        nb_tasks_per_node = int(ntasks / nnodes)
 
-        # define how mpirun is called
-        mpicommand = ""
-        if ntasks > 1:
-            mpicommand = "mpirun "
 
         script = "#!/bin/bash\n\n"
 
-        # sbatch commands
-        script += f"#SBATCH --ntasks={ntasks}\n"
-        if ntasks > 1:
-            script += f"#SBATCH --nodes={nnodes}\n"
-            script += f"#SBATCH --cpus-per-task={ncpus}\n"
-            script += f"#SBATCH --ntasks-per-node={nb_tasks_per_node}\n"
         script += f"#SBATCH --time={time}\n"
         script += f"#SBATCH --job-name={db_id}:{uid}\n"
         script += f"#SBATCH --mem-per-cpu={mem_per_cpu}\n"
@@ -107,7 +96,7 @@ class Job:
             file.write(script)
 
     def create_bash_script_local(
-        self, commands: list, path: str, uid: str, db_id: str = None, ntasks: int = 4
+        self, commands: list, path: str, uid: str, db_id: str = None, mpicommand: str = ""
     ) -> None:
         """Write bash script for local execution.
 
@@ -121,13 +110,10 @@ class Job:
             path (str): Path to the database directory.
             uid (str): Unique identifier of the simulation.
             db_id (str): Database ID. Defaults to None.
-            ntasks (int): Number of tasks. Defaults to 4.
+            mpicommand (str): replace the string MPI in the bashscript with this command, e.g. mpirun -np 4.
+            Default "" (no mpi)
         """
 
-        # define how mpirun is called
-        mpicommand = ""
-        if ntasks > 1:
-            mpicommand = f"mpirun -n {ntasks}"
 
         script = f"#!/bin/bash\n\n"
 
@@ -147,9 +133,6 @@ if __name__ == "__main__":
     parser.add_argument("file_to_run", type=str)
     # parser.add_argument('input_file', type=str)
     parser.add_argument("--uid", type=str, default=None)
-    parser.add_argument("--nodes", type=int, default=1)
-    parser.add_argument("--ntasks", type=int, default=4)
-    parser.add_argument("--ncpus", type=int, default=1)
     parser.add_argument("--time", type=str, default="04:00:00")
     parser.add_argument("--mem_per_cpu", type=int, default=2048)
     args = parser.parse_args()
@@ -158,9 +141,6 @@ if __name__ == "__main__":
     job.create_sbatch_script(
         [args.file_to_run],
         args.uid,
-        args.nodes,
-        args.ntasks,
-        args.ncpus,
         args.time,
         args.mem_per_cpu,
     )

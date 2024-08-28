@@ -14,6 +14,7 @@ import pkgutil
 import subprocess
 from contextlib import contextmanager
 from typing import Any, Iterable, Tuple
+import time
 
 import numpy as np
 import pandas as pd
@@ -378,14 +379,12 @@ class Simulation:
     def create_run_script(
         self,
         commands: list = None,
-        nnodes: int = 1,
-        ntasks: int = 4,
-        ncpus: int = 1,
         time: str = "04:00:00",
         mem_per_cpu: int = 2048,
         tmp=None,
         euler: bool = True,
         sbatch_kwargs: list = None,
+        mpicommand: str = "",
     ) -> None:
         """Create a batch job and put it into the folder.
 
@@ -409,13 +408,11 @@ class Simulation:
                 path=os.path.abspath(self.path_database),
                 uid=self.uid,
                 db_id=self.database_id,
-                nnodes=nnodes,
-                ntasks=ntasks,
-                ncpus=ncpus,
                 time=time,
                 mem_per_cpu=mem_per_cpu,
                 tmp=tmp,
                 sbatch_kwargs=sbatch_kwargs,
+                mpicommand=mpicommand,
             )
         else:
             job.create_bash_script_local(
@@ -423,7 +420,7 @@ class Simulation:
                 path=os.path.abspath(self.path_database),
                 uid=self.uid,
                 db_id=self.database_id,
-                ntasks=ntasks,
+                mpicommand=mpicommand,
             )
         with self._file("a") as file:
             file.attrs.update({"submitted": False})

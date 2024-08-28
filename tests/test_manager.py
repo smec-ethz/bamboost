@@ -205,6 +205,8 @@ def test_duplicates_lists(temp_manager: Manager):
     db.create_simulation(parameters=params2, duplicate_action="c")
     assert len(db._list_duplicates(params2)) == 1
 
+
+
     # We do not plan to support sets
 
 
@@ -255,3 +257,5 @@ def test_find(temp_manager: Manager, params: dict, expected: tuple):
 
     assert isinstance(db.find(params), pd.DataFrame)
     assert set(db.find(params).id) == set(expected)
+
+

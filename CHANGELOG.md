@@ -1,5 +1,9 @@
 # Change log for bamboost
 
+## v0.7.4 (26Aug24)
+- API: sbatch jobs: removed default settings concerning MPI (sbatch will select the defaults).
+  Starting from now, MPI related parameters (e.g. ntasts) have to be specified via `sbatch_kwargs` 
+
 ## v0.7.3 (13Aug24)
 
 - FIX: fixed bug in manager that dataframe can't be displayed if one of the
