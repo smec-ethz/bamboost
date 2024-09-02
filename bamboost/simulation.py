@@ -14,20 +14,18 @@ import pkgutil
 import subprocess
 from contextlib import contextmanager
 from typing import Any, Iterable, Tuple
-import time
 
 import numpy as np
 import pandas as pd
 from typing_extensions import Self, deprecated
 
 from bamboost import BAMBOOST_LOGGER, index
-from bamboost._config import config
+from bamboost._config import config, paths
 from bamboost.accessors.fielddata import DataGroup
 from bamboost.accessors.globals import GlobalGroup
 from bamboost.accessors.meshes import MeshGroup
 from bamboost.common import hdf_pointer, utilities
 from bamboost.common.file_handler import FileHandler, with_file_open
-from bamboost.common.job import Job
 from bamboost.common.mpi import MPI
 from bamboost.xdmf import XDMFWriter
 
@@ -378,52 +376,71 @@ class Simulation:
 
     def create_run_script(
         self,
-        commands: list = None,
-        time: str = "04:00:00",
-        mem_per_cpu: int = 2048,
-        tmp=None,
+        commands: list[str],
         euler: bool = True,
-        sbatch_kwargs: list = None,
-        mpicommand: str = "",
+        sbatch_kwargs: dict[str, Any] = None,
     ) -> None:
         """Create a batch job and put it into the folder.
 
         Args:
             commands: A list of strings being the user defined commands to run
-            nnodes: nb of nodes (default=1)
-            ntasks: nb of tasks (default=4)
-            ncpus: nb of cpus per task (default=1)
-            time: requested time, format "HH:MM:SS" (default=4 hours)
-            mem_per_cpu: memory (default=2048)
-            tmp: temporary storage, set None to exclude option (default=8000)
             euler: If false, a local bash script will be written
-            sbatch_kwargs: Additional sbatch arguments. allow to provide
-                additional sbatch arguments. in the format ["--mail=BEGIN,END,FAIL", ...].
-        """
-        job = Job()
+            sbatch_kwargs: Additional sbatch arguments.
+                This parameter allows you to provide additional arguments to the `sbatch` command
+                when submitting jobs to a Slurm workload manager. The arguments should be provided
+                in the format of a dict of sbatch option name and values.
 
+                Use this parameter to specify various job submission options such as the number of
+                tasks, CPU cores, memory requirements, email notifications, and other sbatch options
+                that are not covered by default settings.
+                By default, the following sbatch options are set:
+                - `--output`: The output file is set to `<uid>.out`.
+                - `--job-name`: The job name is set to `<full_uid>`.
+
+                The following arguments should bring you far:
+                - `--ntasks`: The number of tasks to run. This is the number of MPI processes to start.
+                - `--mem-per-cpu`: The memory required per CPU core.
+                - `--time`: The maximum time the job is allowed to run.
+                - `--tmp`: Temporary scratch space to use for the job.
+        """
+        def _set_environment_variables():
+            return (
+                f"""DATABASE_DIR=$(sqlite3 {paths['DATABASE_FILE']} "SELECT path FROM dbindex WHERE id='{self.database_id}'")\n"""
+                f"SIMULATION_DIR=$DATABASE_DIR/{self.uid}\n"
+                f"SIMULATION_ID={self.database_id}:{self.uid}\n\n"
+            )
+
+        script = "#!/bin/bash\n\n"
         if euler:
-            job.create_sbatch_script(
-                commands,
-                path=os.path.abspath(self.path_database),
-                uid=self.uid,
-                db_id=self.database_id,
-                time=time,
-                mem_per_cpu=mem_per_cpu,
-                tmp=tmp,
-                sbatch_kwargs=sbatch_kwargs,
-                mpicommand=mpicommand,
-            )
+            # Write sbatch submission script for EULER
+            # filename: sbatch_{self.uid}.sh
+            if sbatch_kwargs is None:
+                sbatch_kwargs = {}
+
+            sbatch_kwargs.setdefault("--output", f"{self.path}/{self.uid}.out")
+            sbatch_kwargs.setdefault("--job-name", self.get_full_uid())
+
+            for key, value in sbatch_kwargs.items():
+                script += f"#SBATCH {key}={value}\n"
+
+            script += "\n"
+            script += _set_environment_variables()
+            script += "\n".join(commands)
+
+            with open(self.files(f"sbatch_{self.uid}.sh"), "w") as file:
+                file.write(script)
         else:
-            job.create_bash_script_local(
-                commands,
-                path=os.path.abspath(self.path_database),
-                uid=self.uid,
-                db_id=self.database_id,
-                mpicommand=mpicommand,
-            )
+            # Write local bash script
+            # filename: {self.uid}.sh
+            script += _set_environment_variables()
+            script += "\n".join(commands)
+
+            with open(self.files(f"{self.uid}.sh"), "w") as file:
+                file.write(script)
+
         with self._file("a") as file:
             file.attrs.update({"submitted": False})
+        self._push_update_to_sqlite({"submitted": False})
 
     @deprecated("use `create_run_script` instead")
     def create_batch_script(self, *args, **kwargs):
