@@ -394,8 +394,8 @@ class Simulation:
                 tasks, CPU cores, memory requirements, email notifications, and other sbatch options
                 that are not covered by default settings.
                 By default, the following sbatch options are set:
-                - `--output`: The output file is set to `self.uid.out`, where `self.uid` is a unique identifier for the job.
-                - `--job-name`: The job name is set to `self.uid`.
+                - `--output`: The output file is set to `<uid>.out`.
+                - `--job-name`: The job name is set to `<full_uid>`.
 
                 The following arguments should bring you far:
                 - `--ntasks`: The number of tasks to run. This is the number of MPI processes to start.
