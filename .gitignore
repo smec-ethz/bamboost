@@ -1,3 +1,4 @@
+# file types
 *.pdf
 *.py~
 *.*~
@@ -6,15 +7,17 @@
 *build*
 make.bat
 Makefile
+
+# directories
 out/
 database*/
 *.egg-info*
-dbmanager.wiki
 *.vscode*
 dist/
 docs/
-frontend/
-extract-docs/
 tests/_out
 tests/*.ipynb
+
+# specific files
 .coverage
+bamboost/_version.py
