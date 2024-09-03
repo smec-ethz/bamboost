@@ -1,5 +1,19 @@
 # Change log for bamboost
 
+## v0.7.4dev (02Sep24)
+
+- API: add method add_fields to add a dictionary of key, array pairs to the
+  simulation
+- API: add method add_global_fields to add a dictionary of key, value pairs to
+  the simulation
+- API (breaking): sim.mesh returns the default Mesh group instead of a tuple
+  with coordinates and connectivity.
+- API: create_simulation now takes additional kwargs: note, files (to copy), and
+  links (to link)
+- ENH: split the add_field method to have access to a lower level _dump_array
+  method which can be used to write data to any desired location in the hdf5
+  file.
+
 ## v0.7.4 (03Sep24)
 
 - FEAT: `Manager.sims` select argument now accepts a dictionary to filter for
