@@ -389,7 +389,7 @@ class Manager:
 
     def sims(
         self,
-        select: pd.Series | pd.DataFrame = None,
+        select: pd.Series | pd.DataFrame | dict = None,
         sort: str = None,
         reverse: bool = False,
         exclude: set = None,
@@ -399,8 +399,10 @@ class Manager:
         given selection using pandas.
 
         Args:
-            select (`pd.Series`): pandas boolean series or pandas DataFrame
-                (being a subset of the full dataframe)
+            select: Selection of simulations. Can be one of the following.
+                - Pandas boolean series: A boolean series with the same length as the dataframe.
+                - Pandas DataFrame: A subset of the full dataframe.
+                - Dictionary: A dictionary with the parameters to select (see `find` for details).
             sort (`str`): Optionally sort the list with this keyword
             reverse (`bool`): swap sort direction
             exclude (`list[str]`): sims to exclude
@@ -419,6 +421,8 @@ class Manager:
             id_list = select["id"].values
         elif isinstance(select, pd.Series):
             id_list = self.df[select]["id"].values
+        elif isinstance(select, dict):
+            id_list = self.find(select)["id"].values
         else:
             raise ArgumentError('Invalid argument for argument "select"')
 

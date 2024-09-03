@@ -1,5 +1,10 @@
 # Change log for bamboost
 
+## v0.7.4 (03Sep24)
+
+- FEAT: `Manager.sims` select argument now accepts a dictionary to filter for
+  simulations. If select is a dictionary, `Manager.find` is called to find
+  matches.
 
 ## v0.7.3 (26Aug24)
 
