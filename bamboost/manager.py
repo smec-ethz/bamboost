@@ -456,12 +456,22 @@ class Manager:
                 will be assigned.
             parameters (`dict`): Parameter dictionary. If provided, the parameters will be
                 checked against the existing sims for duplication. Otherwise, they may be
-                specified later with :func:`~bamboost.simulation_writer.SimulationWriter.add_parameters`.
+                specified later with `bamboost.simulation_writer.SimulationWriter.add_parameters`.
+                Note:
+                    The parameters are stored in the h5 file as attributes.
+                    - If the value is a dict, it is flattened using
+                      `bamboost.common.utilities.flatten_dict`.
+                    - If the value is a list/array, it is stored as a dataset.
             skip_duplicate_check (`bool`): if True, the duplicate check is skipped.
             prefix (`str`): Prefix for the uid. If not specified, no prefix is used.
             duplicate_action (`str`): how to deal with duplicates.
                 `Replace first duplicate ('r'), Create with altered uid (`c`), Create new with new id (`n`), Abort (`a`)
                  default "prompt" for each duplicate on a case by case basis.
+
+        Note:
+            The files and links are copied to the simulation directory. The files are
+            copied with the same name as the original file. The links are copied with
+            the given name.
 
         Examples:
             >>> db.create_simulation(parameters={"a": 1, "b": 2})

@@ -112,6 +112,10 @@ class SimulationWriter(Simulation):
     ) -> None:
         """Add the mesh to file. Currently only 2d meshes.
 
+        Note:
+            If you are working with FEniCS, you can use the
+            `bamboost.extensions.fenics.FenicsWriter` writer. With it you can
+            write the FEniCS mesh directly.
         Args:
             coordinates: Coordinates as array (nb_nodes, dim)
             connectivity: Connectivity matrix (nb_cells, nb nodes per cell)
