@@ -202,6 +202,7 @@ class SimulationWriter(Simulation):
             with self._file("a"):
                 # Sometimes this fails with (if simultaneously trying to read the file)
                 # KeyError: 'Unable to synchronously open object (addr overflow, addr = 247903512, size = 328, eoa = 247903240)'
+                # KeyError: 'Unable to synchronously open object (len not positive after adjustment for EOA)'
                 # I don't know exactly what is going on.
                 # It could be that some process is still writing and then it's opened again and the dataset doesn't exist properly
                 # OR the other processes try to open the file already for the next time while this one is waiting
