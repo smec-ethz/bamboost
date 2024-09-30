@@ -7,12 +7,13 @@
 #
 # There is no warranty for this code
 
-"""Utility functions used by bamboost.
-"""
+"""Utility functions used by bamboost."""
 
+from argparse import ArgumentParser
 from collections.abc import MutableMapping
 from itertools import islice
 from pathlib import Path
+from typing import NamedTuple
 
 import h5py
 import pandas as pd
@@ -67,7 +68,7 @@ def tree(
     dir_path = Path(dir_path)  # accept string coerceable to Path
     files = 0
     directories = 0
-    folder_symbol = "\U00002B57 "
+    folder_symbol = "\U00002b57 "
 
     def inner(dir_path: Path, prefix: str = "", level=-1):
         nonlocal files, directories
@@ -80,7 +81,7 @@ def tree(
         pointers = [tee] * (len(contents) - 1) + [last]
         for pointer, path in zip(pointers, contents):
             if path.is_dir():
-                yield prefix + pointer + "\U000025CC " + path.name
+                yield prefix + pointer + "\U000025cc " + path.name
                 directories += 1
                 extension = branch if pointer == tee else space
                 yield from inner(path, prefix=prefix + extension, level=level - 1)
@@ -154,7 +155,7 @@ def show_differences(df: pd.DataFrame) -> pd.DataFrame:
         try:
             nunique = df_diff[col].nunique()
             cols_nunique_good.append((col, nunique))
-        except Exception as e:
+        except Exception:
             try:
                 df_diff[col] = df_diff[col].apply(json.dumps)
                 nunique = df_diff[col].nunique()
@@ -163,7 +164,7 @@ def show_differences(df: pd.DataFrame) -> pd.DataFrame:
                 cols_nunique_error.append((col, e))
 
     df_diff = df_diff[
-        df_diff.columns[~df_diff.columns.isin([col for col, _, in cols_nunique_error])]
+        df_diff.columns[~df_diff.columns.isin([col for col, _ in cols_nunique_error])]
     ]
     try:
         df_diff.set_index("id", inplace=True)
@@ -178,3 +179,47 @@ def to_camel_case(s: str) -> str:
     words = s.split()
     camel_case = words[0].lower() + "".join([word.capitalize() for word in words[1:]])
     return camel_case
+
+
+JobArguments = NamedTuple(
+    "JobArguments", [("db_path", Path), ("name", str), ("submit", bool)]
+)
+ScriptArguments = NamedTuple("ScriptArguments", [("simulation", str)])
+
+
+def parse_job_arguments() -> JobArguments:
+    """Parse command-line arguments for submitting a job to a bamboost database.
+
+    Returns:
+        JobArguments: A named tuple containing the parsed arguments.
+    """
+    parser = ArgumentParser(description="Submit a job to a bamboost database")
+
+    # Add the database path argument
+    parser.add_argument("db_path", type=Path, help="Path to the bamboost database")
+    # Add the name argument as optional
+    parser.add_argument("name", type=str, nargs="?", help="Name of the simulation")
+    # Add the submit flag as optional
+    parser.add_argument("--submit", "-s", help="Submit the job", action="store_true")
+
+    args = parser.parse_args()
+
+    return JobArguments(db_path=args.db_path, name=args.name, submit=args.submit)
+
+
+def parse_script_arguments() -> ScriptArguments:
+    """Parse command-line arguments for a script using the bamboost system.
+
+    Returns:
+        ScriptArguments: A named tuple containing the parsed arguments.
+    """
+    parser = ArgumentParser(description="Submit a job to a bamboost database")
+
+    # Add the simulation UID argument
+    parser.add_argument(
+        "--simulation", type=str, help="UID of the simulation", required=True
+    )
+
+    args = parser.parse_args()
+
+    return ScriptArguments(simulation=args.simulation)
