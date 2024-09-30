@@ -498,33 +498,45 @@ class Manager:
                 uid = "_".join([prefix, uid])
         uid = self.comm.bcast(uid, root=0)
 
-        # Create directory and h5 file
-        if self.comm.rank == 0:
-            os.makedirs(os.path.join(self.path, uid), exist_ok=True)
-            path_to_h5_file = os.path.join(self.path, uid, f"{uid}.h5")
-            if os.path.exists(path_to_h5_file):
-                os.remove(path_to_h5_file)
-            h5py.File(path_to_h5_file, "a").close()  # create file
+        try:
+            # Create directory and h5 file
+            if self.comm.rank == 0:
+                os.makedirs(os.path.join(self.path, uid), exist_ok=True)
+                path_to_h5_file = os.path.join(self.path, uid, f"{uid}.h5")
+                if os.path.exists(path_to_h5_file):
+                    os.remove(path_to_h5_file)
+                h5py.File(path_to_h5_file, "a").close()  # create file
 
-        new_sim = SimulationWriter(uid, self.path, self.comm)
-        new_sim.initialize()  # sets metadata and status
-        # add the id to the (fixed) _all_uids list
-        if hasattr(self, "_all_uids"):
-            self._all_uids.append(new_sim.uid)
+            new_sim = SimulationWriter(uid, self.path, self.comm)
+            new_sim.initialize()  # sets metadata and status
+            # add the id to the (fixed) _all_uids list
+            if hasattr(self, "_all_uids"):
+                self._all_uids.append(new_sim.uid)
 
-        # Add parameters, note, files, and links
-        if not any([parameters, note, files, links]):
+            # Add parameters, note, files, and links
+            if not any([parameters, note, files, links]):
+                return new_sim
+
+            with new_sim._file("r+"):
+                if parameters:
+                    new_sim.add_parameters(parameters)
+                if note:
+                    new_sim.change_note(note)
+                if files:
+                    new_sim.copy_file(files)
+                if links:
+                    [
+                        new_sim.links.__setitem__(name, uid)
+                        for name, uid in links.items()
+                    ]
+
             return new_sim
-        with new_sim._file("r+"):
-            if parameters:
-                new_sim.add_parameters(parameters)
-            if note:
-                new_sim.change_note(note)
-            if files:
-                new_sim.copy_file(files)
-            if links:
-                [new_sim.links.__setitem__(name, uid) for name, uid in links.items()]
-        return new_sim
+
+        except Exception as e:
+            # If any error occurs, remove the partially created simulation
+            if self.comm.rank == 0:
+                self.remove(uid)
+            raise e  # Re-raise the exception after cleanup
 
     def remove(self, uid: str) -> None:
         """CAUTION, DELETING DATA. Remove the data of a simulation.
@@ -533,6 +545,7 @@ class Manager:
             uid (`str`): uid
         """
         shutil.rmtree(os.path.join(self.path, uid))
+        self._table.sync()
 
     def find(self, parameter_selection: dict[str, Any]) -> pd.DataFrame:
         """Find simulations with the given parameters.
