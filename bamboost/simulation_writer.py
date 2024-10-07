@@ -159,7 +159,7 @@ class SimulationWriter(Simulation):
                 del self._file.file_object[mesh_location]
             grp = f.require_group(mesh_location)
             coord = grp.require_dataset(
-                "geometry", shape=coord_shape, dtype=coordinates.dtype
+                "coordinates", shape=coord_shape, dtype=coordinates.dtype
             )
             conn = grp.require_dataset(
                 "topology", shape=conn_shape, dtype=connectivity.dtype
