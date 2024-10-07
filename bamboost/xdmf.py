@@ -10,8 +10,7 @@
 import os
 import xml.etree.ElementTree as ET
 
-import h5py
-import numpy as np
+from bamboost.common.file_handler import FileHandler
 
 __all__ = ["XDMFWriter"]
 
@@ -37,9 +36,10 @@ class XDMFWriter:
         filename (str): xdmf file path
         h5file (str): h5 file path"""
 
-    def __init__(self, filename: str, h5file: str):
+    def __init__(self, filename: str, _file: FileHandler):
         self.filename = filename
-        self.h5file = h5file
+        self._file = _file
+        self.h5file = os.path.basename(_file.file_name)
         self.xdmf_file = ET.Element("Xdmf", Version="3.0")
         self.domain = ET.SubElement(self.xdmf_file, "Domain")
         ET.register_namespace("xi", "https://www.w3.org/2001/XInclude/")
@@ -80,7 +80,9 @@ class XDMFWriter:
 
     def _points(self, grid: ET.Element, points_location: str):
         geometry_type = "XY"
-        with h5py.File(self.h5file, "r") as f:
+
+        with self._file("r") as _f:
+            f = _f.file_object
             points = f[points_location]
             geo = ET.SubElement(grid, "Geometry", GeometryType=geometry_type)
             dt, prec = numpy_to_xdmf_dtype[points.dtype.name]
@@ -93,11 +95,11 @@ class XDMFWriter:
                 Format="HDF",
                 Precision=prec,
             )
-            h5file_name = os.path.split(self.h5file)[1]
-            data_item.text = f"{h5file_name}:/{points_location}"
+            data_item.text = f"{self.h5file}:/{points_location}"
 
     def _cells(self, grid: ET.Element, cells_location: str):
-        with h5py.File(self.h5file, "r") as f:
+        with self._file("r") as _f:
+            f = _f.file_object
             cells = f[cells_location]
             nb_cells = cells.shape[0]
             topo = ET.SubElement(
@@ -116,8 +118,7 @@ class XDMFWriter:
                 Format="HDF",
                 Precision=prec,
             )
-            h5file_name = os.path.split(self.h5file)[1]
-            data_item.text = f"{h5file_name}:/{cells_location}"
+            data_item.text = f"{self.h5file}:/{cells_location}"
 
     def add_timeseries(self, steps: int, fields: list):
         collection = ET.SubElement(
@@ -139,7 +140,8 @@ class XDMFWriter:
             data_location (str): String to data in h5 file
             name (str): Name for the field in the Xdmf file
         """
-        with h5py.File(self.h5file, "r") as f:
+        with self._file("r") as _f:
+            f = _f.file_object
             grid = ET.SubElement(collection, "Grid")
             ptr = f'xpointer(//Grid[@Name="{self.mesh_name}"]/*[self::Topology or self::Geometry])'
 
@@ -157,7 +159,8 @@ class XDMFWriter:
         self, grid: ET.Element, field_name: str, name: str, step: int
     ) -> None:
         """Write an attribute/field."""
-        with h5py.File(self.h5file, "r") as f:
+        with self._file("r") as _f:
+            f = _f.file_object
             data = f[f"data/{field_name}/{step}"]
 
             if data.ndim == 1 or data.shape[1] <= 1:
@@ -192,5 +195,4 @@ class XDMFWriter:
                 Format="HDF",
                 Precision=prec,
             )
-            h5file_name = os.path.split(self.h5file)[1]
-            data_item.text = f"{h5file_name}:/data/{field_name}/{step}"
+            data_item.text = f"{self.h5file}:/data/{field_name}/{step}"

@@ -13,7 +13,7 @@ import os
 import pkgutil
 import subprocess
 from contextlib import contextmanager
-from typing import Iterable, Tuple
+from typing import Any, Iterable, Tuple
 
 import numpy as np
 import pandas as pd
@@ -370,15 +370,18 @@ class Simulation:
                     else "coordinates"
                 )
 
-            xdmf_writer = XDMFWriter(self.xdmffile, self.h5file)
-            xdmf_writer.write_points_cells(
-                f"{self._mesh_location}/{self._default_mesh}/{coords_name}",
-                f"{self._mesh_location}/{self._default_mesh}/topology",
-            )
+            with self._file("r"):
+                xdmf_writer = XDMFWriter(self.xdmffile, self._file)
+                xdmf_writer.write_points_cells(
+                    f"{self._mesh_location}/{self._default_mesh}/{coords_name}",
+                    f"{self._mesh_location}/{self._default_mesh}/topology",
+                )
 
-            if fields:
-                xdmf_writer.add_timeseries(nb_steps + 1, fields)
-            xdmf_writer.write_file()
+                if fields:
+                    xdmf_writer.add_timeseries(nb_steps + 1, fields)
+                xdmf_writer.write_file()
+
+        self._comm.barrier()
 
     def create_run_script(
         self,
