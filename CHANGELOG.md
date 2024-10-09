@@ -1,5 +1,30 @@
 # Change log for bamboost
 
+## v0.8.0 (09Oct24)
+
+- API (breaking): sim.mesh returns the default Mesh group instead of a tuple
+  with coordinates and connectivity.
+- API: add method add_fields to add a dictionary of key, array pairs to the
+  simulation
+- API: add method add_global_fields to add a dictionary of key, value pairs to
+  the simulation
+- API: create_simulation now takes additional kwargs: note, files (to copy), and
+  links (to link)
+- API: Group.extract_attrs() returns a dictionary of all attributes of all
+  members of the group
+- API: in mesh, renamed "geometry" to "coordinates" (consistent with Fenics).
+  For backwards compatibility, "geometry" is still compatible.
+- FEAT: added default argparse parsers in utility module
+- ENH: split the add_field method to have access to a lower level _dump_array
+  method which can be used to write data to any desired location in the hdf5
+  file.
+- ENH: create_simulation now deletes partially created simulations if an error
+  occurs during creation
+- ENH: some updates to the remote module
+- CLEAN: remove deprecated method simulation_writer.add_additional
+- FIX: duplicate check now works for multidimensional iterables
+- FIX: fixed hdf5 file opening in XDMFWriter module
+
 ## v0.7.4 (03Sep24)
 
 - FEAT: `Manager.sims` select argument now accepts a dictionary to filter for

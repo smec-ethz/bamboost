@@ -17,7 +17,7 @@ def create_test_run(
     mpicommand = "" if nb_processes == 1 else f"mpirun -n {nb_processes}"
 
     commands = [
-        f"{mpicommand} python3 $SCRIPT_DIR/{script_file} --path $SCRIPT_DIR/.. --uid {sim.uid}"
+        f"{mpicommand} python3 $SIMULATION_DIR/{script_file} --path $SIMULATION_DIR/.. --uid {sim.uid}"
     ]
     sim.create_batch_script(commands, ntasks=nb_processes, euler=False)
     sim.copy_file(script_file)

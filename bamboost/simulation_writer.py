@@ -12,7 +12,7 @@ from __future__ import annotations
 import datetime
 import os
 import shutil
-from typing import Any, Dict, Union
+from typing import Any, Dict, Literal, Tuple, Union
 
 import numpy as np
 from typing_extensions import deprecated
@@ -60,6 +60,9 @@ class SimulationWriter(Simulation):
     def __exit__(self, exc_type, exc_val, exc_tb):
         if exc_type:
             self.change_status(f"Failed [{exc_type.__name__}]")
+            log.error(f"Simulation failed with {exc_type.__name__}: {exc_val}")
+            log.error(exc_tb)
+            raise RuntimeError(f"Simulation failed [Process {self._prank}]")
         self._comm.barrier()
 
     def initialize(self) -> SimulationWriter:
@@ -156,7 +159,7 @@ class SimulationWriter(Simulation):
                 del self._file.file_object[mesh_location]
             grp = f.require_group(mesh_location)
             coord = grp.require_dataset(
-                "geometry", shape=coord_shape, dtype=coordinates.dtype
+                "coordinates", shape=coord_shape, dtype=coordinates.dtype
             )
             conn = grp.require_dataset(
                 "topology", shape=conn_shape, dtype=connectivity.dtype
@@ -172,7 +175,7 @@ class SimulationWriter(Simulation):
         time: float = None,
         mesh: str = None,
         dtype: str = None,
-        center: str = "Node",
+        center: Literal["Node", "Cell"] = "Node",
     ) -> None:
         """Add a dataset to the file. The data is stored at `data/`.
 
@@ -189,15 +192,41 @@ class SimulationWriter(Simulation):
         if mesh is None:
             mesh = self._default_mesh
 
-        dim = vector.shape[1:] if vector.ndim > 1 else None
-
         if time is None:
             time = self.step
 
-        length_local = vector.shape[0]
-        length_p = np.array(self._comm.allgather(length_local))
+        self._dump_array(f"data/{name}/{self.step}", vector, dtype=dtype)
+        self._comm.barrier()  # attempt to fix bug (see SimulationWriter add_field)
 
+        if self._prank == 0:
+            with self._file("a"):
+                # Sometimes this fails with (if simultaneously trying to read the file)
+                # KeyError: 'Unable to synchronously open object (addr overflow, addr = 247903512, size = 328, eoa = 247903240)'
+                # KeyError: 'Unable to synchronously open object (len not positive after adjustment for EOA)'
+                # I don't know exactly what is going on.
+                # It could be that some process is still writing and then it's opened again and the dataset doesn't exist properly
+                # OR the other processes try to open the file already for the next time while this one is waiting
+                vec = self._file["data"][name][str(self.step)]
+                vec.attrs.update({"center": center, "mesh": mesh, "t": time})
+
+        self._comm.barrier()  # attempt to fix bug (see SimulationWriter add_field)
+
+    def _dump_array(self, location: str, arr: np.ndarray, dtype: str = None) -> None:
+        """Dump an array to the file. Correctly patch together multi-rank arrays.
+
+        Args:
+            location: Location in the file
+            arr: Array to dump
+            dtype: Optional. Numpy style datatype, see h5py documentation,
+                defaults to the dtype of the vector.
+        """
+        dim = arr.shape[1:] if arr.ndim > 1 else None
+        length_local = arr.shape[0]
+        length_p = np.array(self._comm.allgather(length_local))
         length = np.sum(length_p)
+
+        # split location into group and dataset
+        group_name, dataset_name = location.rstrip("/").rsplit("/", 1)
 
         # global indices
         idx_start = np.sum(length_p[self._ranks < self._prank])
@@ -205,38 +234,33 @@ class SimulationWriter(Simulation):
 
         # open file
         with self._file("a", driver="mpio", comm=self._comm) as f:
-            data = f.require_group(
-                "data"
-            )  # Require group data to store all point data in
-            grp = data.require_group(name)
+            grp = f.require_group(group_name)
             vec = grp.require_dataset(
-                str(self.step),
+                dataset_name,
                 shape=(length, *dim) if dim else (length,),
-                dtype=dtype if dtype else vector.dtype,
+                dtype=dtype if dtype else arr.dtype,
             )
-            vec[idx_start:idx_end] = vector
-
-        if self._prank == 0:
-            with self._file("a"):
-                vec = self._file["data"][name][str(self.step)]
-                vec.attrs["t"] = time  # add time as attribute to dataset
-                vec.attrs["mesh"] = mesh  # add link to mesh as attribute
-                vec.attrs["center"] = center
+            vec[idx_start:idx_end] = arr
 
     def add_fields(
         self,
-        fields: Dict[str, np.array],
+        fields: Dict[str, np.ndarray | Tuple[np.ndarray, str]],
         time: float = None,
         mesh: str = None,
     ) -> None:
         """Add multiple fields at once.
 
         Args:
-            fields: Dictionary with fields
+            fields: Dictionary with fields. The value can be a tuple with the
+                data and a string "Node" or "Cell".
             time: Optional. time
         """
-        for name, vector in fields.items():
-            self.add_field(name, vector, time, mesh)
+        for key, value in fields.items():
+            if isinstance(value, tuple):
+                vector, center = value
+            else:
+                vector, center = value, "Node"
+            self.add_field(key, vector, time, mesh, center=center)
 
     def add_global_field(self, name: str, value: Any, dtype: str = None) -> None:
         """Add a gobal field. These are stored at `globals/` as an array in a
@@ -246,17 +270,33 @@ class SimulationWriter(Simulation):
             name: Name for the data
             value: Data. Can be a numpy array or a single value.
         """
+        self._dump_global_data(f"globals/{name}", value, self.step, dtype=dtype)
+
+    def _dump_global_data(
+        self, location: str, value: Any, step: int, dtype: str = None
+    ) -> None:
+        """Dump a global value / array to the file at location `location`.
+
+        Args:
+            location: Location in the file
+            value: Data to dump
+            dtype: Optional. Numpy style datatype, see h5py documentation,
+                defaults to the dtype of the vector.
+        """
+        # split location into group and dataset
+        group_name, dataset_name = location.rstrip("/").rsplit("/", 1)
+
         if isinstance(value, np.ndarray):
-            shape = (self.step + 1, *value.shape)
+            shape = (step + 1, *value.shape)
         else:
-            shape = (self.step + 1,)
+            shape = (step + 1,)
 
         if self._prank == 0:
             with self._file("a") as f:
-                grp = f.require_group("globals")
-                if name not in grp.keys():
+                grp = f.require_group(group_name)
+                if dataset_name not in grp.keys():
                     vec = grp.create_dataset(
-                        name,
+                        dataset_name,
                         shape=shape,
                         dtype=dtype if dtype else np.array(value).dtype,
                         chunks=True,
@@ -265,7 +305,7 @@ class SimulationWriter(Simulation):
                     )
                     vec[-1] = value
                 else:
-                    vec = grp[name]
+                    vec = grp[dataset_name]
                     vec.resize(shape)
                     vec[-1] = value
 
@@ -277,19 +317,6 @@ class SimulationWriter(Simulation):
         """
         for name, value in fields.items():
             self.add_global_field(name, value)
-
-    @deprecated("Use `copy_file` instead.")
-    def add_additional(self, name: str, file: str) -> None:
-        """Add an additional file stored elsewhere or in database directory.
-
-        Args:
-            name: Name of data
-            file: filename of file
-        """
-        if self._prank == 0:
-            with self._file("a") as f:
-                grp = f.require_group("additionals")
-                grp.attrs.update({name: file})
 
     def finish_step(self) -> None:
         """Finish step. Adds 1 to the step counter."""

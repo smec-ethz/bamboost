@@ -10,6 +10,7 @@
 from __future__ import annotations
 
 from contextlib import contextmanager
+from typing import Literal, TypedDict
 
 import numpy as np
 
@@ -23,6 +24,7 @@ except ImportError:
     raise ImportError("FEniCS not found. Module unavailable.")
 
 __all__ = ["FenicsWriter"]
+
 
 class FenicsWriter(SimulationWriter):
     """
@@ -50,7 +52,7 @@ class FenicsWriter(SimulationWriter):
         time: float = None,
         mesh: str = None,
         dtype: str = None,
-        center: str = "Node",
+        center: Literal["Node", "Cell"] = "Node",
     ) -> None:
         """Add a dataset to the file. The data is stored at `data/`.
 
@@ -67,38 +69,60 @@ class FenicsWriter(SimulationWriter):
         mesh = mesh if mesh is not None else self._default_mesh
         time = time if time is not None else self.step
 
+        self._dump_fenics_field(
+            f"data/{name}/{self.step}",
+            func,
+            dtype=dtype,
+            center=center,
+        )
+        self._comm.barrier()  # attempt to fix bug (see SimulationWriter add_field)
+
+        if self._prank == 0:
+            with self._file("a"):
+                vec = self._file["data"][name][str(self.step)]
+                vec.attrs.update({"center": center, "mesh": mesh, "t": time})
+
+        self._comm.barrier()  # attempt to fix bug (see SimulationWriter add_field)
+
+    def _dump_fenics_field(
+        self,
+        location: str,
+        field: fe.Function,
+        dtype: str = None,
+        center: Literal["Node", "Cell"] = "Node",
+    ) -> None:
         # get global dofs ordering and vector
         if center == "Node":
-            data = self._get_global_dofs(func)
+            data = self._get_global_dofs(field)
         elif center == "Cell":
-            data = self._get_global_dofs_cell_data(func)
+            data = self._get_global_dofs_cell_data(field)
         else:
             raise ValueError("Center must be 'Node' or 'Cell'.")
+
         vector = data["vector"]
         global_map = data["global_map"]
         global_size = data["global_size"]
 
         dim = data["vector"].shape[1:] if data["vector"].ndim > 1 else None
 
+        group_name, dataset_name = location.rstrip("/").rsplit("/", 1)
+
         # Write vector to file
         with self._file("a", driver="mpio", comm=self._comm) as f:
-            data = f.require_group("data")
-            grp = data.require_group(name)
+            grp = f.require_group(group_name)
             vec = grp.require_dataset(
-                str(self.step),
+                dataset_name,
                 shape=(global_size, *dim) if dim else (global_size,),
                 dtype=dtype if dtype else vector.dtype,
             )
             vec[global_map] = vector
 
-        if self._prank == 0:
-            with self._file("a"):
-                vec = self._file["data"][name][str(self.step)]
-                vec.attrs["t"] = time  # add time as attribute to dataset
-                vec.attrs["mesh"] = mesh  # add link to mesh as attribute
-                vec.attrs["center"] = center
+    class FenicsFieldInformation(TypedDict):
+        vector: np.ndarray
+        global_map: np.ndarray
+        global_size: int
 
-    def _get_global_dofs(self, func: fe.Function) -> dict:
+    def _get_global_dofs(self, func: fe.Function) -> FenicsFieldInformation:
         """
         Get global dofs for a given function.
 
@@ -114,6 +138,12 @@ class FenicsWriter(SimulationWriter):
         assert hasattr(
             func, "function_space"
         ), "Input is likely an indexed coefficient. Project to it's own function space first."
+
+        # Project to CG1 if necessary
+        if func.ufl_element().degree() != 1:
+            func = fe.project(
+                func, fe.FunctionSpace(func.function_space().mesh(), "CG", 1)
+            )
 
         mesh = func.function_space().mesh()
         global_size = mesh.num_entities_global(0)
@@ -142,7 +172,7 @@ class FenicsWriter(SimulationWriter):
             "global_size": global_size,
         }
 
-    def _get_global_dofs_cell_data(self, func: fe.Function) -> dict:
+    def _get_global_dofs_cell_data(self, func: fe.Function) -> FenicsFieldInformation:
         """
         Get global dofs for a given function.
 

@@ -23,7 +23,7 @@ from bamboost import BAMBOOST_LOGGER, index
 from bamboost._config import config, paths
 from bamboost.accessors.fielddata import DataGroup
 from bamboost.accessors.globals import GlobalGroup
-from bamboost.accessors.meshes import MeshGroup
+from bamboost.accessors.meshes import Mesh, MeshGroup
 from bamboost.common import hdf_pointer, utilities
 from bamboost.common.file_handler import FileHandler, with_file_open
 from bamboost.common.mpi import MPI
@@ -353,7 +353,13 @@ class Simulation:
                     grp_name = list(f["data"].keys())[0]
                     nb_steps = list(f[f"data/{grp_name}"].keys())
                     nb_steps = max(
-                        [int(step) for step in nb_steps if not step.startswith("__")]
+                        [
+                            int(step)
+                            for step in nb_steps
+                            if not (
+                                step.startswith("__") or step.endswith("_intermediates")
+                            )
+                        ]
                     )
 
                 # temporary fix to load coordinates/geometry
@@ -364,15 +370,18 @@ class Simulation:
                     else "coordinates"
                 )
 
-            xdmf_writer = XDMFWriter(self.xdmffile, self.h5file)
-            xdmf_writer.write_points_cells(
-                f"{self._mesh_location}/{self._default_mesh}/{coords_name}",
-                f"{self._mesh_location}/{self._default_mesh}/topology",
-            )
+            with self._file("r"):
+                xdmf_writer = XDMFWriter(self.xdmffile, self._file)
+                xdmf_writer.write_points_cells(
+                    f"{self._mesh_location}/{self._default_mesh}/{coords_name}",
+                    f"{self._mesh_location}/{self._default_mesh}/topology",
+                )
 
-            if fields:
-                xdmf_writer.add_timeseries(nb_steps + 1, fields)
-            xdmf_writer.write_file()
+                if fields:
+                    xdmf_writer.add_timeseries(nb_steps + 1, fields)
+                xdmf_writer.write_file()
+
+        self._comm.barrier()
 
     def create_run_script(
         self,
@@ -494,13 +503,13 @@ class Simulation:
         return self._file(mode, driver, comm)
 
     @property
-    def mesh(self) -> Tuple[np.ndarray, np.ndarray]:
-        """Return coordinates and connectivity of default mesh.
+    def mesh(self) -> Mesh:
+        """Return the default mesh.
 
         Returns:
-            Tuple of np.arrays (coordinates, connectivity)
+            MeshGroup
         """
-        return self.get_mesh()
+        return self.meshes[self._default_mesh]
 
     @with_file_open("r")
     def get_mesh(self, mesh_name: str = None) -> Tuple[np.ndarray, np.ndarray]:

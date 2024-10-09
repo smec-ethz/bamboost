@@ -20,12 +20,6 @@ import h5py
 import numpy as np
 import pandas as pd
 
-
-# forward declaration
-class Manager:
-    pass
-
-
 from bamboost import BAMBOOST_LOGGER, index
 from bamboost.common.file_handler import open_h5file
 from bamboost.common.mpi import MPI
@@ -394,7 +388,7 @@ class Manager:
         reverse: bool = False,
         exclude: set = None,
         return_writer: bool = False,
-    ) -> list:
+    ) -> list[Simulation]:
         """Get all simulations in a list. Optionally, get all simulations matching the
         given selection using pandas.
 
@@ -444,8 +438,12 @@ class Manager:
         uid: str = None,
         parameters: dict = None,
         skip_duplicate_check: bool = False,
+        *,
         prefix: str = None,
         duplicate_action: str = "prompt",
+        note: str = None,
+        files: list[str] = None,
+        links: dict[str, str] = None,
     ) -> SimulationWriter:
         """Get a writer object for a new simulation. This is written for paralell use
         as it is likely that this may be used in an executable, creating multiple runs
@@ -464,9 +462,13 @@ class Manager:
                     - If the value is a list/array, it is stored as a dataset.
             skip_duplicate_check (`bool`): if True, the duplicate check is skipped.
             prefix (`str`): Prefix for the uid. If not specified, no prefix is used.
-            duplicate_action (`str`): how to deal with duplicates.
-                `Replace first duplicate ('r'), Create with altered uid (`c`), Create new with new id (`n`), Abort (`a`)
-                 default "prompt" for each duplicate on a case by case basis.
+            duplicate_action (`str`): how to deal with duplicates. Replace
+                first duplicate ('r'), Create with altered uid (`c`), Create new
+                with new id (`n`), Abort (`a`) default "prompt" for each
+                duplicate on a case by case basis.
+            note (`str`): Note for the simulation.
+            files (`list`): List of files to copy to the simulation directory.
+            links (`dict`): Dictionary of links to other simulations.
 
         Note:
             The files and links are copied to the simulation directory. The files are
@@ -496,22 +498,45 @@ class Manager:
                 uid = "_".join([prefix, uid])
         uid = self.comm.bcast(uid, root=0)
 
-        # Create directory and h5 file
-        if self.comm.rank == 0:
-            os.makedirs(os.path.join(self.path, uid), exist_ok=True)
-            path_to_h5_file = os.path.join(self.path, uid, f"{uid}.h5")
-            if os.path.exists(path_to_h5_file):
-                os.remove(path_to_h5_file)
-            h5py.File(path_to_h5_file, "a").close()  # create file
+        try:
+            # Create directory and h5 file
+            if self.comm.rank == 0:
+                os.makedirs(os.path.join(self.path, uid), exist_ok=True)
+                path_to_h5_file = os.path.join(self.path, uid, f"{uid}.h5")
+                if os.path.exists(path_to_h5_file):
+                    os.remove(path_to_h5_file)
+                h5py.File(path_to_h5_file, "a").close()  # create file
 
-        new_sim = SimulationWriter(uid, self.path, self.comm)
-        new_sim.initialize()  # sets metadata and status
-        # add the id to the (fixed) _all_uids list
-        if hasattr(self, "_all_uids"):
-            self._all_uids.append(new_sim.uid)
-        if parameters:
-            new_sim.add_parameters(parameters)
-        return new_sim
+            new_sim = SimulationWriter(uid, self.path, self.comm)
+            new_sim.initialize()  # sets metadata and status
+            # add the id to the (fixed) _all_uids list
+            if hasattr(self, "_all_uids"):
+                self._all_uids.append(new_sim.uid)
+
+            # Add parameters, note, files, and links
+            if not any([parameters, note, files, links]):
+                return new_sim
+
+            with new_sim._file("r+"):
+                if parameters:
+                    new_sim.add_parameters(parameters)
+                if note:
+                    new_sim.change_note(note)
+                if files:
+                    new_sim.copy_file(files)
+                if links:
+                    [
+                        new_sim.links.__setitem__(name, uid)
+                        for name, uid in links.items()
+                    ]
+
+            return new_sim
+
+        except Exception as e:
+            # If any error occurs, remove the partially created simulation
+            if self.comm.rank == 0:
+                self.remove(uid)
+            raise e  # Re-raise the exception after cleanup
 
     def remove(self, uid: str) -> None:
         """CAUTION, DELETING DATA. Remove the data of a simulation.
@@ -520,6 +545,7 @@ class Manager:
             uid (`str`): uid
         """
         shutil.rmtree(os.path.join(self.path, uid))
+        self._table.sync()
 
     def find(self, parameter_selection: dict[str, Any]) -> pd.DataFrame:
         """Find simulations with the given parameters.
@@ -543,24 +569,29 @@ class Manager:
             else:
                 params[key] = val
 
-        df = self._table.read_table()
-        matches = self._list_duplicates(params)
+        df = self.df
+        matches = self._list_duplicates(params, df=df)
         matches = df[df.id.isin(matches)]
         if len(matches) == 0:
             return matches
 
         for key, func in filters.items():
-            matches = matches[func(matches[key])]
+            matches = matches[matches[key].apply(func)]
 
         return matches
 
-    def _list_duplicates(self, parameters: dict) -> list[str]:
+    def _list_duplicates(
+        self, parameters: dict, *, df: pd.DataFrame = None
+    ) -> list[str]:
         """List ids of duplicates of the given parameters.
 
         Args:
             parameters (dict): parameter dictionary
+            df (pd.DataFrame): dataframe to search in. If not provided, the
+                dataframe from the sql database is used.
         """
-        df: pd.DataFrame = self._table.read_table()
+        if df is None:
+            df: pd.DataFrame = self._table.read_table()
         params = flatten_dict(parameters)
 
         class ComparableIterable:
@@ -585,7 +616,7 @@ class Manager:
 
         # get matching rows where all values of the series are equal to the corresponding values in the dataframe
         s = pd.Series(params)
-        match = df.loc[(df[s.keys()] == s).all(axis=1)]
+        match = df.loc[(df[s.keys()].apply(lambda row: (s == row).all(), axis=1))]
         return match.id.tolist()
 
     def _check_duplicate(

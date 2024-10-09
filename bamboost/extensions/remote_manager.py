@@ -37,7 +37,7 @@ log = BAMBOOST_LOGGER.getChild(__name__.split(".")[-1])
 HOME = os.path.expanduser("~")
 CACHE_DIR = os.path.join(HOME, ".cache", "bamboost")
 # location off the index file on the remote server
-REMOTE_INDEX = f"~/.local/share/bamboost/bamboost.db"
+REMOTE_INDEX = "~/.local/share/bamboost/bamboost.db"
 
 
 # MonkeyPatch manager.ManagerFromUID
@@ -259,9 +259,10 @@ class RemoteManager(Manager):
             .replace("$db_size", str(len(self)))
         )
 
-    def _get_uids(self) -> list:
+    def _get_uids(self) -> list[str]:
         """Override the simulation list to fetch from databasetable."""
-        return self._index.fetch(f"SELECT id FROM db_{self.UID}")
+        uids_in_tuple = self._index.fetch(f"SELECT id FROM db_{self.UID}")
+        return [uid for (uid,) in uids_in_tuple]
 
     @property
     def _index(self) -> IndexAPI:
@@ -311,18 +312,55 @@ class RemoteManager(Manager):
 
         return RemoteSimulation(uid, self)
 
-    def rsync(self, uid: str) -> None:
-        """Transfer data using rsync."""
-        subprocess.call(
+    def _rsync(self, uid: str | None = None) -> subprocess.Popen:
+        """Transfer data using rsync. This method is called by the `rsync`.
+        It returns the subprocess.Popen object.
+
+        Args:
+            uid: The unique id of the simulation to be transferred. If None,
+                all simulations are synced.
+        """
+        if uid is not None:
+            log.info(f"Start syncing data for {uid} with {self.path}")
+            return subprocess.Popen(
+                [
+                    "rsync",
+                    "-ravh",
+                    f"{self.remote.remote_name}:{self.remote_path_db}/{uid}",
+                    f"{self.path}",
+                ],
+                stdout=subprocess.PIPE,
+                stderr=subprocess.STDOUT,
+                text=True,
+            )
+
+        # else, sync entire database directory
+        log.info(f"Start sync database with {self.path}")
+        return subprocess.Popen(
             [
                 "rsync",
-                "-r",
-                f"{self.remote.remote_name}:{self.remote_path_db}/{uid}",
+                "-ravh",
+                f"{self.remote.remote_name}:{self.remote_path_db}/*",
                 f"{self.path}",
             ],
             stdout=subprocess.PIPE,
+            stderr=subprocess.STDOUT,
+            text=True,
         )
-        log.info(f"Data for {uid} synced with {self.path}")
+
+    def rsync(self, uid: str | None = None) -> RemoteManager:
+        """Transfer data using rsync. Wait for the process to finish and return
+        self.
+
+        Args:
+            uid: The unique id of the simulation to be transferred. If None,
+                all simulations are synced.
+        """
+        process = self._rsync(uid)
+        for line in iter(process.stdout.readline, ''):
+            print(line, end='')
+        process.wait()
+        return self
 
 
 class RemoteSimulation(Simulation):

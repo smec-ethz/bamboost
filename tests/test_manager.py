@@ -35,6 +35,41 @@ class TestManager:
         h5_file = os.path.join(temp_manager.path, sim_uid, f"{sim_uid}.h5")
         assert os.path.isfile(h5_file)
 
+    @pytest.mark.parametrize("prefix", ["dummy"])
+    def test_create_simulation_argument_prefix(self, temp_manager: Manager, prefix):
+        sim_uid = "this"
+        writer = temp_manager.create_simulation(uid=sim_uid, prefix=prefix)
+
+        assert writer.uid == f"{prefix}_this"
+
+    def test_create_simulation_argument_note(self, temp_manager: Manager):
+        sim_uid = "this"
+        writer = temp_manager.create_simulation(uid=sim_uid, note="dummy note")
+
+        assert writer.metadata["notes"] == "dummy note"
+
+    def test_create_simulation_argument_files(self, temp_manager: Manager):
+        sim_uid = "this"
+        # Create Files
+        with open(os.path.join(temp_manager.path, "a.txt"), "w") as f:
+            f.write("a")
+        with open(os.path.join(temp_manager.path, "b.txt"), "w") as f:
+            f.write("b")
+
+        files = [f"{temp_manager.path}/a.txt", f"{temp_manager.path}/b.txt"]
+        writer = temp_manager.create_simulation(uid=sim_uid, files=files)
+
+        assert all([os.path.isfile(os.path.join(writer.path, f)) for f in files])
+
+    def test_create_simulation_argument_links(self, temp_manager: Manager):
+        sim_uid = "this"
+        linked_sim = temp_manager.create_simulation(uid="link_to_this")
+        writer = temp_manager.create_simulation(
+            uid=sim_uid, links={"mesh": linked_sim.get_full_uid()}
+        )
+
+        assert writer.links["mesh"].metadata == linked_sim.metadata
+
     @pytest.mark.parametrize("fix_df", [True, False])
     def test_manager_length(self, temp_manager: Manager, fix_df: bool):
         temp_manager.FIX_DF = fix_df
@@ -205,8 +240,6 @@ def test_duplicates_lists(temp_manager: Manager):
     db.create_simulation(parameters=params2, duplicate_action="c")
     assert len(db._list_duplicates(params2)) == 1
 
-
-
     # We do not plan to support sets
 
 
@@ -246,7 +279,7 @@ def test_altered_uid(temp_manager: Manager):
 def test_find(temp_manager: Manager, params: dict, expected: tuple):
     db = temp_manager
     # mock the database dataframe from sql
-    db._table.read_table = lambda: pd.DataFrame.from_records(
+    db._dataframe = pd.DataFrame.from_records(
         [
             dict(id="1", a=1, b=2),
             dict(id="2", a=1, b=2, c=3),
@@ -257,5 +290,3 @@ def test_find(temp_manager: Manager, params: dict, expected: tuple):
 
     assert isinstance(db.find(params), pd.DataFrame)
     assert set(db.find(params).id) == set(expected)
-
-
