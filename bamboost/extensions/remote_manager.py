@@ -357,6 +357,8 @@ class RemoteManager(Manager):
                 all simulations are synced.
         """
         process = self._rsync(uid)
+        for line in iter(process.stdout.readline, ''):
+            print(line, end='')
         process.wait()
         return self
 
