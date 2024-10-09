@@ -45,6 +45,8 @@ will totally break if you load it heavily. Just kidding, bamboo can fully carry 
 <a href="https://gitlab.com/cmbm-ethz/bamboost/-/commits/test-ci"><img alt="coverage report" src="https://gitlab.com/cmbm-ethz/bamboost/badges/test-ci/coverage.svg" /></a>
 
 Terminal user interface for bamboost: https://gitlab.com/zrlf/bamboost-tui.
+
+Documentation site: https://gitlab.com/zrlf/bamboost-docs.
 </div>
 
 ## Installation
