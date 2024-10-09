@@ -318,19 +318,6 @@ class SimulationWriter(Simulation):
         for name, value in fields.items():
             self.add_global_field(name, value)
 
-    @deprecated("Use `copy_file` instead.")
-    def add_additional(self, name: str, file: str) -> None:
-        """Add an additional file stored elsewhere or in database directory.
-
-        Args:
-            name: Name of data
-            file: filename of file
-        """
-        if self._prank == 0:
-            with self._file("a") as f:
-                grp = f.require_group("additionals")
-                grp.attrs.update({name: file})
-
     def finish_step(self) -> None:
         """Finish step. Adds 1 to the step counter."""
         self.step += 1

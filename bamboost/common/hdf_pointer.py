@@ -15,7 +15,6 @@ from typing import Any, Literal
 
 import h5py
 import numpy as np
-import pandas as pd
 
 import bamboost
 from bamboost.common.file_handler import FileHandler, with_file_open
