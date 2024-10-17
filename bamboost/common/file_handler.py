@@ -25,6 +25,9 @@ __all__ = [
     "FileHandler",
     "with_file_open",
     "capture_key_error",
+    "HAS_MPIO",
+    "MPI_ACTIVE",
+    "FILE_MODE_HIRARCHY",
 ]
 
 HAS_MPIO = "mpio" in h5py.registered_drivers()
