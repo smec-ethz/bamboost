@@ -43,6 +43,9 @@ PREFIX = ".BAMBOOST-"  # prefix for databaseID identifier file
 DOT_REPLACEMENT = "DOT"  # replace dots with this in column names for sqlite
 _comm = MPI.COMM_WORLD  # TODO: is this good practice?
 
+THREAD_SAFE = False
+CONVERT_ARRAYS = True
+
 
 # ------------------
 # Exceptions
@@ -98,7 +101,10 @@ class IndexAPI(sql.SQLiteHandler):
 
     _instances = {}
 
-    def __new__(cls, *, _file: str = None) -> IndexAPI:
+    def __new__(cls, *, _file: str = None, **kwargs) -> IndexAPI:
+        if THREAD_SAFE:
+            return super().__new__(cls)
+
         if _comm.rank != 0:
             return Null()
 
@@ -107,19 +113,22 @@ class IndexAPI(sql.SQLiteHandler):
             cls._instances[_file] = super().__new__(cls)
         return cls._instances[_file]
 
-    def __init__(self, *, _file: str = None):
+    def __init__(self, *, _file: str = None, convert_arrays: bool = None):
+        convert_arrays = (
+            convert_arrays if convert_arrays is not None else CONVERT_ARRAYS
+        )
         if hasattr(self, "_initialized"):
             return
         _file = _file or paths["DATABASE_FILE"]
-        super().__init__(file=_file)
+        super().__init__(file=_file, convert_arrays=convert_arrays)
         self.create_index_table()
         self.clean()
         self._initialized = True
 
     @classmethod
-    def ThreadSafe(cls, *, _file: str = None) -> IndexAPI:
+    def ThreadSafe(cls, *args, **kwargs) -> IndexAPI:
         instance = super().__new__(cls)
-        instance.__init__(_file=_file)
+        instance.__init__(*args, **kwargs)
         return instance
 
     def __repr__(self) -> str:

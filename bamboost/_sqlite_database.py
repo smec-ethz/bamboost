@@ -72,9 +72,12 @@ def _register_sqlite_adapters():
     sqlite3.register_adapter(np.bool_, bool)
 
 
-def _register_sqlite_converters():
+def _register_sqlite_converters(convert_arrays: bool = True):
     # Converts JSON to np.array & Iterable when selecting
-    sqlite3.register_converter("ARRAY", lambda text: np.array(json.loads(text)))
+    if convert_arrays:
+        sqlite3.register_converter("ARRAY", lambda text: np.array(json.loads(text)))
+    else:
+        sqlite3.register_converter("ARRAY", lambda text: json.loads(text))
     sqlite3.register_converter("JSON", lambda text: json.loads(text))
 
     def convert_bool(val):
@@ -112,7 +115,9 @@ def with_connection(func):
 class SQLiteHandler:
     """Class to handle sqlite databases."""
 
-    def __init__(self, file: str, _comm=MPI.COMM_WORLD) -> None:
+    def __init__(
+        self, file: str, _comm=MPI.COMM_WORLD, convert_arrays: bool = True
+    ) -> None:
         if _comm.rank != 0:
             return
         # self._comm = _comm
@@ -123,7 +128,7 @@ class SQLiteHandler:
         self._lock_stack = 0
 
         _register_sqlite_adapters()
-        _register_sqlite_converters()
+        _register_sqlite_converters(convert_arrays=convert_arrays)
 
     @property
     def _lock_stack(self) -> int:
