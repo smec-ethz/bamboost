@@ -343,7 +343,8 @@ class Simulation:
         """
 
         if self._prank == 0:
-            with self._file("r") as f:
+            with self._file("r"):
+                f = self._file.file_object
                 if "data" not in f.keys():
                     fields, nb_steps = [], 0
                 if fields is None:
@@ -412,6 +413,7 @@ class Simulation:
                 - `--time`: The maximum time the job is allowed to run.
                 - `--tmp`: Temporary scratch space to use for the job.
         """
+
         def _set_environment_variables():
             return (
                 f"""DATABASE_DIR=$(sqlite3 {paths['DATABASE_FILE']} "SELECT path FROM dbindex WHERE id='{self.database_id}'")\n"""
