@@ -1,3 +1,16 @@
+"""This module provides a custom rather primitive file locking mechanism for
+HDF5 files.
+
+This module provides a function `use_locking` that installs the mechanism by
+Monkey-patching the `FileHandler` class. To use this mechanism, call the
+`use_locking` function at the start of your script, before creating any
+`FileHandler` instances.
+
+Example:
+    >>> from bamboost.extensions.use_locking import use_locking
+    >>> use_locking("shared")
+"""
+
 from __future__ import annotations
 
 import fcntl
@@ -16,8 +29,6 @@ from bamboost.common.file_handler import (
     open_h5file,
 )
 
-__all__ = ["use_locking"]
-
 
 def get_lock_and_open_function(
     lock_type: Literal["shared", "exclusive"],
@@ -29,11 +40,14 @@ def get_lock_and_open_function(
     file, returning both the opened HDF5 file object and the lock file object.
 
     The returned function takes the following parameters:
-        - file: The path to the HDF5 file to open.
-        - lock_file: The path to the lock file.
-        - mode: The mode to open the file in (e.g., 'r', 'w', 'a').
-        - driver: The HDF5 driver to use (e.g., 'mpio' for MPI-IO).
-        - comm: The MPI communicator (only used with 'mpio' driver).
+
+    | Argument  | Description                                                                 |
+    |-----------|-----------------------------------------------------------------------------|
+    | file      | The path to the HDF5 file to open.                                          |
+    | lock_file | The path to the lock file.                                                  |
+    | mode      | The mode to open the file in (e.g., 'r', 'w', 'a').                         |
+    | driver    | The HDF5 driver to use (e.g., 'mpio' for MPI-IO).                           |
+    | comm      | The MPI communicator (only used with 'mpio' driver).                        |
 
     Args:
         lock_type (Literal["shared", "exclusive"]): The type of lock to use.
@@ -159,8 +173,8 @@ def use_locking(lock_type: Literal["shared", "exclusive"]) -> None:
 
     Args:
         lock_type (Literal["shared", "exclusive"]): The type of lock to use.
-            "shared" allows multiple processes to open the file simultaneously.
-            "exclusive" allows only one reader or writer at a time.
+            - "shared" allows multiple processes to open the file simultaneously.
+            - "exclusive" allows only one reader or writer at a time.
     """
     if not hasattr(FileHandler.__init__, "__wrapped__"):
         FileHandler.__init__ = _extend_init(FileHandler.__init__)
