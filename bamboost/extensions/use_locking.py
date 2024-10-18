@@ -9,12 +9,11 @@ from typing import Any, Literal, Tuple
 
 import h5py
 
-from bamboost.common import mpi
 from bamboost.common.file_handler import (
     FILE_MODE_HIRARCHY,
-    MPI_ACTIVE,
     FileHandler,
     log,
+    open_h5file,
 )
 
 __all__ = ["use_locking"]
@@ -51,10 +50,7 @@ def get_lock_and_open_function(
         # acquire a lock
         fcntl.flock(lock_file_object, lock_type_int)
         # open the file
-        if driver == "mpio" and MPI_ACTIVE and mpi.MPI_ON:
-            h5_file = h5py.File(file, mode, driver=driver, comm=comm)
-        else:
-            h5_file = h5py.File(file, mode)
+        h5_file = open_h5file(file, mode, driver, comm)
         return h5_file, lock_file_object
 
     return lock_and_open
