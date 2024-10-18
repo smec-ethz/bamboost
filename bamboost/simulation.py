@@ -13,7 +13,7 @@ import os
 import pkgutil
 import subprocess
 from contextlib import contextmanager
-from typing import Any, Iterable, Tuple
+from typing import Any, Dict, Iterable, Tuple
 
 import numpy as np
 import pandas as pd
@@ -225,7 +225,7 @@ class Simulation:
             log.warning(f"Could not update sqlite database: {e}")
 
     @property
-    def parameters(self) -> dict:
+    def parameters(self) -> Dict[str, Any]:
         tmp_dict = dict()
         if self._prank == 0:
             with self._file("r"):

@@ -20,6 +20,13 @@ __all__ = [
     "find",
     "get_uid_from_path",
     "get_known_paths",
+    "uid2",
+    "DatabaseNotFoundError",
+    # Constants
+    "THREAD_SAFE",
+    "CONVERT_ARRAYS",
+    "PREFIX",
+    "DOT_REPLACEMENT",
 ]
 
 import json
@@ -27,7 +34,7 @@ import os
 import subprocess
 from dataclasses import dataclass
 from time import time
-from typing import Callable, Generator, Iterable
+from typing import Callable
 
 import pandas as pd
 
@@ -39,8 +46,12 @@ from bamboost.common.mpi import MPI
 log = BAMBOOST_LOGGER.getChild(__name__.split(".")[-1])
 
 
-PREFIX = ".BAMBOOST-"  # prefix for databaseID identifier file
-DOT_REPLACEMENT = "DOT"  # replace dots with this in column names for sqlite
+PREFIX = ".BAMBOOST-"
+"prefix for databaseID identifier file"
+
+DOT_REPLACEMENT = "DOT"  
+"replace dots with this in column names for sqlite"
+
 _comm = MPI.COMM_WORLD  # TODO: is this good practice?
 
 THREAD_SAFE = False
