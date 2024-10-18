@@ -95,7 +95,7 @@ class FieldData(hdf_pointer.Group):
 
     def _get_full_data(self) -> h5py.Dataset:
         """Return a HDF5 virtual dataset including all steps of the field.
-        
+
         If the virtual dataset exists with the correct shape it will be
         returned, otherwise it will be created.
         """
@@ -155,8 +155,11 @@ class FieldData(hdf_pointer.Group):
         Returns:
             :class:`np.ndarray`
         """
-        if self._times_key not in self.keys():
+        if (self._times_key not in self.keys()) or (
+            len(self) > self.obj.attrs.get("virtual_dataset_length", 0)
+        ):
             self._create_times()
+
         return self.obj[self._times_key][()]
 
     @property
