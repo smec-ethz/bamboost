@@ -6,7 +6,12 @@
 # Copyright 2023 Flavio Lorez and contributors
 #
 # There is no warranty for this code
-"""Module to manage the database index and its ID's."""
+"""Module to manage the database index and its ID's.
+
+Attributes:
+    THREAD_SAFE: if True, the index is thread safe
+    CONVERT_ARRAYS: if True, convert numpy arrays to lists
+"""
 
 from __future__ import annotations
 
@@ -101,13 +106,14 @@ class Null:
 
 class IndexAPI(sql.SQLiteHandler):
     """SQLite database to store database ID, path lookup. As well as the table for
-    each database. Location: ~/.local/share/bamboost
+    each database. Location: `~/.local/share/bamboost/bamboost.db`.
     Singleton pattern.
 
-    Attributes:
-        - file (str): path to the database file
-        - _conn (sqlite3.Connection): connection to the database
-        - _cursor (sqlite3.Cursor): cursor for the database
+    Args:
+        _file: path to the database file
+        convert_arrays: Defaults to True. If False, when reading from the database,
+            lists with tag ARRAY are not converted back to numpy arrays but
+            remain a standard list.
     """
 
     _instances = {}

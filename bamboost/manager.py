@@ -479,6 +479,9 @@ class Manager:
             >>> db.create_simulation(parameters={"a": 1, "b": 2})
 
             >>> db.create_simulation(uid="my_sim", parameters={"a": 1, "b": 2}, prefix="test")
+
+        Returns:
+            A simulation writer object.
         """
         if parameters and not skip_duplicate_check:
             go_on = True

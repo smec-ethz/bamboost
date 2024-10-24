@@ -4,7 +4,7 @@ HDF5 files.
 This module provides a function `use_locking` that installs the mechanism by
 Monkey-patching the `FileHandler` class. To use this mechanism, call the
 `use_locking` function at the start of your script, before creating any
-`FileHandler` instances.
+`bamboost.common.file_handler.FileHandler` instances.
 
 Example:
     >>> from bamboost.extensions.use_locking import use_locking

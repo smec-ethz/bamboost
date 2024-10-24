@@ -47,7 +47,7 @@ class DataGroup(hdf_pointer.Group):
     def __getitem__(self, key) -> FieldData:
         return FieldData(self._file, f"{self.path_to_data}/{key}", meshes=self.meshes)
 
-    def __iter__(self) -> Generator[FieldData]:
+    def __iter__(self) -> Generator[FieldData, None, None]:
         for key in self.keys():
             yield self.__getitem__(key)
 
