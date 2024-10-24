@@ -1,5 +1,15 @@
 # Change log for bamboost
 
+## v0.8.1 (24Oct24)
+
+- FEAT: New extension `use_locking`. A custom file locking mechanism to avoid
+  the corruption of hdf files. Mainly useful if the HDF5 library version is <
+  1.10.7.
+- FIX: `sim.times` is now always up to date if new data was added.
+- ENH: In IndexAPI, add global flags to disable conversion of arrays to numpy
+  arrays when reading. And to disable the singleton behaviour of the class
+  (needed for threading, where the instance should never be shared).
+
 ## v0.8.0 (09Oct24)
 
 - API (breaking): sim.mesh returns the default Mesh group instead of a tuple
