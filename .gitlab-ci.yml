@@ -13,7 +13,7 @@ test:
 
 build_doc_source:
   stage: docs
-  image: dhna/mpi4py
+  image: python:3
   before_script:
     - "which ssh-agent || ( apt-get update -qy && apt-get install openssh-client -qqy )"
     - eval `ssh-agent -s`
@@ -23,15 +23,12 @@ build_doc_source:
     - chmod 700 ~/.ssh
     - ssh-keyscan gitlab.com >> ~/.ssh/known_hosts
     - chmod 644 ~/.ssh/known_hosts
-    - pip install pdoc docstring-parser
   script:
     - pip install .
     # Clone docs repo and update reference docs
     - git clone git@gitlab.com:zrlf/bamboost-docs.git
     - cd bamboost-docs/
-    - cd extract-docs/
-    - python create_json.py
-    - cd ..
+    - bash ./generateAPIdoc.sh
     # Push to docs repo
     - git config --global user.email "${CI_EMAIL}" && git config --global user.name "${CI_USERNAME}"
     - git add .
