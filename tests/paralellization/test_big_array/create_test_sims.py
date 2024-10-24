@@ -19,7 +19,7 @@ def create_test_run(
     commands = [
         f"{mpicommand} python3 $SIMULATION_DIR/{script_file} --path $SIMULATION_DIR/.. --uid {sim.uid}"
     ]
-    sim.create_batch_script(commands, ntasks=nb_processes, euler=False)
+    sim.create_run_script(commands, euler=False, sbatch_kwargs={"--ntasks": nb_processes})
     sim.copy_file(script_file)
 
 
