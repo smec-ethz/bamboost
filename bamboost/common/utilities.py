@@ -182,7 +182,7 @@ def to_camel_case(s: str) -> str:
 
 
 JobArguments = NamedTuple(
-    "JobArguments", [("db_path", Path), ("name", str), ("submit", bool)]
+    "JobArguments", [("db_path", Path), ("name", str), ("submit", bool), ("note", str)]
 )
 ScriptArguments = NamedTuple("ScriptArguments", [("simulation", str)])
 
@@ -201,10 +201,16 @@ def parse_job_arguments() -> JobArguments:
     parser.add_argument("name", type=str, nargs="?", help="Name of the simulation")
     # Add the submit flag as optional
     parser.add_argument("--submit", "-s", help="Submit the job", action="store_true")
+    # Add note
+    parser.add_argument(
+        "--note", "-n", help="Add a note to this job", type=str, default=""
+    )
 
     args = parser.parse_args()
 
-    return JobArguments(db_path=args.db_path, name=args.name, submit=args.submit)
+    return JobArguments(
+        db_path=args.db_path, name=args.name, submit=args.submit, note=args.note
+    )
 
 
 def parse_script_arguments() -> ScriptArguments:
