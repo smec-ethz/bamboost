@@ -1,5 +1,10 @@
 # Change log for bamboost
 
+## v0.8.2
+
+- ENH: In remote extension, allow shallow sim (object without fetching the data)
+  & stdout argument for rsync method to redirect it to somewhere else (for tui).
+
 ## v0.8.1 (24Oct24)
 
 - FEAT: New extension `use_locking`. A custom file locking mechanism to avoid

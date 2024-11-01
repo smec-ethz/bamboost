@@ -14,7 +14,7 @@ import pkgutil
 import sqlite3
 import subprocess
 from functools import wraps
-from typing import Callable
+from typing import Callable, TextIO
 
 import pandas as pd
 
@@ -22,6 +22,7 @@ from bamboost import BAMBOOST_LOGGER
 from bamboost._config import config
 from bamboost._sqlite_database import SQLiteHandler, with_connection
 from bamboost.common.mpi import MPI
+from bamboost.common.utilities import unflatten_dict
 from bamboost.index import DatabaseTable, IndexAPI
 from bamboost.manager import Manager, ManagerFromUID
 from bamboost.simulation import Simulation
@@ -312,6 +313,14 @@ class RemoteManager(Manager):
 
         return RemoteSimulation(uid, self)
 
+    def shallow_sim(self, uid: str) -> RemoteSimulation:
+        """Return a RemoteSimulation object without transferring the data.
+
+        Args:
+            uid: The unique id of the simulation.
+        """
+        return RemoteSimulation(uid, self, _shallow=True)
+
     def _rsync(self, uid: str | None = None) -> subprocess.Popen:
         """Transfer data using rsync. This method is called by the `rsync`.
         It returns the subprocess.Popen object.
@@ -348,29 +357,73 @@ class RemoteManager(Manager):
             text=True,
         )
 
-    def rsync(self, uid: str | None = None) -> RemoteManager:
+    def rsync(
+        self, uid: str | None = None, *, stdout: TextIO | None = None
+    ) -> RemoteManager:
         """Transfer data using rsync. Wait for the process to finish and return
         self.
 
         Args:
             uid: The unique id of the simulation to be transferred. If None,
                 all simulations are synced.
+            stdout: The file object to write the output of the rsync process.
         """
         process = self._rsync(uid)
-        for line in iter(process.stdout.readline, ''):
-            print(line, end='')
+        for line in iter(process.stdout.readline, ""):
+            print(line, end="", file=stdout)
         process.wait()
         return self
 
 
 class RemoteSimulation(Simulation):
-    def __init__(self, uid: str, manager: RemoteManager) -> None:
-        super().__init__(uid, manager.path, _db_id=manager.UID)
-        self.manager = manager
+    cached: bool = False
+    shallow: bool = False
 
-    def sync(self) -> RemoteSimulation:
-        """Sync the simulation data with the remote server."""
-        self.manager.rsync(self.uid)
+    def __init__(
+        self, uid: str, manager: RemoteManager, *, _shallow: bool = False
+    ) -> None:
+        self.manager = manager
+        self.uid = uid
+
+        if not _shallow:
+            self._init_base_class()
+        else:
+            # A subset of the Simulation __init__ method
+            self.uid: str = uid
+            self.path_database: str = os.path.abspath(manager.path)
+            self.database_id = manager.UID
+            self.path: str = os.path.abspath(os.path.join(manager.path, uid))
+            self.h5file: str = os.path.join(self.path, f"{self.uid}.h5")
+            self.xdmffile: str = os.path.join(self.path, f"{self.uid}.xdmf")
+
+            # set flag to indicate that the data is not transferred
+            self.shallow = True
+
+    @property
+    def parameters(self) -> dict:
+        """Returns the parameters of the simulation.
+
+        - If the simulation is shallow, the parameters are fetched from the
+          database. If so, the metadata is included in the parameters.
+        - If the simulation is not shallow, the parameters are fetched from the
+          HDF5 file.
+        """
+        if self.shallow:
+            return unflatten_dict(self.manager._table.read_entry(self.uid).to_dict())
+        return super().parameters
+
+    def _init_base_class(self) -> None:
+        super().__init__(self.uid, self.manager.path, _db_id=self.manager.UID)
+        self.cached = True
+
+    def sync(self, *, stdout: TextIO | None = None) -> RemoteSimulation:
+        """Sync the simulation data with the remote server.
+
+        Args:
+            stdout: The file object to write the output of the rsync process.
+        """
+        self.manager.rsync(self.uid, stdout=stdout)
+        self._init_base_class()
         return self
 
     def get_full_uid(self) -> str:

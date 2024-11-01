@@ -13,6 +13,7 @@ import os
 import pkgutil
 import subprocess
 from contextlib import contextmanager
+from functools import cached_property
 from typing import Any, Dict, Iterable, Tuple
 
 import numpy as np
@@ -224,7 +225,7 @@ class Simulation:
         except index.Error as e:
             log.warning(f"Could not update sqlite database: {e}")
 
-    @property
+    @cached_property
     def parameters(self) -> Dict[str, Any]:
         tmp_dict = dict()
         if self._prank == 0:
