@@ -14,7 +14,7 @@ import pkgutil
 import sqlite3
 import subprocess
 from functools import wraps
-from typing import Callable, TextIO
+from typing import Callable
 
 import pandas as pd
 
@@ -358,7 +358,7 @@ class RemoteManager(Manager):
         )
 
     def rsync(
-        self, uid: str | None = None, *, stdout: TextIO | None = None
+        self, uid: str | None = None
     ) -> RemoteManager:
         """Transfer data using rsync. Wait for the process to finish and return
         self.
@@ -366,11 +366,10 @@ class RemoteManager(Manager):
         Args:
             uid: The unique id of the simulation to be transferred. If None,
                 all simulations are synced.
-            stdout: The file object to write the output of the rsync process.
         """
         process = self._rsync(uid)
         for line in iter(process.stdout.readline, ""):
-            print(line, end="", file=stdout)
+            print(line, end="")
         process.wait()
         return self
 
@@ -416,13 +415,13 @@ class RemoteSimulation(Simulation):
         super().__init__(self.uid, self.manager.path, _db_id=self.manager.UID)
         self.cached = True
 
-    def sync(self, *, stdout: TextIO | None = None) -> RemoteSimulation:
+    def sync(self) -> RemoteSimulation:
         """Sync the simulation data with the remote server.
 
         Args:
             stdout: The file object to write the output of the rsync process.
         """
-        self.manager.rsync(self.uid, stdout=stdout)
+        self.manager.rsync(self.uid)
         self._init_base_class()
         return self
 
