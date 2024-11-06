@@ -13,7 +13,7 @@ import os
 import pkgutil
 import sqlite3
 import subprocess
-from functools import wraps
+from functools import cached_property, wraps
 from typing import Callable
 
 import pandas as pd
@@ -398,7 +398,7 @@ class RemoteSimulation(Simulation):
             # set flag to indicate that the data is not transferred
             self.shallow = True
 
-    @property
+    @cached_property
     def parameters(self) -> dict:
         """Returns the parameters of the simulation.
 
