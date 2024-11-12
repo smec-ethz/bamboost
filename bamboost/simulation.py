@@ -136,7 +136,9 @@ class Simulation:
         self.links: Links = Links(self._file)
 
     @classmethod
-    def fromUID(cls, full_uid: str, *, index_database: index.IndexAPI = None) -> Self:
+    def fromUID(
+        cls, full_uid: str, *, index_database: index.IndexAPI = None, **kwargs
+    ) -> Self:
         """Return the `Simulation` with given UID.
 
         Args:
@@ -146,7 +148,7 @@ class Simulation:
             index_database = index.IndexAPI()
         db_uid, sim_uid = full_uid.split(":")
         db_path = index_database.get_path(db_uid)
-        return cls(sim_uid, db_path, create_if_not_exists=False)
+        return cls(sim_uid, db_path, create_if_not_exists=False, **kwargs)
 
     @with_file_open()
     def __getitem__(self, key) -> hdf_pointer.BasePointer:
