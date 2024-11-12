@@ -14,7 +14,10 @@ import pkgutil
 import shutil
 import uuid
 from ctypes import ArgumentError
-from typing import Any, Generator, Iterable, Union
+from typing import TYPE_CHECKING, Any, Generator, Iterable, Union
+
+if TYPE_CHECKING:
+    from mpi4py.MPI import Comm
 
 import h5py
 import numpy as np
@@ -42,7 +45,7 @@ class ManagerFromUID(object):
 
     def __init__(self) -> None:
         # or [] to circumvent Null type (MPI)
-        ids = IndexAPI().fetch(f"SELECT id, path FROM dbindex") or []
+        ids = IndexAPI().fetch("SELECT id, path FROM dbindex") or []
         self.completion_keys = tuple(
             [f'{key} - {"..."+val[-25:] if len(val)>=25 else val}' for key, val in ids]
         )
@@ -96,7 +99,7 @@ class Manager:
     def __init__(
         self,
         path: str = None,
-        comm: MPI.Comm = MPI.COMM_WORLD,
+        comm: Comm = MPI.COMM_WORLD,
         uid: str = None,
         create_if_not_exist: bool = True,
     ):

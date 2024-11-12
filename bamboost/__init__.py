@@ -5,6 +5,19 @@ __license__ = "LGPLv3"
 import logging
 from typing import Literal
 
+__all__ = [
+    "__version__",
+    "__author__",
+    "__license__",
+    "__copyright__",
+    "BAMBOOST_LOGGER",
+    "set_log_level",
+    "add_stream_handler",
+    "config",
+    "extensions",
+    "core",
+]
+
 # Determine the version of the package
 try:
     # If the package is installed, the version is stored in _version.py
@@ -39,6 +52,3 @@ def set_log_level(
 
 from bamboost._config import config  # noqa: E402, F401
 from bamboost.extensions import extensions  # noqa: E402, F401
-from bamboost.manager import Manager  # noqa: E402, F401
-from bamboost.simulation import Simulation  # noqa: E402, F401
-from bamboost.simulation_writer import SimulationWriter  # noqa: E402, F401

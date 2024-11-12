@@ -7,15 +7,21 @@
 #
 # There is no warranty for this code
 import os
-from typing import Any, Union
+from typing import TYPE_CHECKING
 
 from bamboost import BAMBOOST_LOGGER
 from bamboost._config import config
 from bamboost.common._mock_mpi import MockMPI
 
-log = BAMBOOST_LOGGER.getChild(__name__.split(".")[-1])
+if TYPE_CHECKING:
+    from mpi4py import MPI as MPIType
+elif config.get("options", {}).get("mpi", True):
+    from mpi4py import MPI as MPIType
+else:
+    MPIType = MockMPI
 
-MPIType = Union[MockMPI, Any]
+
+log = BAMBOOST_LOGGER.getChild(__name__.split(".")[-1])
 
 MPI_ON = config.get("options", {}).get("mpi", True)
 ENV_BAMBOOST_MPI: bool = os.environ.get("BAMBOOST_MPI", None)
@@ -39,4 +45,4 @@ def _get_mpi_module():
         return MockMPI
 
 
-MPI: Union[MockMPI, Any] = _get_mpi_module()
+MPI: MPIType = _get_mpi_module()
