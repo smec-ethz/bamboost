@@ -1,13 +1,8 @@
 import argparse
 
-import pandas as pd
 import rich
 
-from bamboost import _config, index
-from bamboost.index import DatabaseTable, IndexAPI
-from bamboost.manager import Manager
-from bamboost.simulation import Simulation
-from bamboost.simulation_writer import SimulationWriter
+from bamboost import _config
 
 
 def main():
@@ -84,6 +79,8 @@ def main():
     # Scan
     # ----------------
     def scan_known_paths(args):
+        from bamboost.index import IndexAPI
+
         IndexAPI().scan_known_paths()
         rich.print("Scanned known paths")
 
@@ -122,6 +119,9 @@ def main():
 
 
 def submit_simulation(args):
+    from bamboost.index import IndexAPI
+    from bamboost.simulation import Simulation
+
     if args.path is not None:
         db_path, uid = args.path.rstrip("/").rsplit("/", 1)
         sim = Simulation(uid, db_path)
@@ -136,10 +136,15 @@ def submit_simulation(args):
 
 
 def manage_db(args):
+    from bamboost.index import IndexAPI
+    from bamboost.manager import Manager
+
     # test if the database exists
     df = IndexAPI().read_table()
     if args.db_id not in df["id"].values:
-        match = df[df["path"].astype(str).str.contains(args.db_id, na=False)].reset_index(drop=True)
+        match = df[
+            df["path"].astype(str).str.contains(args.db_id, na=False)
+        ].reset_index(drop=True)
         choice = 0
         if len(match) > 1:
             rich.print(
@@ -165,11 +170,15 @@ def manage_db(args):
 
 
 def list_databases(args):
+    from bamboost.index import IndexAPI
+
     table = IndexAPI().read_table()
     rich.print(table.to_string())
 
 
 def clean_index(args, purge: bool = False):
+    from bamboost.index import IndexAPI
+
     IndexAPI().clean(purge=purge)
     rich.print("Index cleaned")
 
@@ -199,6 +208,9 @@ def open_config(args):
 
 
 def create_new_database(args):
+    from bamboost import index
+    from bamboost.manager import Manager
+
     try:
         path = index.get_uid_from_path(args.path)
         rich.print(f"Database at {args.path} already exists. ID: {path}")
