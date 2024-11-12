@@ -10,6 +10,7 @@
 from __future__ import annotations
 
 from contextlib import contextmanager
+from enum import Enum
 from typing import Literal, TypedDict
 
 import numpy as np
@@ -26,6 +27,13 @@ except ImportError:
 __all__ = ["FenicsWriter"]
 
 
+class WriteStyle(Enum):
+    """Enum for write style."""
+
+    SCATTERED = 0
+    CONTIGUOUS = 1
+
+
 class FenicsWriter(SimulationWriter):
     """
     Helper writer for input from FEniCS directly.
@@ -34,6 +42,9 @@ class FenicsWriter(SimulationWriter):
         uid: Unique identifier for the simulation
         path: Path to database
         comm: MPI communicator
+        create_if_not_exists: Create file if it does not exist
+        write_style: Write style for the data. Contiguous is faster but
+            requires the entire array to fit in memory.
     """
 
     def __init__(
@@ -42,8 +53,10 @@ class FenicsWriter(SimulationWriter):
         path: str,
         comm: MPI.Comm = MPI.COMM_WORLD,
         create_if_not_exists: bool = False,
+        write_style: WriteStyle = WriteStyle.SCATTERED,
     ):
         super().__init__(uid, path, comm)
+        self.write_style = WriteStyle(write_style)
 
     def add_field(
         self,
@@ -69,7 +82,10 @@ class FenicsWriter(SimulationWriter):
         mesh = mesh if mesh is not None else self._default_mesh
         time = time if time is not None else self.step
 
-        self._dump_fenics_field(
+        {
+            WriteStyle.SCATTERED: self._dump_fenics_field,
+            WriteStyle.CONTIGUOUS: self._dump_fenics_field_on_root,
+        }.get(self.write_style)(
             f"data/{name}/{self.step}",
             func,
             dtype=dtype,
@@ -109,6 +125,7 @@ class FenicsWriter(SimulationWriter):
 
         # Write vector to file
         with self._file("a", driver="mpio", comm=self._comm) as f:
+            f = f.file_object
             grp = f.require_group(group_name)
             vec = grp.require_dataset(
                 dataset_name,
@@ -116,6 +133,62 @@ class FenicsWriter(SimulationWriter):
                 dtype=dtype if dtype else vector.dtype,
             )
             vec[global_map] = vector
+
+    def _dump_fenics_field_on_root(
+        self,
+        location: str,
+        field: fe.Function,
+        dtype: str = None,
+        center: Literal["Node", "Cell"] = "Node",
+    ) -> None:
+        """Assembles the vector on the root process and writes it to file contiguously.
+
+        This is faster but requires the entire array to fit in memory.
+
+        Args:
+            location: Location in the HDF5 file
+            field: FEniCS function
+            dtype: Optional. Numpy style datatype, see h5py documentation,
+                defaults to the dtype of the vector
+            center: Optional. Center of the data. Can be 'Node' or 'Cell'.
+                Default is 'Node'.
+        """
+        # get global dofs ordering and vector
+        if center == "Node":
+            data = self._get_global_dofs(field)
+        elif center == "Cell":
+            data = self._get_global_dofs_cell_data(field)
+        else:
+            raise ValueError("Center must be 'Node' or 'Cell'.")
+
+        vector = data["vector"]
+        global_map = data["global_map"]
+        global_size = data["global_size"]
+
+        dim = data["vector"].shape[1:] if data["vector"].ndim > 1 else None
+
+        group_name, dataset_name = location.rstrip("/").rsplit("/", 1)
+
+        vector_p = self._comm.gather(vector)
+        global_map_p = self._comm.gather(global_map)
+
+        # On RAM, construct a contiguous vector on the root process
+        if self._prank == 0:
+            vector_contiguous = np.zeros(
+                (global_size, *dim) if dim else (global_size,), dtype=vector.dtype
+            )
+            for map, vec in zip(global_map_p, vector_p):
+                vector_contiguous[map] = vec
+
+            # Write vector to file
+            with self._file("a") as f:
+                grp = f.require_group(group_name)
+                vec = grp.require_dataset(
+                    dataset_name,
+                    shape=(global_size, *dim) if dim else (global_size,),
+                    dtype=dtype if dtype else vector.dtype,
+                )
+                vec[:] = vector_contiguous
 
     class FenicsFieldInformation(TypedDict):
         vector: np.ndarray
@@ -225,23 +298,23 @@ class FenicsWriter(SimulationWriter):
 
         assert not self._file.file_object, "File is open -> Quitting"
 
-        @contextmanager
-        def temporary_close_file():
-            was_open = False
-            if self._file.file_object:
-                self._file.file_object.close()
-                was_open = True
-            try:
-                yield
-            finally:
-                if was_open:
-                    self._file.file_object = open_h5file(
-                        self._file.file_name,
-                        self._file.mode,
-                        self._file.driver,
-                        self._file.comm,
-                    )
-
-        with temporary_close_file():
+        with self.temporary_close_file():
             with fe.HDF5File(self._comm, self.h5file, "a") as f:
                 f.write(mesh, mesh_location)
+
+    @contextmanager
+    def temporary_close_file(self):
+        was_open = False
+        if self._file.file_object:
+            self._file.file_object.close()
+            was_open = True
+        try:
+            yield
+        finally:
+            if was_open:
+                self._file.file_object = open_h5file(
+                    self._file.file_name,
+                    self._file.mode,
+                    self._file.driver,
+                    self._file.comm,
+                )
