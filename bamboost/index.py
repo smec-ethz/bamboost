@@ -34,7 +34,6 @@ __all__ = [
     "DOT_REPLACEMENT",
 ]
 
-import json
 import os
 import subprocess
 from dataclasses import dataclass
