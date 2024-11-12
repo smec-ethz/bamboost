@@ -14,7 +14,7 @@ import pkgutil
 import subprocess
 from contextlib import contextmanager
 from functools import cached_property
-from typing import Any, Dict, Iterable, Tuple
+from typing import TYPE_CHECKING, Any, Dict, Iterable, Tuple
 
 import numpy as np
 import pandas as pd
@@ -29,6 +29,10 @@ from bamboost.common import hdf_pointer, utilities
 from bamboost.common.file_handler import FileHandler, with_file_open
 from bamboost.common.mpi import MPI
 from bamboost.xdmf import XDMFWriter
+
+if TYPE_CHECKING:
+    from mpi4py.MPI import Comm
+
 
 __all__ = [
     "Simulation",
@@ -98,7 +102,7 @@ class Simulation:
         self,
         uid: str,
         path: str,
-        comm: MPI.Comm = MPI.COMM_WORLD,
+        comm: Comm = MPI.COMM_WORLD,
         create_if_not_exists: bool = False,
         *,
         _db_id: str = None,
@@ -119,7 +123,7 @@ class Simulation:
         os.makedirs(self.path, exist_ok=True)
 
         # MPI information
-        self._comm = comm
+        self._comm: Comm = comm
         self._psize = self._comm.size
         self._prank = self._comm.rank
         self._ranks = np.array([i for i in range(self._psize)])
