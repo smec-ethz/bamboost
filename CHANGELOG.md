@@ -1,9 +1,14 @@
 # Change log for bamboost
 
-## v0.8.2
+## v0.8.2 (13Nov24)
 
 - ENH: In remote extension, allow shallow sim (object without fetching the data)
   & stdout argument for rsync method to redirect it to somewhere else (for tui).
+- FIX: use cached_property decorator for parameters.
+- FEAT: support passing constructor kwargs when using `Simulation.fromUID`.
+- FEAT: in Fenics extension, add optional contiguous writing strategy. This
+  assembles a contiguous array on the root process before writing, which is
+  faster but obviously requires more memory.
 
 ## v0.8.1 (24Oct24)
 
@@ -30,7 +35,7 @@
 - API: in mesh, renamed "geometry" to "coordinates" (consistent with Fenics).
   For backwards compatibility, "geometry" is still compatible.
 - FEAT: added default argparse parsers in utility module
-- ENH: split the add_field method to have access to a lower level _dump_array
+- ENH: split the add_field method to have access to a lower level \_dump_array
   method which can be used to write data to any desired location in the hdf5
   file.
 - ENH: create_simulation now deletes partially created simulations if an error
@@ -49,7 +54,7 @@
 ## v0.7.3 (26Aug24)
 
 - API: sbatch jobs: removed default settings concerning MPI (sbatch will select the defaults).
-  Starting from now, MPI related parameters (e.g. ntasts) have to be specified via `sbatch_kwargs` 
+  Starting from now, MPI related parameters (e.g. ntasts) have to be specified via `sbatch_kwargs`
 - FIX: fixed bug in manager that dataframe can't be displayed if one of the
   metadata keys is missing
 
