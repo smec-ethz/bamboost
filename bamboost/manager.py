@@ -99,16 +99,16 @@ class Manager:
     def __init__(
         self,
         path: str = None,
-        comm: Comm = MPI.COMM_WORLD,
+        comm: Comm = None,
         uid: str = None,
         create_if_not_exist: bool = True,
     ):
         # provided uid has precedence
+        self.comm = comm or MPI.COMM_WORLD
         if uid is not None:
             path = self._index.get_path(uid.upper())
-            path = comm.bcast(path, root=0)
+            path = self.comm.bcast(path, root=0)
         self.path = path
-        self.comm = comm
 
         # check if path exists
         if not os.path.isdir(path):

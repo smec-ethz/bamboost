@@ -46,7 +46,7 @@ class SimulationWriter(Simulation):
         self,
         uid: str,
         path: str,
-        comm: MPI.Comm = MPI.COMM_WORLD,
+        comm: MPI.Comm = None,
         create_if_not_exists: bool = True,
     ):
         super().__init__(uid, path, comm, create_if_not_exists)

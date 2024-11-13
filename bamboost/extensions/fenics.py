@@ -51,7 +51,7 @@ class FenicsWriter(SimulationWriter):
         self,
         uid: str,
         path: str,
-        comm: MPI.Comm = MPI.COMM_WORLD,
+        comm: MPI.Comm = None,
         create_if_not_exists: bool = False,
         write_strategy: WriteStrategy = WriteStrategy.SCATTERED,
     ):

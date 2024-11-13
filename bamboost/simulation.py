@@ -102,13 +102,19 @@ class Simulation:
         self,
         uid: str,
         path: str,
-        comm: Comm = MPI.COMM_WORLD,
+        comm: Comm = None,
         create_if_not_exists: bool = False,
         *,
         _db_id: str = None,
     ):
+        # MPI information
+        self._comm: Comm = comm or MPI.COMM_WORLD
+        self._psize = self._comm.size
+        self._prank = self._comm.rank
+        self._ranks = np.array([i for i in range(self._psize)])
+
         self.uid: str = uid
-        path = comm.bcast(path, root=0)
+        path = self._comm.bcast(path, root=0)
         self.path_database: str = os.path.abspath(path)
         self.database_id = _db_id or index.get_uid_from_path(self.path_database)
         self.path: str = os.path.abspath(os.path.join(path, uid))
@@ -121,12 +127,6 @@ class Simulation:
             )
 
         os.makedirs(self.path, exist_ok=True)
-
-        # MPI information
-        self._comm: Comm = comm
-        self._psize = self._comm.size
-        self._prank = self._comm.rank
-        self._ranks = np.array([i for i in range(self._psize)])
 
         self._file = FileHandler(self.h5file)
 

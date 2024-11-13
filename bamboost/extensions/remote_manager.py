@@ -218,7 +218,7 @@ class RemoteManager(Manager):
         self,
         id: str,
         remote: Remote,
-        comm: MPI.Comm = MPI.COMM_WORLD,
+        comm: MPI.Comm = None,
     ) -> None:
         """
         params
@@ -226,7 +226,7 @@ class RemoteManager(Manager):
         """
         self.UID = id
         self.remote = remote
-        self.comm = comm
+        self.comm = comm or MPI.COMM_WORLD
         self.path = os.path.join(self.remote.local_path, self.UID)
         log.info(f"Creating cache directory at {self.path}")
         os.makedirs(self.path, exist_ok=True)
