@@ -27,7 +27,7 @@ except ImportError:
 __all__ = ["FenicsWriter"]
 
 
-class WriteStyle(Enum):
+class WriteStrategy(Enum):
     """Enum for write style."""
 
     SCATTERED = 0
@@ -43,8 +43,8 @@ class FenicsWriter(SimulationWriter):
         path: Path to database
         comm: MPI communicator
         create_if_not_exists: Create file if it does not exist
-        write_style: Write style for the data. Contiguous is faster but
-            requires the entire array to fit in memory.
+        write_strategy: Write strategy for the data. Contiguous is faster but
+            requires the entire array to fit in memory of the root process.
     """
 
     def __init__(
@@ -53,10 +53,10 @@ class FenicsWriter(SimulationWriter):
         path: str,
         comm: MPI.Comm = MPI.COMM_WORLD,
         create_if_not_exists: bool = False,
-        write_style: WriteStyle = WriteStyle.SCATTERED,
+        write_strategy: WriteStrategy = WriteStrategy.SCATTERED,
     ):
         super().__init__(uid, path, comm)
-        self.write_style = WriteStyle(write_style)
+        self.write_strategy = WriteStrategy(write_strategy)
 
     def add_field(
         self,
@@ -83,9 +83,9 @@ class FenicsWriter(SimulationWriter):
         time = time if time is not None else self.step
 
         {
-            WriteStyle.SCATTERED: self._dump_fenics_field,
-            WriteStyle.CONTIGUOUS: self._dump_fenics_field_on_root,
-        }.get(self.write_style)(
+            WriteStrategy.SCATTERED: self._dump_fenics_field,
+            WriteStrategy.CONTIGUOUS: self._dump_fenics_field_on_root,
+        }.get(self.write_strategy)(
             f"data/{name}/{self.step}",
             func,
             dtype=dtype,
