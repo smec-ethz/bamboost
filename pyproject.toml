@@ -1,5 +1,3 @@
-# pyproject.toml
-
 [build-system]
 requires = ["setuptools", "setuptools-scm>=8"]
 build-backend = "setuptools.build_meta"
@@ -36,7 +34,8 @@ test = [
 ]
 
 [project.entry-points.console_scripts]
-bamboostcli = "cli:main"
+bamboostcli = "bamboost.cli:main"
+bb-job = "bamboost.cli:job"
 
 [project.urls]
 Homepage = "https://bamboost.ch/"
@@ -44,7 +43,7 @@ repository = "https://gitlab.com/cmbm-ethz/bamboost"
 changelog = "https://gitlab.com/cmbm-ethz/bamboost/-/tree/main/CHANGELOG.md"
 
 [tool.setuptools.packages.find]
-include = ["bamboost", "bamboost*", "cli", "cli*"]
+include = ["bamboost", "bamboost*"]
 
 [tool.setuptools_scm]
 version_file = "bamboost/_version.py"
