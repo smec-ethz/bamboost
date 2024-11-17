@@ -614,7 +614,7 @@ def get_uid_from_path(path: str) -> str:
 
 
 def get_known_paths() -> list:
-    return config["index"].get("paths", [])
+    return config.index.paths
 
 
 def _find_posix(uid, root_dir) -> list:

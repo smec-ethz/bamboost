@@ -299,11 +299,10 @@ class Manager:
         columns_start = [col for col in columns_start if col in df.columns]
         self._dataframe = df[[*columns_start, *df.columns.difference(columns_start)]]
 
-        opts = config.get("options", {})
-        if "sort_table_key" in opts:
+        if config.options.sort_table_key is not None:
             self._dataframe.sort_values(
-                opts.get("sort_table_key", "id"),
-                ascending=opts.get("sort_table_order", "asc") == "asc",
+                config.options.sort_table_key,
+                ascending=config.options.sort_table_order == "asc",
                 inplace=True,
             )
         return self._dataframe

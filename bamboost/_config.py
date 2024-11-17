@@ -11,18 +11,23 @@ Functions:
 
 Attributes:
     - paths: A dictionary containing paths to the config files.
-    - config: A dictionary of the config. Initiated from config file.
+    - config: A config options object. Initialized from config file `~/.config/bamboost/config.toml`.
 """
 
 import os
-import pkgutil
+from dataclasses import dataclass, field
+from typing import Union
 
 try:
     import tomllib as tomli
 except ImportError:
     import tomli
 
-__all__ = ["paths", "config"]
+__all__ = [
+    "paths",
+    "config",
+    "Config",
+]
 
 # Define paths to bamboost config files
 _home_dir = os.path.expanduser("~")
@@ -36,47 +41,62 @@ paths = {
     ),
 }
 
-# Create directories if they do not exist
-os.makedirs(paths["CONFIG_DIR"], exist_ok=True)
-os.makedirs(paths["LOCAL_DIR"], exist_ok=True)
+
+@dataclass
+class ConfigOptions:
+    """Default options for bamboost."""
+
+    mpi: bool = True
+    sort_table_key: str = "time_stamp"
+    sort_table_order: str = "desc"
+    sync_tables: bool = True
 
 
-def _copy_config_file(file: str):
-    """Copy the example config file to the user's config directory.
+@dataclass
+class ConfigIndex:
+    """Default index options for bamboost."""
 
-    Raises:
-        - FileExistsError: If the config file already exists in the destination
-          directory."""
-    # If file exists, raise an error
-    if os.path.exists(file):
-        raise FileExistsError("Config file already exists")
-
-    # source_file = "_example_config.toml"
-    source_file: bytes = pkgutil.get_data("bamboost", "_example_config.toml")
-
-    # Copy the source file to the destination
-    with open(file, "wb") as f:
-        f.write(source_file)
+    paths: list = field(default_factory=list)
 
 
-def _load_config_file(file: str = None):
-    """Load the config file from the user's config directory.
+class Config:
+    """Configuration class for bamboost.
 
-    If the config file does not exist, a copy of the example config file will
-    be created.
+    This class manages the configuration options and index settings for bamboost.
+    It loads the configuration from a file and provides access to the options
+    and index attributes.
 
-    Returns:
-        - dict: The contents of the config file as a dictionary.
+    Attributes:
+        options: Configuration options for bamboost.
+        index: Index settings for bamboost.
     """
-    # Load the config file
-    if file is None:
-        file = paths["CONFIG_FILE"]
-    try:
-        with open(file, "rb") as f:
-            return tomli.load(f)
-    except FileNotFoundError:
-        _copy_config_file(file)
-        return _load_config_file(file)
+
+    options: ConfigOptions
+    index: ConfigIndex
+
+    def __init__(self, config_file: str = None) -> None:
+        self._config_file = config_file or paths["CONFIG_FILE"]
+        loaded_config = self._load_config_file(self._config_file)
+
+        self.options = ConfigOptions(**loaded_config.get("options", {}))
+        self.index = ConfigIndex(**loaded_config.get("index", {}))
+
+    def _load_config_file(self, file: str = None) -> Union[dict, None]:
+        """If the file exists, loads the config file from the user's config
+        directory.
+
+        Returns:
+            Config object: The contents of the config file as a dictionary. Or None.
+        """
+        # Load the config file
+        if file is None:
+            file = paths["CONFIG_FILE"]
+
+        if os.path.exists(file):
+            with open(file, "rb") as f:
+                return tomli.load(f)
+        else:
+            return {}
 
 
-config = _load_config_file()
+config: Config = Config()

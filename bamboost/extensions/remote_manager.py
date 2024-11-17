@@ -280,11 +280,10 @@ class RemoteManager(Manager):
             if id in df["id"].values:
                 df.loc[df["id"] == id, "cached"] = True
 
-        opts = config.get("options", {})
-        if "sort_table_key" in opts:
+        if config.options.sort_table_key is not None:
             df.sort_values(
-                opts.get("sort_table_key", "id"),
-                ascending=opts.get("sort_table_order", "asc") == "asc",
+                config.options.sort_table_key,
+                ascending=config.options.sort_table_order == "asc",
                 inplace=True,
             )
         return df
@@ -357,9 +356,7 @@ class RemoteManager(Manager):
             text=True,
         )
 
-    def rsync(
-        self, uid: str | None = None
-    ) -> RemoteManager:
+    def rsync(self, uid: str | None = None) -> RemoteManager:
         """Transfer data using rsync. Wait for the process to finish and return
         self.
 

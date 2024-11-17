@@ -224,7 +224,7 @@ class Simulation:
         Args:
             - update_dict (dict): key value pair to push
         """
-        if not config["options"].get("sync_table", True):
+        if not config.options.sync_tables:
             return
         try:
             index.DatabaseTable(self.database_id).update_entry(self.uid, update_dict)

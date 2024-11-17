@@ -22,7 +22,6 @@ import numpy as np
 from typing_extensions import Self
 
 from bamboost import BAMBOOST_LOGGER
-from bamboost._config import config
 from bamboost.common.mpi import MPI
 
 __all__ = ["SQLiteHandler"]
