@@ -52,11 +52,11 @@ def job():
 
     args = parser.parse_args()
 
-    sim = create_job(args.db_path, args.input_file, args.name)
+    sim = create_job(args.db_path, args.input_file, args.name, args.note, args.euler)
 
     if args.submit:
         sim.submit()
-        print(f"Submitted simulation {sim.uid} [db: {sim.database_id}]")
+        print(f"Submitted simulation {sim.uid} [db: {sim.database_id}]", flush=True)
 
 
 def create_job(
