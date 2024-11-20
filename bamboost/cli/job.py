@@ -66,6 +66,9 @@ def create_job(
     note: str = None,
     euler: bool = False,
 ):
+    from bamboost import config
+
+    config.options.mpi = False
     from bamboost.manager import Manager
 
     bb_input = _import_input_file(input_file)
