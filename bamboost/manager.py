@@ -651,7 +651,7 @@ class Manager:
         if duplicate_action == "prompt":
             # What should be done?
             prompt = input(
-                "Replace first duplicate ('r'), Create with altered uid (`c`), "
+                f"Replace first duplicate [{duplicates[0]}] ('r'), Create with altered uid (`c`), "
                 + "Create new with new id (`n`), Abort (`a`): "
             )
         else:
