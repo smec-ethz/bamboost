@@ -44,6 +44,7 @@ def job():
     parser.add_argument("db_path", type=str, help="Path to the database")
     parser.add_argument("input_file", type=str, help="Path to the input file")
     parser.add_argument("--name", "-n", type=str, help="Name of the job")
+    parser.add_argument("--prefix", "-np", type=str, help="Prefix for the job name")
     parser.add_argument("--note", "-m", type=str, help="Note for the job")
     parser.add_argument(
         "--submit", "-s", action="store_true", help="Directly submit the job"
@@ -52,7 +53,14 @@ def job():
 
     args = parser.parse_args()
 
-    sim = create_job(args.db_path, args.input_file, args.name, args.note, args.euler)
+    sim = create_job(
+        args.db_path,
+        args.input_file,
+        args.name,
+        args.note,
+        args.euler,
+        prefix=args.prefix,
+    )
 
     if args.submit:
         sim.submit()
@@ -65,6 +73,7 @@ def create_job(
     name: str = None,
     note: str = None,
     euler: bool = False,
+    prefix: str = None,
 ):
     from bamboost import config
 
@@ -83,6 +92,7 @@ def create_job(
         note=note,
         files=bb_input.files,
         links=bb_input.links,
+        prefix=prefix,
     )
 
     # create submission script
