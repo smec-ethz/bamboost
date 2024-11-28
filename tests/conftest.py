@@ -3,7 +3,7 @@ import shutil
 import tempfile
 
 os.environ["BAMBOOST_MPI"] = "0"
-from bamboost.indexing import index
+from bamboost.core.index import index
 from bamboost.config import paths
 
 

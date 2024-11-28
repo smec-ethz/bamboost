@@ -9,9 +9,8 @@ import pandas as pd
 import pytest
 
 from bamboost.core.manager import Manager
-from bamboost.core.simulation import Simulation
-from bamboost.core.simulation_writer import SimulationWriter
-from bamboost.indexing import index
+from bamboost.core.simulation import Simulation, SimulationWriter
+from bamboost.core.index import index
 
 
 @pytest.fixture()
