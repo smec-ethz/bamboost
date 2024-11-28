@@ -22,14 +22,15 @@ from typing_extensions import Self, deprecated
 
 from bamboost import BAMBOOST_LOGGER
 from bamboost.config import config, paths
-from bamboost.core.accessors.fielddata import DataGroup
-from bamboost.core.accessors.globals import GlobalGroup
-from bamboost.core.accessors.meshes import Mesh, MeshGroup
-from bamboost.core.common import hdf_pointer, utilities
-from bamboost.core.common.file_handler import FileHandler, with_file_open
-from bamboost.core.common.mpi import MPI
-from bamboost.core.xdmf import XDMFWriter
-from bamboost.indexing import index
+from bamboost.core.hdf5.accessors.fielddata import DataGroup
+from bamboost.core.hdf5.accessors.globals import GlobalGroup
+from bamboost.core.hdf5.accessors.meshes import Mesh, MeshGroup
+from bamboost.core import utilities
+from bamboost.core.hdf5.file_handler import FileHandler, with_file_open
+from bamboost.core.mpi import MPI
+from bamboost.core.simulation.xdmf import XDMFWriter
+from bamboost.core.hdf5 import hdf_pointer
+from bamboost.core.index import index
 
 if TYPE_CHECKING:
     from mpi4py.MPI import Comm
@@ -165,8 +166,8 @@ class Simulation:
         return hdf_pointer.BasePointer.new_pointer(self._file, key)
 
     def _repr_html_(self) -> str:
-        html_string = pkgutil.get_data(__name__, "html/simulation.html").decode()
-        icon = pkgutil.get_data(__name__, "html/icon.txt").decode()
+        html_string = pkgutil.get_data(__name__, "_repr/simulation.html").decode()
+        icon = pkgutil.get_data(__name__, "_repr/icon.txt").decode()
 
         table_string = ""
         for key, value in self.parameters.items():

@@ -13,8 +13,8 @@ import os
 import subprocess
 from functools import wraps
 
-from bamboost.core.common.utilities import to_camel_case
-from bamboost.core.simulation_writer import SimulationWriter
+from bamboost.core.utilities import to_camel_case
+from bamboost.core.simulation.writer import SimulationWriter
 
 __all__ = ["install"]
 

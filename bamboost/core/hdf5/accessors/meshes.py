@@ -14,8 +14,8 @@ from typing import Tuple
 import numpy as np
 
 from bamboost import BAMBOOST_LOGGER
-from bamboost.core.common import hdf_pointer
-from bamboost.core.common.file_handler import FileHandler, with_file_open
+from bamboost.core.hdf5 import hdf_pointer
+from bamboost.core.hdf5.file_handler import FileHandler, with_file_open
 
 __all__ = ["MeshGroup", "Mesh"]
 

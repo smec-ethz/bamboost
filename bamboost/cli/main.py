@@ -4,6 +4,7 @@ import rich
 
 from bamboost import config
 
+
 def main():
     parser = argparse.ArgumentParser(description="CLI for bamboost")
     parser.add_argument(
@@ -78,7 +79,7 @@ def main():
     # Scan
     # ----------------
     def scan_known_paths(args):
-        from bamboost.indexing.index import IndexAPI
+        from bamboost.core.index.index import IndexAPI
 
         IndexAPI().scan_known_paths()
         rich.print("Scanned known paths")
@@ -118,8 +119,8 @@ def main():
 
 
 def submit_simulation(args):
-    from bamboost.core.simulation import Simulation
-    from bamboost.indexing.index import IndexAPI
+    from bamboost.core.simulation.base import Simulation
+    from bamboost.core.index.index import IndexAPI
 
     if args.path is not None:
         db_path, uid = args.path.rstrip("/").rsplit("/", 1)
@@ -136,7 +137,7 @@ def submit_simulation(args):
 
 def manage_db(args):
     from bamboost.core.manager import Manager
-    from bamboost.indexing.index import IndexAPI
+    from bamboost.core.index.index import IndexAPI
 
     # test if the database exists
     df = IndexAPI().read_table()
@@ -169,14 +170,14 @@ def manage_db(args):
 
 
 def list_databases(args):
-    from bamboost.indexing.index import IndexAPI
+    from bamboost.core.index.index import IndexAPI
 
     table = IndexAPI().read_table()
     rich.print(table.to_string())
 
 
 def clean_index(args, purge: bool = False):
-    from bamboost.indexing.index import IndexAPI
+    from bamboost.core.index.index import IndexAPI
 
     IndexAPI().clean(purge=purge)
     rich.print("Index cleaned")

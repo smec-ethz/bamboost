@@ -15,9 +15,9 @@ from typing import Literal, TypedDict
 
 import numpy as np
 
-from bamboost.core.common.file_handler import open_h5file
-from bamboost.core.common.mpi import MPI
-from bamboost.core.simulation_writer import SimulationWriter
+from bamboost.core.hdf5.file_handler import open_h5file
+from bamboost.core.mpi import MPI
+from bamboost.core.simulation.writer import SimulationWriter
 
 try:
     import fenics as fe

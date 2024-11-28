@@ -20,12 +20,12 @@ import pandas as pd
 
 from bamboost import BAMBOOST_LOGGER
 from bamboost.config import config
-from bamboost.core.common.mpi import MPI
-from bamboost.core.common.utilities import unflatten_dict
+from bamboost.core.mpi import MPI
+from bamboost.core.utilities import unflatten_dict
 from bamboost.core.manager import Manager, ManagerFromUID
-from bamboost.core.simulation import Simulation
-from bamboost.indexing.index import DatabaseTable, IndexAPI
-from bamboost.indexing.sqlite_database import SQLiteHandler, with_connection
+from bamboost.core.simulation.base import Simulation
+from bamboost.core.index.index import DatabaseTable, IndexAPI
+from bamboost.core.index.sqlite_database import SQLiteHandler, with_connection
 
 __all__ = [
     "Remote",

@@ -57,13 +57,3 @@ include = ["bamboost", "bamboost*"]
 
 [tool.setuptools_scm]
 version_file = "bamboost/_version.py"
-
-[tool.pyright]
-include = [
-    "bamboost",
-    "tests",
-]
-exclude = ["**/build"]
-
-typeCheckingMode = "off"
-autoImportCompletions = true

@@ -17,7 +17,7 @@ import h5py
 import numpy as np
 
 import bamboost
-from bamboost.core.common.file_handler import FileHandler, with_file_open
+from bamboost.core.hdf5.file_handler import FileHandler, with_file_open
 
 __all__ = [
     "BasePointer",
@@ -143,9 +143,9 @@ class Group(BasePointer):
     def _repr_html_(self):
         """Repr showing the content of the group."""
         html_string = pkgutil.get_data(
-            bamboost.__name__, "html/hdf5_group.html"
+            bamboost.__name__, "_repr/hdf5_group.html"
         ).decode()
-        icon = pkgutil.get_data(bamboost.__name__, "html/icon.txt").decode()
+        icon = pkgutil.get_data(bamboost.__name__, "_repr/icon.txt").decode()
 
         attrs_html = ""
         for key, val in self.attrs.items():

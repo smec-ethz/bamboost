@@ -7,14 +7,15 @@
 #
 # There is no warranty for this code
 import os
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Union
 
 from bamboost import BAMBOOST_LOGGER
+import bamboost.core.mpi.mock as MockMPI
 from bamboost.config import config
-from bamboost.core.common._mock_mpi import MockMPI
 
 MPI_ON = config.options.mpi
-ENV_BAMBOOST_MPI: bool = os.environ.get("BAMBOOST_MPI", None)
+
+ENV_BAMBOOST_MPI: Union[str, None] = os.environ.get("BAMBOOST_MPI", None)
 """Indicates the use of `mpi4py.MPI`. If `0`, the `MockMPI` class is used
 instead. Is set by reading the environment variable `BAMBOOST_MPI` [0 or 1].
 """
@@ -46,4 +47,4 @@ def _get_mpi_module():
         return MockMPI
 
 
-MPI: MPIType = _get_mpi_module()
+MPI = _get_mpi_module()

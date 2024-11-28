@@ -16,9 +16,9 @@ import numpy as np
 import pandas as pd
 
 from bamboost import BAMBOOST_LOGGER
-from bamboost.core.accessors.meshes import Mesh, MeshGroup
-from bamboost.core.common import hdf_pointer
-from bamboost.core.common.file_handler import FileHandler, with_file_open
+from bamboost.core.hdf5.accessors.meshes import Mesh, MeshGroup
+from bamboost.core.hdf5 import hdf_pointer
+from bamboost.core.hdf5.file_handler import FileHandler, with_file_open
 
 __all__ = ["DataGroup", "FieldData"]
 

@@ -10,7 +10,7 @@
 import os
 import xml.etree.ElementTree as ET
 
-from bamboost.core.common.file_handler import FileHandler
+from bamboost.core.hdf5.file_handler import FileHandler
 
 __all__ = ["XDMFWriter"]
 

@@ -22,7 +22,7 @@ from typing import Any, Literal, Tuple
 
 import h5py
 
-from bamboost.core.common.file_handler import (
+from bamboost.core.hdf5.file_handler import (
     FILE_MODE_HIRARCHY,
     FileHandler,
     log,

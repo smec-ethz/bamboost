@@ -6,8 +6,9 @@ from typing import Union
 
 import urwid
 
-from bamboost.core import Simulation, index
+from bamboost.core import Simulation
 from bamboost.core.extensions.remote_manager import Remote
+from bamboost.core.index import index
 from bamboost.tui.common import FIGLET, Caller, Spinner
 from bamboost.tui.pages.hdfview import HDFView
 from bamboost.tui.parser.parser import ArgumentParser

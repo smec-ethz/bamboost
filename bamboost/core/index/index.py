@@ -42,10 +42,10 @@ from typing import Callable
 
 import pandas as pd
 
-import bamboost.indexing.sqlite_database as sql
+import bamboost.core.index.sqlite_database as sql
 from bamboost.config import config, paths
-from bamboost.core.common.file_handler import open_h5file
-from bamboost.core.common.mpi import MPI
+from bamboost.core.hdf5.file_handler import open_h5file
+from bamboost.core.mpi import MPI
 
 log = BAMBOOST_LOGGER.getChild(__name__.split(".")[-1])
 

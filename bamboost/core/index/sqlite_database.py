@@ -16,13 +16,13 @@ import json
 import sqlite3
 from contextlib import contextmanager
 from functools import wraps
-from typing import Generator, Iterable
+from typing import Generator, Iterable, Optional
 
 import numpy as np
 from typing_extensions import Self
 
 from bamboost import BAMBOOST_LOGGER
-from bamboost.core.common.mpi import MPI
+from bamboost.core.mpi import MPI
 
 __all__ = ["SQLiteHandler"]
 
@@ -101,9 +101,8 @@ def with_connection(func):
 
     @wraps(func)
     def wrapper(self: SQLiteHandler, *args, **kwargs):
-        cursor: sqlite3.Cursor = self._cursor
         # check if cursor is available
-        if not self._is_open or cursor is None:
+        if not self._is_open or self._cursor is None:
             with self.open():
                 return func(self, *args, **kwargs)
         return func(self, *args, **kwargs)
@@ -121,8 +120,8 @@ class SQLiteHandler:
             return
         # self._comm = _comm
         self.file = file
-        self._conn = None
-        self._cursor = None
+        self._conn: Optional[sqlite3.Connection] = None
+        self._cursor: Optional[sqlite3.Cursor] = None
         self._is_open = False
         self._lock_stack = 0
 
@@ -149,6 +148,8 @@ class SQLiteHandler:
         return self
 
     def close(self, *, force: bool = False, ensure_commit: bool = False) -> Self:
+        assert self._conn is not None
+
         if force:
             self._lock_stack = 0
         else:
@@ -166,7 +167,8 @@ class SQLiteHandler:
 
         return self
 
-    def commit(self) -> None:
+    def commit(self) -> Self:
+        assert self._conn
         self._conn.commit()
         return self
 

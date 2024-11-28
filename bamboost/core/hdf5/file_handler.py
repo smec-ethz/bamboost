@@ -16,7 +16,7 @@ from typing import Any, Literal, Type
 import h5py
 
 from bamboost import BAMBOOST_LOGGER
-from bamboost.core.common import mpi
+from bamboost.core import mpi
 
 log = BAMBOOST_LOGGER.getChild(__name__.split(".")[-1])
 

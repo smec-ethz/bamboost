@@ -24,13 +24,13 @@ import numpy as np
 import pandas as pd
 
 from bamboost import BAMBOOST_LOGGER
-from bamboost.core.common.file_handler import open_h5file
-from bamboost.core.common.mpi import MPI
-from bamboost.core.common.utilities import flatten_dict
-from bamboost.core.simulation import Simulation
-from bamboost.core.simulation_writer import SimulationWriter
-from bamboost.indexing import index
-from bamboost.indexing.index import DatabaseTable, IndexAPI, config
+from bamboost.core.hdf5.file_handler import open_h5file
+from bamboost.core.mpi import MPI
+from bamboost.core.utilities import flatten_dict
+from bamboost.core.simulation.base import Simulation
+from bamboost.core.simulation.writer import SimulationWriter
+from bamboost.core.index import index
+from bamboost.core.index.index import DatabaseTable, IndexAPI, config
 
 __all__ = [
     "Manager",
@@ -99,9 +99,9 @@ class Manager:
 
     def __init__(
         self,
-        path: str = None,
-        comm: Comm = None,
-        uid: str = None,
+        path: str | None = None,
+        comm: Comm | None = None,
+        uid: str | None = None,
         create_if_not_exist: bool = True,
     ):
         # provided uid has precedence
@@ -148,8 +148,8 @@ class Manager:
         """HTML repr for ipython/notebooks. Uses string replacement to fill the
         template code.
         """
-        html_string = pkgutil.get_data(__name__, "html/manager.html").decode()
-        icon = pkgutil.get_data(__name__, "html/icon.txt").decode()
+        html_string = pkgutil.get_data(__name__, "_repr/manager.html").decode()
+        icon = pkgutil.get_data(__name__, "_repr/icon.txt").decode()
         return (
             html_string.replace("$ICON", icon)
             .replace("$db_path", self.path)

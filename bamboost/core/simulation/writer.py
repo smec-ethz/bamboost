@@ -12,15 +12,15 @@ from __future__ import annotations
 import datetime
 import os
 import shutil
+import subprocess
 from typing import Any, Dict, Literal, Tuple, Union
 
 import numpy as np
 
 from bamboost import BAMBOOST_LOGGER
-from bamboost.core.common.git_utility import GitStateGetter
-from bamboost.core.common.mpi import MPI
-from bamboost.core.common.utilities import flatten_dict
-from bamboost.core.simulation import Simulation
+from bamboost.core.simulation.base import Simulation
+from bamboost.core.utilities import flatten_dict
+from bamboost.core.mpi import MPI
 
 __all__ = ["SimulationWriter"]
 
@@ -332,16 +332,7 @@ class SimulationWriter(Simulation):
             repo_path (`str`): path to git repository
         """
         if self._prank == 0:
-            repo_path = os.path.abspath(repo_path)
-            # store current working directory
-            cwd = os.getcwd()
-
-            # switch directory to git repo
-            os.chdir(repo_path)
-            git_string = GitStateGetter().create_git_string()
-
-            # switch working directory back
-            os.chdir(cwd)
+            git_string = create_git_string(os.path.abspath(repo_path))
 
             with self._file("a") as f:
                 grp = f.require_group("git")
@@ -389,3 +380,42 @@ class SimulationWriter(Simulation):
             shutil.copy(source, destination)
         else:
             raise FileNotFoundError
+
+
+def create_git_string(repo_path) -> str:
+    from textwrap import dedent
+
+    def _capture_subprocess_output(command: str, cwd: str = "./") -> str:
+        return subprocess.run(
+            command.split(),
+            capture_output=True,
+            text=True,
+            cwd=cwd,
+        ).stdout
+
+    git_string = dedent(
+        """\
+        ----- REMOTE ------
+        {remote}
+
+        ----- BRANCH ------
+        {branch}
+
+        ----- LAST COMMIT ------
+        {commit}
+
+        ----- STATUS ------
+        {status}
+
+        ----- DIFFERENCE ------
+        {diff}
+    """
+    )
+
+    return git_string.format(
+        remote=_capture_subprocess_output("git remote -v", repo_path),
+        branch=_capture_subprocess_output("git branch -v", repo_path),
+        commit=_capture_subprocess_output("git rev-parse HEAD", repo_path),
+        status=_capture_subprocess_output("git status", repo_path),
+        diff=_capture_subprocess_output("git diff HEAD", repo_path),
+    )
