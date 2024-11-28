@@ -19,6 +19,7 @@ dependencies = [
     "h5py",
     "numpy",
     "pandas",
+    "rich",
     "typing_extensions>=4.5",
     'tomli; python_version < "3.11"',
 ]
@@ -32,10 +33,19 @@ test = [
     "pytest",
     "pytest-cov",
 ]
+tui = [
+    "urwid",
+    "fuzzywuzzy",
+    "pyperclip",
+    "argcomplete",
+    "hfive",
+]
 
 [project.entry-points.console_scripts]
 bamboostcli = "bamboost.cli:main"
 bb-job = "bamboost.cli:job"
+bamboost = "bamboost.tui.app:main"
+hdfview = "bamboost.tui.pages.hdfview:main"
 
 [project.urls]
 Homepage = "https://bamboost.ch/"
@@ -47,3 +57,13 @@ include = ["bamboost", "bamboost*"]
 
 [tool.setuptools_scm]
 version_file = "bamboost/_version.py"
+
+[tool.pyright]
+include = [
+    "bamboost",
+    "tests",
+]
+exclude = ["**/build"]
+
+typeCheckingMode = "off"
+autoImportCompletions = true

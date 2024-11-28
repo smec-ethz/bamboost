@@ -2,8 +2,7 @@ import argparse
 
 import rich
 
-from bamboost import _config
-
+from bamboost import config
 
 def main():
     parser = argparse.ArgumentParser(description="CLI for bamboost")
@@ -79,7 +78,7 @@ def main():
     # Scan
     # ----------------
     def scan_known_paths(args):
-        from bamboost.index import IndexAPI
+        from bamboost.indexing.index import IndexAPI
 
         IndexAPI().scan_known_paths()
         rich.print("Scanned known paths")
@@ -119,8 +118,8 @@ def main():
 
 
 def submit_simulation(args):
-    from bamboost.index import IndexAPI
-    from bamboost.simulation import Simulation
+    from bamboost.core.simulation import Simulation
+    from bamboost.indexing.index import IndexAPI
 
     if args.path is not None:
         db_path, uid = args.path.rstrip("/").rsplit("/", 1)
@@ -136,8 +135,8 @@ def submit_simulation(args):
 
 
 def manage_db(args):
-    from bamboost.index import IndexAPI
-    from bamboost.manager import Manager
+    from bamboost.core.manager import Manager
+    from bamboost.indexing.index import IndexAPI
 
     # test if the database exists
     df = IndexAPI().read_table()
@@ -170,14 +169,14 @@ def manage_db(args):
 
 
 def list_databases(args):
-    from bamboost.index import IndexAPI
+    from bamboost.indexing.index import IndexAPI
 
     table = IndexAPI().read_table()
     rich.print(table.to_string())
 
 
 def clean_index(args, purge: bool = False):
-    from bamboost.index import IndexAPI
+    from bamboost.indexing.index import IndexAPI
 
     IndexAPI().clean(purge=purge)
     rich.print("Index cleaned")
@@ -191,25 +190,25 @@ def open_config(args):
         subprocess.run(
             [
                 f"{os.environ.get('EDITOR', 'vi')}",
-                f"{_config.paths['CONFIG_DIR']}/tui.toml",
+                f"{config.paths['CONFIG_DIR']}/tui.toml",
             ]
         )
     elif args.functions:
         subprocess.run(
             [
                 f"{os.environ.get('EDITOR', 'vi')}",
-                f"{_config.paths['CONFIG_DIR']}/custom_functions.py",
+                f"{config.paths['CONFIG_DIR']}/custom_functions.py",
             ]
         )
     else:
         subprocess.run(
-            [f"{os.environ.get('EDITOR', 'vi')}", f"{_config.paths['CONFIG_FILE']}"]
+            [f"{os.environ.get('EDITOR', 'vi')}", f"{config.paths['CONFIG_FILE']}"]
         )
 
 
 def create_new_database(args):
     from bamboost import index
-    from bamboost.manager import Manager
+    from bamboost.core.manager import Manager
 
     try:
         path = index.get_uid_from_path(args.path)

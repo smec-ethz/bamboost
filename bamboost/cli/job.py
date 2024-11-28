@@ -78,7 +78,7 @@ def create_job(
     from bamboost import config
 
     config.options.mpi = False
-    from bamboost.manager import Manager
+    from bamboost.core.manager import Manager
 
     bb_input = _import_input_file(input_file)
 

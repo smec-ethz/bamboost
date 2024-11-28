@@ -14,8 +14,6 @@ __all__ = [
     "set_log_level",
     "add_stream_handler",
     "config",
-    "extensions",
-    "core",
 ]
 
 # Determine the version of the package
@@ -50,5 +48,4 @@ def set_log_level(
     BAMBOOST_LOGGER.setLevel(level)
 
 
-from bamboost._config import config  # noqa: E402, F401
-from bamboost.extensions import extensions  # noqa: E402, F401
+from bamboost.config import config  # noqa: E402, F401

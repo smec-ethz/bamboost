@@ -8,10 +8,10 @@ import numpy as np
 import pandas as pd
 import pytest
 
-from bamboost import index
-from bamboost.manager import Manager
-from bamboost.simulation import Simulation
-from bamboost.simulation_writer import SimulationWriter
+from bamboost.core.manager import Manager
+from bamboost.core.simulation import Simulation
+from bamboost.core.simulation_writer import SimulationWriter
+from bamboost.indexing import index
 
 
 @pytest.fixture()

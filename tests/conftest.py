@@ -3,8 +3,8 @@ import shutil
 import tempfile
 
 os.environ["BAMBOOST_MPI"] = "0"
-from bamboost import index
-from bamboost._config import paths
+from bamboost.indexing import index
+from bamboost.config import paths
 
 
 def pytest_sessionstart(session):

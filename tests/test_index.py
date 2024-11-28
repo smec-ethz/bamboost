@@ -7,8 +7,8 @@ import sqlite3
 import numpy as np
 import pytest
 
-from bamboost.index import DatabaseTable, IndexAPI
-from bamboost.manager import Manager
+from bamboost.indexing.index import DatabaseTable, IndexAPI
+from bamboost.core.manager import Manager
 
 from test_manager import temp_manager
 
