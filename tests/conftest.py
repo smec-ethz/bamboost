@@ -3,7 +3,6 @@ import shutil
 import tempfile
 
 os.environ["BAMBOOST_MPI"] = "0"
-from bamboost.core.index import index
 from bamboost.config import paths
 
 
@@ -18,10 +17,6 @@ def pytest_sessionstart(session):
     # Create config files if they don't exist
     os.makedirs(paths["CONFIG_DIR"], exist_ok=True)
     os.makedirs(paths["LOCAL_DIR"], exist_ok=True)
-
-    # change path of sqlite database
-    # index.IndexAPI(_file=).__init__()
-    print(index.IndexAPI().file)
 
 
 def pytest_sessionfinish(session, exitstatus):

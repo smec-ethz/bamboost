@@ -4,7 +4,7 @@ stages:
 
 test:
   stage: test
-  image: dhna/mpi4py
+  image: python:3.9
   script:
     - pip install ".[test]"
     - cd tests/
