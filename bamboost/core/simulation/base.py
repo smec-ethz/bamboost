@@ -166,8 +166,8 @@ class Simulation:
         return hdf_pointer.BasePointer.new_pointer(self._file, key)
 
     def _repr_html_(self) -> str:
-        html_string = pkgutil.get_data(__name__, "_repr/simulation.html").decode()
-        icon = pkgutil.get_data(__name__, "_repr/icon.txt").decode()
+        html_string = pkgutil.get_data('bamboost', "_repr/simulation.html").decode()
+        icon = pkgutil.get_data('bamboost', "_repr/icon.txt").decode()
 
         table_string = ""
         for key, value in self.parameters.items():

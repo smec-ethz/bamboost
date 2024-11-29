@@ -148,8 +148,8 @@ class Manager:
         """HTML repr for ipython/notebooks. Uses string replacement to fill the
         template code.
         """
-        html_string = pkgutil.get_data(__name__, "_repr/manager.html").decode()
-        icon = pkgutil.get_data(__name__, "_repr/icon.txt").decode()
+        html_string = pkgutil.get_data("bamboost", "_repr/manager.html").decode()
+        icon = pkgutil.get_data("bamboost", "_repr/icon.txt").decode()
         return (
             html_string.replace("$ICON", icon)
             .replace("$db_path", self.path)
