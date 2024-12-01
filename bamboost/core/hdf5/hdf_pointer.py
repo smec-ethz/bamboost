@@ -76,13 +76,6 @@ class BasePointer:
     __repr__ = __str__
 
     @with_file_open("r")
-    def __getattr__(self, __name: str) -> Any:
-        """Any attribute request is sent to the h5py object the pointer points to."""
-        if hasattr(self.obj, __name):
-            return self.obj.__getattribute__(__name)
-        return self.__getattribute__(__name)
-
-    @with_file_open("r")
     def __getitem__(self, key):
         new_path = f"{self.path_to_data}/{key}"
         return self.new_pointer(self._file, new_path)
@@ -144,8 +137,8 @@ class Group(BasePointer):
         """Repr showing the content of the group."""
         html_string = pkgutil.get_data(
             bamboost.__name__, "_repr/hdf5_group.html"
-        ).decode()
-        icon = pkgutil.get_data(bamboost.__name__, "_repr/icon.txt").decode()
+        ).decode()  # type: ignore
+        icon = pkgutil.get_data(bamboost.__name__, "_repr/icon.txt").decode()  # type: ignore
 
         attrs_html = ""
         for key, val in self.attrs.items():
