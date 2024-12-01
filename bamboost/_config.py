@@ -10,10 +10,11 @@ Attributes:
 from __future__ import annotations
 
 import importlib.util
+import os
 import sys
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, fields
 from pathlib import Path
-from typing import TYPE_CHECKING, Any, Generator
+from typing import TYPE_CHECKING, Any, Generator, Iterable
 
 if TYPE_CHECKING:
     pass
@@ -32,17 +33,70 @@ __all__ = [
 ]
 
 
-def _config_repr(self) -> str:
-    s = ""
-    max_length = max(len(attr) for attr in self.__annotations__.keys())
-    for attr in self.__annotations__.keys():
-        value = getattr(self, attr)
-        s += f"{attr:<{max_length+1}}: {value}\n"
-    return s
-
-
 @dataclass
-class _Paths:
+class _Base:
+    _field_aliases = {}
+
+    def __repr__(self) -> str:
+        s = ""
+        max_length = max(len(field.name) for field in fields(self))
+        for field in fields(self):
+            s += f"{field.name:<{max_length+1}}: {getattr(self, field.name)}\n"
+        return s
+
+    def __getitem__(self, key: str) -> Any:
+        """Access the configuration options by key, separated by dots."""
+        current_selection = self
+        for attr in key.split("."):
+            current_selection = getattr(current_selection, attr)
+        return current_selection
+
+    def __setitem__(self, key: str, value: Any) -> None:
+        """Set the configuration options by key, separated by dots."""
+        current_selection = self
+        keys = key.split(".")
+        for attr in keys[:-1]:
+            current_selection = getattr(current_selection, attr)
+        setattr(current_selection, keys[-1], value)
+
+    def _ipython_key_completions_(self) -> Generator[str, None, None]:
+        for key, obj in self.__dict__.items():
+            yield key
+            for subkey in getattr(obj, "__dict__", {}).keys():
+                yield f"{key}.{subkey}"
+
+    @classmethod
+    def from_dict(cls, config: dict):
+        # Get the valid field names
+        valid_fields = {f.name for f in fields(cls)}
+        aliases = set(cls._field_aliases.keys())
+
+        # Check for unknown keys
+        unknown_keys = set(config) - valid_fields - aliases
+        for key in unknown_keys:
+            log.info(f"Unknown config key: {key}")
+
+        # Filter the input dictionary to only include valid keys
+        filtered_config = {k: v for k, v in config.items() if k in valid_fields}
+        filtered_config.update(
+            {cls._field_aliases[k]: v for k, v in config.items() if k in aliases}
+        )
+
+        # Create the instance
+        instance = cls(**filtered_config)
+
+        # Check for missing fields (defaults used)
+        for field_def in fields(cls):
+            if field_def.name not in filtered_config:
+                log.info(
+                    f"Config key '{field_def.name}' not set; using default: {getattr(instance, field_def.name)}"
+                )
+
+        return instance
+
+
+@dataclass(repr=False)
+class _Paths(_Base):
     """Paths used by bamboost.
 
     This dataclass contains the paths used by bamboost.
@@ -75,16 +129,14 @@ class _Paths:
         default=Path("~/.cache/bamboost").expanduser(),
     )
 
-    __repr__ = _config_repr
-
     def __setattr__(self, name: str, value: Any, /) -> None:
         if isinstance(value, str):
             value = Path(value).expanduser()
         super().__setattr__(name, value)
 
 
-@dataclass
-class _DatabaseOptions:
+@dataclass(repr=False)
+class _Options(_Base):
     """Core options for bamboost.
 
     This dataclass contains the core options for bamboost.
@@ -94,6 +146,9 @@ class _DatabaseOptions:
         sortTableOrder: The default order to sort the table by.
     """
 
+    mpi: bool = field(
+        default=importlib.util.find_spec("mpi4py") is not None,
+    )
     sortTableKey: str = field(
         default="time_stamp",
     )
@@ -101,11 +156,9 @@ class _DatabaseOptions:
         default="desc",
     )
 
-    __repr__ = _config_repr
 
-
-@dataclass
-class _IndexOptions:
+@dataclass(repr=False)
+class _IndexOptions(_Base):
     """Index options for bamboost.
 
     This dataclass contains the index options for bamboost.
@@ -117,7 +170,11 @@ class _IndexOptions:
             after some queries.
     """
 
-    paths: list[Path] = field(
+    _field_aliases = {
+        "paths": "searchPaths",
+    }
+
+    searchPaths: list[Path] = field(
         default_factory=lambda: [Path("~").expanduser()],
     )
     databaseFile: Path = field(
@@ -127,10 +184,9 @@ class _IndexOptions:
         default=True,
     )
 
-    __repr__ = _config_repr
 
-
-class _Config:
+@dataclass(repr=False, init=False)
+class _Config(_Base):
     """Configuration class for bamboost.
 
     This class manages the configuration options and index settings for bamboost.
@@ -142,52 +198,26 @@ class _Config:
         index: Index settings for bamboost.
     """
 
-    mpi: bool
     paths: _Paths
-    table: _DatabaseOptions
+    options: _Options
     index: _IndexOptions
 
     def __init__(self) -> None:
         user_config = self.read_config_file(_Paths.configFile)
 
-        self.mpi = user_config.pop(
-            "mpi", importlib.util.find_spec("mpi4py") is not None
-        )
-        self.paths = _Paths(**user_config.pop("paths", {}))
-        self.table = _DatabaseOptions(**user_config.pop("table", {}))
-        self.index = _IndexOptions(**user_config.pop("index", {}))
+        self.paths = _Paths.from_dict(user_config.pop("paths", {}))
+        self.options = _Options.from_dict(user_config.pop("options", {}))
+        self.index = _IndexOptions.from_dict(user_config.pop("index", {}))
 
         # Log unknown config options
-        for key, value in user_config.items():
-            log.info(f"Unknown config option: {key}={value}")
-
-    def __getitem__(self, key: str) -> Any:
-        """Access the configuration options by key, separated by dots."""
-        current_selection = self
-        for attr in key.split("."):
-            current_selection = getattr(current_selection, attr)
-        return current_selection
-
-    def __setitem__(self, key: str, value: Any) -> None:
-        """Set the configuration options by key, separated by dots."""
-        current_selection = self
-        keys = key.split(".")
-        for attr in keys[:-1]:
-            current_selection = getattr(current_selection, attr)
-        setattr(current_selection, keys[-1], value)
-
-    def _ipython_key_completions_(self) -> Generator[str, None, None]:
-        for key, obj in self.__dict__.items():
-            yield key
-            for subkey in getattr(obj, "__dict__", {}).keys():
-                yield f"{key}.{subkey}"
+        for key in user_config.keys():
+            log.info(f"Unknown config table: {key}")
 
     def __repr__(self) -> str:
-        s = "Bamboost Configuration\n----------------------"
-        for key, obj in self.__dict__.items():
-            s += f"\n{key}:\t"
-            obj_repr = obj.__repr__()
-            s += obj_repr.replace("\n", "\n\t")
+        s = str()
+        for field in fields(self):
+            s += f"> {field.name.upper()}\n"
+            s += getattr(self, field.name).__repr__()
         return s
 
     def read_config_file(self, filepath: Path) -> dict[str, Any]:
