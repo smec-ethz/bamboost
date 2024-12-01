@@ -11,7 +11,7 @@ from typing import TYPE_CHECKING, Union
 
 from bamboost import BAMBOOST_LOGGER
 import bamboost.core.mpi.mock as MockMPI
-from bamboost.config import config
+from bamboost import config
 
 MPI_ON = config.options.mpi
 

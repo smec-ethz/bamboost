@@ -15,6 +15,8 @@ Attributes:
 
 from __future__ import annotations
 
+from pathlib import Path
+
 from bamboost import BAMBOOST_LOGGER
 
 __all__ = [
@@ -43,7 +45,7 @@ from typing import Callable
 import pandas as pd
 
 import bamboost.core.index.sqlite_database as sql
-from bamboost.config import config, paths
+from bamboost import config
 from bamboost.core.hdf5.file_handler import open_h5file
 from bamboost.core.mpi import MPI
 
@@ -117,25 +119,27 @@ class IndexAPI(sql.SQLiteHandler):
 
     _instances = {}
 
-    def __new__(cls, *, _file: str = None, **kwargs) -> IndexAPI:
+    def __new__(
+        cls, *, _file: str | Path = config.paths.databaseFile, **kwargs
+    ) -> IndexAPI:
         if THREAD_SAFE:
             return super().__new__(cls)
 
         if _comm.rank != 0:
             return Null()
 
-        _file = _file or paths["DATABASE_FILE"]
         if _file not in cls._instances:
             cls._instances[_file] = super().__new__(cls)
         return cls._instances[_file]
 
-    def __init__(self, *, _file: str = None, convert_arrays: bool = None):
-        convert_arrays = (
-            convert_arrays if convert_arrays is not None else CONVERT_ARRAYS
-        )
+    def __init__(
+        self,
+        *,
+        _file: str | Path = config.paths.databaseFile,
+        convert_arrays: bool = config.index.convertArrays,
+    ):
         if hasattr(self, "_initialized"):
             return
-        _file = _file or paths["DATABASE_FILE"]
         super().__init__(file=_file, convert_arrays=convert_arrays)
         self.create_index_table()
         self.clean()
@@ -217,7 +221,7 @@ class IndexAPI(sql.SQLiteHandler):
                 return path
 
         # last resort, check home
-        res = find(id, paths["HOME"])
+        res = find(id, config.paths.home)
         if res:
             path = os.path.dirname(res[0])
             self.insert_path(id, path)
@@ -614,7 +618,7 @@ def get_uid_from_path(path: str) -> str:
 
 
 def get_known_paths() -> list:
-    return config.index.paths
+    return config.index.searchPaths
 
 
 def _find_posix(uid, root_dir) -> list:

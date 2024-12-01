@@ -25,12 +25,12 @@ import pandas as pd
 
 from bamboost import BAMBOOST_LOGGER
 from bamboost.core.hdf5.file_handler import open_h5file
-from bamboost.core.mpi import MPI
-from bamboost.core.utilities import flatten_dict
-from bamboost.core.simulation.base import Simulation
-from bamboost.core.simulation.writer import SimulationWriter
 from bamboost.core.index import index
 from bamboost.core.index.index import DatabaseTable, IndexAPI, config
+from bamboost.core.mpi import MPI
+from bamboost.core.simulation.base import Simulation
+from bamboost.core.simulation.writer import SimulationWriter
+from bamboost.core.utilities import flatten_dict
 
 __all__ = [
     "Manager",
@@ -300,10 +300,10 @@ class Manager:
         columns_start = [col for col in columns_start if col in df.columns]
         self._dataframe = df[[*columns_start, *df.columns.difference(columns_start)]]
 
-        if config.options.sort_table_key is not None:
+        if config.options.sortTableKey is not None:
             self._dataframe.sort_values(
-                config.options.sort_table_key,
-                ascending=config.options.sort_table_order == "asc",
+                config.options.sortTableKey,
+                ascending=config.options.sortTableOrder == "asc",
                 inplace=True,
             )
         return self._dataframe

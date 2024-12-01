@@ -183,6 +183,7 @@ class _IndexOptions(_Base):
     syncTables: bool = field(
         default=True,
     )
+    convertArrays: bool = True
 
 
 @dataclass(repr=False, init=False)

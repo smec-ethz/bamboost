@@ -20,17 +20,16 @@ import numpy as np
 import pandas as pd
 from typing_extensions import Self, deprecated
 
-from bamboost import BAMBOOST_LOGGER
-from bamboost.config import config, paths
+from bamboost import BAMBOOST_LOGGER, config
+from bamboost.core import utilities
+from bamboost.core.hdf5 import hdf_pointer
 from bamboost.core.hdf5.accessors.fielddata import DataGroup
 from bamboost.core.hdf5.accessors.globals import GlobalGroup
 from bamboost.core.hdf5.accessors.meshes import Mesh, MeshGroup
-from bamboost.core import utilities
 from bamboost.core.hdf5.file_handler import FileHandler, with_file_open
+from bamboost.core.index import index
 from bamboost.core.mpi import MPI
 from bamboost.core.simulation.xdmf import XDMFWriter
-from bamboost.core.hdf5 import hdf_pointer
-from bamboost.core.index import index
 
 if TYPE_CHECKING:
     from mpi4py.MPI import Comm
@@ -166,8 +165,8 @@ class Simulation:
         return hdf_pointer.BasePointer.new_pointer(self._file, key)
 
     def _repr_html_(self) -> str:
-        html_string = pkgutil.get_data('bamboost', "_repr/simulation.html").decode()
-        icon = pkgutil.get_data('bamboost', "_repr/icon.txt").decode()
+        html_string = pkgutil.get_data("bamboost", "_repr/simulation.html").decode()
+        icon = pkgutil.get_data("bamboost", "_repr/icon.txt").decode()
 
         table_string = ""
         for key, value in self.parameters.items():
@@ -425,7 +424,7 @@ class Simulation:
 
         def _set_environment_variables():
             return (
-                f"""DATABASE_DIR=$(sqlite3 {paths['DATABASE_FILE']} "SELECT path FROM dbindex WHERE id='{self.database_id}'")\n"""
+                f"""DATABASE_DIR=$(sqlite3 {config.paths.databaseFile} "SELECT path FROM dbindex WHERE id='{self.database_id}'")\n"""
                 f"SIMULATION_DIR=$DATABASE_DIR/{self.uid}\n"
                 f"SIMULATION_ID={self.database_id}:{self.uid}\n\n"
             )
