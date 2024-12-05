@@ -24,7 +24,7 @@ from bamboost.core.mpi import MPI
 from bamboost.core.utilities import unflatten_dict
 from bamboost.core.manager import Manager, ManagerFromUID
 from bamboost.core.simulation.base import Simulation
-from bamboost.core.index.index import DatabaseTable, IndexAPI
+from bamboost.core.index.base import DatabaseTable, IndexAPI
 from bamboost.core.index.sqlite_database import SQLiteHandler, with_connection
 
 __all__ = [

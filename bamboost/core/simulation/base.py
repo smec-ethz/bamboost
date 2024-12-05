@@ -27,7 +27,7 @@ from bamboost.core.hdf5.accessors.fielddata import DataGroup
 from bamboost.core.hdf5.accessors.globals import GlobalGroup
 from bamboost.core.hdf5.accessors.meshes import Mesh, MeshGroup
 from bamboost.core.hdf5.file_handler import FileHandler, with_file_open
-from bamboost.core.index import index
+from bamboost.core.index import base
 from bamboost.core.mpi import MPI
 from bamboost.core.simulation.xdmf import XDMFWriter
 
@@ -117,7 +117,7 @@ class Simulation:
         self.uid: str = uid
         path = self._comm.bcast(path, root=0)
         self.path_database: str = os.path.abspath(path)
-        self.database_id = _db_id or index.get_uid_from_path(self.path_database)
+        self.database_id = _db_id or base.get_uid_from_path(self.path_database)
         self.path: str = os.path.abspath(os.path.join(path, uid))
         self.h5file: str = os.path.join(self.path, f"{self.uid}.h5")
         self.xdmffile: str = os.path.join(self.path, f"{self.uid}.xdmf")
@@ -142,7 +142,7 @@ class Simulation:
 
     @classmethod
     def fromUID(
-        cls, full_uid: str, *, index_database: index.IndexAPI = None, **kwargs
+        cls, full_uid: str, *, index_database: base.IndexAPI = None, **kwargs
     ) -> Self:
         """Return the `Simulation` with given UID.
 
@@ -150,7 +150,7 @@ class Simulation:
             full_uid: the full id (Database uid : simulation uid)
         """
         if index_database is None:
-            index_database = index.IndexAPI()
+            index_database = base.IndexAPI()
         db_uid, sim_uid = full_uid.split(":")
         db_path = index_database.get_path(db_uid)
         return cls(sim_uid, db_path, create_if_not_exists=False, **kwargs)
@@ -228,8 +228,8 @@ class Simulation:
         if not config.options.sync_tables:
             return
         try:
-            index.DatabaseTable(self.database_id).update_entry(self.uid, update_dict)
-        except index.Error as e:
+            base.DatabaseTable(self.database_id).update_entry(self.uid, update_dict)
+        except base.Error as e:
             log.warning(f"Could not update sqlite database: {e}")
 
     @cached_property
@@ -299,7 +299,7 @@ class Simulation:
 
     def get_full_uid(self) -> str:
         """Returns the full uid of the simulation (including the one of the database)"""
-        database_uid = index.get_uid_from_path(self.path_database)
+        database_uid = base.get_uid_from_path(self.path_database)
         return f"{database_uid}:{self.uid}"
 
     def change_status(self, status: str) -> None:

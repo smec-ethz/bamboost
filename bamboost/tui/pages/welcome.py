@@ -8,7 +8,7 @@ import urwid
 
 from bamboost.core import Simulation
 from bamboost.core.extensions.remote_manager import Remote
-from bamboost.core.index import index
+from bamboost.core.index import base
 from bamboost.tui.common import FIGLET, Caller, Spinner
 from bamboost.tui.pages.hdfview import HDFView
 from bamboost.tui.parser.parser import ArgumentParser
@@ -123,7 +123,7 @@ class WelcomeUI:
             with Spinner(align="left", caption="Loading index ") as spinner:
                 self._set_footer(spinner)
                 ui = Index(
-                    index.IndexAPI.ThreadSafe()
+                    base.IndexAPI.ThreadSafe()
                     .read_table()
                     .set_index("id")
                     .to_dict()["path"]
@@ -198,7 +198,7 @@ class WelcomeUI:
         def inner() -> None:
             with Spinner(caption="Scanning paths ") as spinner:
                 self._set_footer(spinner)
-                index.IndexAPI.ThreadSafe().scan_known_paths()
+                base.IndexAPI.ThreadSafe().scan_known_paths()
 
             self._set_footer("Paths scanned successfully")
 

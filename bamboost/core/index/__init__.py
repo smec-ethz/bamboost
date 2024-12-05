@@ -1,3 +1,3 @@
-from .index import *
+from .base import *
 
 __all__ = ["index"]

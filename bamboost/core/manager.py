@@ -25,8 +25,8 @@ import pandas as pd
 
 from bamboost import BAMBOOST_LOGGER
 from bamboost.core.hdf5.file_handler import open_h5file
-from bamboost.core.index import index
-from bamboost.core.index.index import DatabaseTable, IndexAPI, config
+from bamboost.core.index import base
+from bamboost.core.index.base import DatabaseTable, IndexAPI, config
 from bamboost.core.mpi import MPI
 from bamboost.core.simulation.base import Simulation
 from bamboost.core.simulation.writer import SimulationWriter
@@ -128,7 +128,7 @@ class Manager:
                 self._index.insert_path(self.UID, self.path)
                 self._table.create_database_table()
                 self._table.sync()
-        except index.Error as e:
+        except base.Error as e:
             log.warning(f"index error: {e}")
 
     def __getitem__(self, key: Union[str, int]) -> Simulation:
@@ -180,7 +180,7 @@ class Manager:
     def _retrieve_uid(self) -> str:
         """Get the UID of this database from the file tree."""
         try:
-            return index.get_uid_from_path(self.path)
+            return base.get_uid_from_path(self.path)
         except FileNotFoundError:
             pass
 
@@ -287,7 +287,7 @@ class Manager:
             with self._table.open():
                 self._table.sync()
                 df = self._table.read_table()
-        except index.Error as e:
+        except base.Error as e:
             log.warning(f"index error: {e}")
             return self.get_view_from_hdf_files(include_linked_sims=include_linked_sims)
 

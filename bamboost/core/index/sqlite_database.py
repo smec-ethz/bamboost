@@ -16,7 +16,7 @@ import json
 import sqlite3
 from contextlib import contextmanager
 from functools import wraps
-from typing import Generator, Iterable, Optional
+from typing import Callable, Generator, Iterable, Optional
 
 import numpy as np
 from typing_extensions import Self
@@ -94,7 +94,7 @@ def _register_sqlite_converters(convert_arrays: bool = True):
 # ----------------
 # DECORATORS
 # ----------------
-def with_connection(func):
+def with_connection(func: Callable) -> Callable:
     """Decorator to ensure that the cursor is available. If the cursor is not
     available, the connection is opened and closed after the function is
     executed."""

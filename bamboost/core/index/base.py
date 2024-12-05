@@ -40,7 +40,7 @@ import os
 import subprocess
 from dataclasses import dataclass
 from time import time
-from typing import Callable
+from typing import TYPE_CHECKING, Callable
 
 import pandas as pd
 
@@ -48,6 +48,9 @@ import bamboost.core.index.sqlite_database as sql
 from bamboost import config
 from bamboost.core.hdf5.file_handler import open_h5file
 from bamboost.core.mpi import MPI
+
+if TYPE_CHECKING:
+    from mpi4py import MPI
 
 log = BAMBOOST_LOGGER.getChild(__name__.split(".")[-1])
 
@@ -103,6 +106,12 @@ class Null:
 
     def __exit__(self, *args, **kwargs):
         return False
+
+
+class IndexDatabase:
+    def __init__(self, filename: str) -> None:
+        self.filename = filename
+
 
 
 class IndexAPI(sql.SQLiteHandler):

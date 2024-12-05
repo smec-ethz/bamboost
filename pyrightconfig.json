@@ -1,7 +1,0 @@
-{
-  "include": ["bamboost"],
-  "exclude": ["**/build"],
-  "typeCheckingMode": "basic",
-
-  "pythonVersion": "3.9"
-}
