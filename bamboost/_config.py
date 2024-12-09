@@ -215,8 +215,8 @@ class _Paths(_Base):
         cacheDir: The directory where the cache is stored.
     """
 
-    localDir: Path = field(default=LOCAL_DIR)
-    cacheDir: Path = field(default=CACHE_DIR)
+    localDir: Path | str = field(default=LOCAL_DIR)
+    cacheDir: Path | str = field(default=CACHE_DIR)
 
     def __setattr__(self, name: str, value: Any, /) -> None:
         if isinstance(value, str):
@@ -266,7 +266,7 @@ class _IndexOptions(_Base):
     syncTables: bool = field(default=True)
     convertArrays: bool = True
     databaseFileName: str = field(default=DATABASE_FILE_NAME)
-    databaseFile: Path = field(init=False)
+    databaseFile: Path | str = field(init=False)
     isolated: bool = False
 
     def __post_init__(self) -> None:
@@ -329,6 +329,7 @@ class _Config(_Base):
         for field in fields(self):
             s += f"> {field.name.upper()}\n"
             s += getattr(self, field.name).__repr__()
+            s += "\n"
         return s
 
 
