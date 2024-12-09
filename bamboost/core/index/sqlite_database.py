@@ -13,6 +13,7 @@ This module provides a class to handle sqlite databases.
 from __future__ import annotations
 
 import json
+from pathlib import Path
 import sqlite3
 from contextlib import contextmanager
 from functools import wraps
@@ -102,12 +103,63 @@ def with_connection(func: Callable) -> Callable:
     @wraps(func)
     def wrapper(self: SQLiteHandler, *args, **kwargs):
         # check if cursor is available
-        if not self._is_open or self._cursor is None:
+        if not self.is_open or self.cursor is None:
             with self.open():
                 return func(self, *args, **kwargs)
         return func(self, *args, **kwargs)
 
     return wrapper
+
+
+class SQLWrapper:
+    """A simple wrapper for sqlite3 connections.
+
+    The main benefit of this class is that it automatically commits changes
+    and closes the connection when the context manager is exited.
+    The connection can be chained without reopening the connection.
+
+    Args:
+        file: The path to the sqlite database file.
+    """
+
+    def __init__(self, file: str | Path):
+        self.file = file
+        self.conn = None
+        self.cursor = None
+        self._lock_stack = 0
+
+    def connect(self) -> SQLWrapper:
+        self._lock_stack += 1
+        if not self.conn:
+            self.conn = sqlite3.connect(self.file, detect_types=sqlite3.PARSE_DECLTYPES)
+            self.cursor = self.conn.cursor()
+        else:
+            print("Already connected", flush=True)
+        return self
+
+    def close(self) -> SQLWrapper:
+        self._lock_stack -= 1
+        if self._lock_stack <= 0:
+            self._lock_stack = 0
+            try:
+                self.conn.commit()
+                self.conn.close()
+            except AttributeError:
+                pass
+            finally:
+                self.cursor = None
+                self.conn = None
+        return self
+
+    @contextmanager
+    def open(self, *, force_commit: bool = False) -> Generator[SQLWrapper, None, None]:
+        self.connect()
+        try:
+            yield self
+        finally:
+            if force_commit:
+                self.conn.commit()
+            self.close()
 
 
 class SQLiteHandler:
@@ -120,9 +172,9 @@ class SQLiteHandler:
             return
         # self._comm = _comm
         self.file = file
-        self._conn: Optional[sqlite3.Connection] = None
-        self._cursor: Optional[sqlite3.Cursor] = None
-        self._is_open = False
+        self.connection: Optional[sqlite3.Connection] = None
+        self.cursor: Optional[sqlite3.Cursor] = None
+        self.is_open: bool = False
         self._lock_stack = 0
 
         _register_sqlite_adapters()
@@ -138,38 +190,38 @@ class SQLiteHandler:
 
     def connect(self) -> Self:
         self._lock_stack += 1
-        if not self._is_open:
+        if not self.connection:
             log.debug(f"Connecting to {self.file}")
-            self._conn = sqlite3.connect(
+            self.connection = sqlite3.connect(
                 self.file, detect_types=sqlite3.PARSE_DECLTYPES
             )
-            self._cursor = self._conn.cursor()
-            self._is_open = True
+            self.cursor = self.connection.cursor()
+            self.is_open = True
         return self
 
     def close(self, *, force: bool = False, ensure_commit: bool = False) -> Self:
-        assert self._conn is not None
+        assert self.connection is not None
 
         if force:
             self._lock_stack = 0
         else:
             self._lock_stack -= 1
 
-        if self._lock_stack <= 0 and self._is_open:
+        if self._lock_stack <= 0 and self.is_open:
             log.debug(f"Closing connection to {self.file}")
-            self._conn.commit()
-            self._conn.close()
-            self._is_open = False
+            self.connection.commit()
+            self.connection.close()
+            self.is_open = False
             return self
 
         if ensure_commit:
-            self._conn.commit()
+            self.connection.commit()
 
         return self
 
     def commit(self) -> Self:
-        assert self._conn
-        self._conn.commit()
+        assert self.connection
+        self.connection.commit()
         return self
 
     @contextmanager

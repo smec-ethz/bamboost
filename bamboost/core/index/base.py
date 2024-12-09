@@ -15,12 +15,12 @@ Attributes:
 
 from __future__ import annotations
 
+from functools import wraps
 from pathlib import Path
 
 from bamboost import BAMBOOST_LOGGER
 
 __all__ = [
-    "Null",
     "IndexAPI",
     "DatabaseTable",
     "Entry",
@@ -40,7 +40,7 @@ import os
 import subprocess
 from dataclasses import dataclass
 from time import time
-from typing import TYPE_CHECKING, Callable
+from typing import TYPE_CHECKING, Any, Callable, TypeVar, cast
 
 import pandas as pd
 
@@ -84,88 +84,71 @@ Error = sql.sqlite3.Error
 """Error exception for index errors."""
 
 
-class Null:
-    """Null object to replace API classes for off-root processes."""
-
-    def __getattr__(self, _):
-        return self
-
-    def __bool__(self):
-        # Allows the instance to behave like `None` in boolean contexts
-        return False
-
-    def __call__(self, *args, **kwargs):
-        # Allows the instance to be called like a function
-        return self
-
-    def __getitem__(self, _):
-        return self
-
-    def __enter__(self, *args, **kwargs):
-        return self
-
-    def __exit__(self, *args, **kwargs):
-        return False
+# Define a TypeVar for a bound method of IndexAPI
+IndexAPIMethod = TypeVar("IndexAPIMethod", bound=Callable[..., Any])
 
 
-class IndexDatabase:
-    def __init__(self, filename: str) -> None:
-        self.filename = filename
-
-
-
-class IndexAPI(sql.SQLiteHandler):
-    """SQLite database to store database ID, path lookup. As well as the table for
-    each database. Location: `~/.local/share/bamboost/bamboost.db`.
-    Singleton pattern.
+def get(method: IndexAPIMethod) -> IndexAPIMethod:
+    """Decorator for methods in IndexAPI to handle MPI broadcasting.
 
     Args:
-        _file: path to the database file
-        convert_arrays: Defaults to True. If False, when reading from the database,
-            lists with tag ARRAY are not converted back to numpy arrays but
-            remain a standard list.
+        method: A method of IndexAPI, where the first argument is `self`.
+
+    Returns:
+        A decorated function that takes the same arguments as `method`.
     """
+    comm = MPI.COMM_WORLD
 
-    _instances = {}
+    @wraps(method)
+    def inner(self: IndexAPI, *args, **kwargs):
+        # handle MPI
+        if comm.rank == 0:
+            with self.engine.open() as engine:
+                result = method(self, *args, **kwargs)
 
-    def __new__(
-        cls, *, _file: str | Path = config.paths.databaseFile, **kwargs
-    ) -> IndexAPI:
-        if THREAD_SAFE:
-            return super().__new__(cls)
+        return comm.bcast(result, root=0)
 
-        if _comm.rank != 0:
-            return Null()
+    return cast(IndexAPIMethod, inner)
 
-        if _file not in cls._instances:
-            cls._instances[_file] = super().__new__(cls)
-        return cls._instances[_file]
+
+def write(method: IndexAPIMethod) -> IndexAPIMethod:
+    comm = MPI.COMM_WORLD
+
+    @wraps(method)
+    def inner_root(self: IndexAPI, *args, **kwargs):
+        with self.engine.open() as engine:
+            return method(self, *args, **kwargs)
+
+    def inner_off_root(*_args, **_kwargs):
+        return None
+
+    if comm.rank == 0:
+        return cast(IndexAPIMethod, inner_root)
+    else:
+        return cast(IndexAPIMethod, inner_off_root)
+
+
+class IndexAPI:
+    """Main class to manage the database of bamboost collections."""
 
     def __init__(
         self,
-        *,
-        _file: str | Path = config.paths.databaseFile,
-        convert_arrays: bool = config.index.convertArrays,
+        file: str | Path = config.index.databaseFile,
     ):
-        if hasattr(self, "_initialized"):
-            return
-        super().__init__(file=_file, convert_arrays=convert_arrays)
+        self.engine = sql.SQLWrapper(file)
         self.create_index_table()
         self.clean()
         self._initialized = True
 
-    @classmethod
-    def ThreadSafe(cls, *args, **kwargs) -> IndexAPI:
-        instance = super().__new__(cls)
-        instance.__init__(*args, **kwargs)
-        return instance
-
+    @get
     def __repr__(self) -> str:
         return self.read_table().__repr__()
 
+    @get
     def _repr_html_(self) -> str:
         return self.read_table()._repr_html_()
 
+    @get
     def __getitem__(self, id: str) -> DatabaseTable:
         return DatabaseTable(id, _index=self)
 
@@ -175,7 +158,7 @@ class IndexAPI(sql.SQLiteHandler):
     @sql.with_connection
     def create_index_table(self) -> None:
         """Create the index table if it does not exist."""
-        self._cursor.execute(
+        self.cursor.execute(
             """CREATE TABLE IF NOT EXISTS dbindex (id TEXT PRIMARY KEY, path TEXT)"""
         )
 
@@ -194,7 +177,9 @@ class IndexAPI(sql.SQLiteHandler):
         Returns:
             pd.DataFrame: index table
         """
-        return pd.read_sql_query("SELECT * FROM dbindex", self._conn, *args, **kwargs)
+        return pd.read_sql_query(
+            "SELECT * FROM dbindex", self.connection, *args, **kwargs
+        )
 
     @sql.with_connection
     def fetch(self, query: str, *args, **kwargs) -> pd.DataFrame:
@@ -203,8 +188,8 @@ class IndexAPI(sql.SQLiteHandler):
         Args:
             query (str): query string
         """
-        self._cursor.execute(query, *args, **kwargs)
-        return self._cursor.fetchall()
+        self.cursor.execute(query, *args, **kwargs)
+        return self.cursor.fetchall()
 
     @sql.with_connection
     def get_path(self, id: str) -> str:
@@ -216,8 +201,8 @@ class IndexAPI(sql.SQLiteHandler):
         Returns:
             str: path of the database
         """
-        self._cursor.execute("SELECT path FROM dbindex WHERE id=?", (id,))
-        path_db = self._cursor.fetchone()
+        self.cursor.execute("SELECT path FROM dbindex WHERE id=?", (id,))
+        path_db = self.cursor.fetchone()
         if path_db and _check_path(id, path_db[0]):
             return path_db[0]
 
@@ -247,7 +232,7 @@ class IndexAPI(sql.SQLiteHandler):
             path (str): path of the database
         """
         path = os.path.abspath(path)
-        self._cursor.execute("INSERT OR REPLACE INTO dbindex VALUES (?, ?)", (id, path))
+        self.cursor.execute("INSERT OR REPLACE INTO dbindex VALUES (?, ?)", (id, path))
 
     @sql.with_connection
     def get_id(self, path: str) -> str:
@@ -263,8 +248,8 @@ class IndexAPI(sql.SQLiteHandler):
             DatabaseNotFoundError: if the database is not found in the index
         """
         path = os.path.abspath(path)
-        self._cursor.execute("SELECT id FROM dbindex WHERE path=?", (path,))
-        fetched = self._cursor.fetchone()
+        self.cursor.execute("SELECT id FROM dbindex WHERE path=?", (path,))
+        fetched = self.cursor.fetchone()
         if fetched is None:
             raise DatabaseNotFoundError(f"Database at {path} not found in index.")
         return fetched[0]
@@ -308,25 +293,25 @@ class IndexAPI(sql.SQLiteHandler):
         Args:
             purge (bool, optional): Also deletes the table of unmatching uid/path pairs. Defaults to False.
         """
-        index = self._cursor.execute("SELECT id, path FROM dbindex").fetchall()
+        index = self.cursor.execute("SELECT id, path FROM dbindex").fetchall()
         for id, path in index:
             if not _check_path(id, path):
-                self._cursor.execute("DELETE FROM dbindex WHERE id=?", (id,))
+                self.cursor.execute("DELETE FROM dbindex WHERE id=?", (id,))
 
         if purge:
             # all tables starting with db_ are tables of databases
-            all_tables = self._cursor.execute(
+            all_tables = self.cursor.execute(
                 "SELECT name FROM sqlite_master WHERE type='table'"
             ).fetchall()
             id_list_tables = {
                 i[0].split("_")[1] for i in all_tables if i[0].startswith("db_")
             }
-            id_list = self._cursor.execute("SELECT id FROM dbindex").fetchall()
+            id_list = self.cursor.execute("SELECT id FROM dbindex").fetchall()
 
             for id in id_list_tables:
                 if id not in id_list:
-                    self._cursor.execute(f"DROP TABLE db_{id}")
-                    self._cursor.execute(f"DROP TABLE db_{id}_t")
+                    self.cursor.execute(f"DROP TABLE db_{id}")
+                    self.cursor.execute(f"DROP TABLE db_{id}_t")
 
         return self
 
@@ -337,7 +322,7 @@ class IndexAPI(sql.SQLiteHandler):
         Args:
             id (str): ID of the database
         """
-        self._cursor.execute("DELETE FROM dbindex WHERE id=?", (id,))
+        self.cursor.execute("DELETE FROM dbindex WHERE id=?", (id,))
 
     def check_path(self, id: str, path: str) -> bool:
         """Check if path is going to the correct database."""
