@@ -46,15 +46,20 @@ FILE_MODE_HIRARCHY = {
 
 def open_h5file(
     file: str,
-    mode: Literal["mpio"] | Type[None],
-    driver: bool | Type[None] = None,
+    mode: Literal["r", "r+", "w", "w-", "x", "a"] = "r",
+    driver: Literal["mpio"] | None = None,
     comm=None,
 ):
     """Open h5 file. Waiting if file is not available.
 
     Args:
         file (str): File to open
-        mode (str): 'r', 'a', 'w', ...
+        mode (str): One of
+            - `r`: Readonly, file must exist (default)
+            - `r+`: Read/write, file must exist
+            - `w`: Create file, truncate if exists
+            - `w-` or `x`: Create file, fail if exists
+            - `a`: Read/write if exists, create otherwise
         driver (str): driver for h5.File
         comm: MPI communicator
     """
