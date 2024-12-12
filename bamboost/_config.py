@@ -277,7 +277,8 @@ class _IndexOptions(_Base):
 
         # Handle isolated mode
         if self.isolated:
-            self.databaseFile = ROOT_DIR.joinpath(".bamboost.db")
+            ROOT_DIR.joinpath(".bamboost_cache").mkdir(parents=True, exist_ok=True)
+            self.databaseFile = ROOT_DIR.joinpath(".bamboost_cache", "bamboost.sqlite")
             self.searchPaths = [ROOT_DIR]
         else:
             self.databaseFile = LOCAL_DIR.joinpath(self.databaseFileName)

@@ -21,3 +21,4 @@ tests/*.ipynb
 # specific files
 .coverage
 bamboost/_version.py
+.bamboost_cache
