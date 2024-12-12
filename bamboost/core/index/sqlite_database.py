@@ -13,10 +13,10 @@ This module provides a class to handle sqlite databases.
 from __future__ import annotations
 
 import json
-from pathlib import Path
 import sqlite3
 from contextlib import contextmanager
 from functools import wraps
+from pathlib import Path
 from typing import Callable, Generator, Iterable, Optional
 
 import numpy as np
@@ -111,7 +111,7 @@ def with_connection(func: Callable) -> Callable:
     return wrapper
 
 
-class SQLWrapper:
+class SQLEngine:
     """A simple wrapper for sqlite3 connections.
 
     The main benefit of this class is that it automatically commits changes
@@ -124,20 +124,18 @@ class SQLWrapper:
 
     def __init__(self, file: str | Path):
         self.file = file
-        self.conn = None
-        self.cursor = None
-        self._lock_stack = 0
+        self.conn: sqlite3.Connection | None = None
+        self.cursor: sqlite3.Cursor | None = None
+        self._lock_stack: int = 0
 
-    def connect(self) -> SQLWrapper:
+    def connect(self) -> SQLEngine:
         self._lock_stack += 1
         if not self.conn:
             self.conn = sqlite3.connect(self.file, detect_types=sqlite3.PARSE_DECLTYPES)
             self.cursor = self.conn.cursor()
-        else:
-            print("Already connected", flush=True)
         return self
 
-    def close(self) -> SQLWrapper:
+    def close(self) -> SQLEngine:
         self._lock_stack -= 1
         if self._lock_stack <= 0:
             self._lock_stack = 0
@@ -152,7 +150,7 @@ class SQLWrapper:
         return self
 
     @contextmanager
-    def open(self, *, force_commit: bool = False) -> Generator[SQLWrapper, None, None]:
+    def open(self, *, force_commit: bool = False) -> Generator[SQLEngine, None, None]:
         self.connect()
         try:
             yield self
@@ -160,6 +158,19 @@ class SQLWrapper:
             if force_commit:
                 self.conn.commit()
             self.close()
+
+    def execute(self, query: str, *args) -> sqlite3.Cursor:
+        """Execute a query on the database.
+
+        Args:
+            query: The query to execute.
+            args: The arguments to pass to the query.
+        """
+        if self.cursor is None:
+            raise ValueError("Cursor is not available. Please open the connection.")
+
+        self.cursor.execute(query, *args)
+        return self.cursor
 
 
 class SQLiteHandler:

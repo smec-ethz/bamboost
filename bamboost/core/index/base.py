@@ -21,27 +21,37 @@ from pathlib import Path
 from bamboost import BAMBOOST_LOGGER
 
 __all__ = [
-    "IndexAPI",
-    "DatabaseTable",
+    "Database",
+    "CollectionTable",
     "Entry",
     "find",
     "get_uid_from_path",
     "get_known_paths",
     "uid2",
     "DatabaseNotFoundError",
-    # Constants
     "THREAD_SAFE",
     "CONVERT_ARRAYS",
     "PREFIX",
     "DOT_REPLACEMENT",
+    "MPI",
 ]
 
 import os
 import subprocess
 from dataclasses import dataclass
 from time import time
-from typing import TYPE_CHECKING, Any, Callable, TypeVar, cast
+from typing import (
+    TYPE_CHECKING,
+    Any,
+    Callable,
+    Protocol,
+    Sequence,
+    TypeVar,
+    Union,
+    cast,
+)
 
+import h5py
 import pandas as pd
 
 import bamboost.core.index.sqlite_database as sql
@@ -52,7 +62,7 @@ from bamboost.core.mpi import MPI
 if TYPE_CHECKING:
     from mpi4py import MPI
 
-log = BAMBOOST_LOGGER.getChild(__name__.split(".")[-1])
+log = BAMBOOST_LOGGER.getChild("database")
 
 
 PREFIX = ".BAMBOOST-"
@@ -88,6 +98,10 @@ Error = sql.sqlite3.Error
 IndexAPIMethod = TypeVar("IndexAPIMethod", bound=Callable[..., Any])
 
 
+class DatabaseProtocol(Protocol):
+    engine: sql.SQLEngine
+
+
 def get(method: IndexAPIMethod) -> IndexAPIMethod:
     """Decorator for methods in IndexAPI to handle MPI broadcasting.
 
@@ -100,10 +114,10 @@ def get(method: IndexAPIMethod) -> IndexAPIMethod:
     comm = MPI.COMM_WORLD
 
     @wraps(method)
-    def inner(self: IndexAPI, *args, **kwargs):
+    def inner(self: DatabaseProtocol, *args, **kwargs):
         # handle MPI
         if comm.rank == 0:
-            with self.engine.open() as engine:
+            with self.engine.open():
                 result = method(self, *args, **kwargs)
 
         return comm.bcast(result, root=0)
@@ -115,12 +129,12 @@ def write(method: IndexAPIMethod) -> IndexAPIMethod:
     comm = MPI.COMM_WORLD
 
     @wraps(method)
-    def inner_root(self: IndexAPI, *args, **kwargs):
-        with self.engine.open() as engine:
-            return method(self, *args, **kwargs)
+    def inner_root(self: Database, *args, **kwargs):
+        with self.engine.open():
+            method(self, *args, **kwargs)
 
     def inner_off_root(*_args, **_kwargs):
-        return None
+        pass
 
     if comm.rank == 0:
         return cast(IndexAPIMethod, inner_root)
@@ -128,49 +142,49 @@ def write(method: IndexAPIMethod) -> IndexAPIMethod:
         return cast(IndexAPIMethod, inner_off_root)
 
 
-class IndexAPI:
+class Database:
     """Main class to manage the database of bamboost collections."""
+
+    COLLECTIONS_TABLE: str = "collections"
 
     def __init__(
         self,
         file: str | Path = config.index.databaseFile,
     ):
-        self.engine = sql.SQLWrapper(file)
-        self.create_index_table()
+        self.engine = sql.SQLEngine(file)
+        self.create_collections_table()
         self.clean()
         self._initialized = True
 
-    @get
     def __repr__(self) -> str:
         return self.read_table().__repr__()
 
-    @get
-    def _repr_html_(self) -> str:
+    def _repr_html_(self) -> str | None:
         return self.read_table()._repr_html_()
 
     @get
-    def __getitem__(self, id: str) -> DatabaseTable:
-        return DatabaseTable(id, _index=self)
+    def __getitem__(self, id: str) -> CollectionTable:
+        return CollectionTable(id, database=self)
 
     def _ipython_key_completions_(self) -> list:
         return self.read_table().id.tolist()
 
-    @sql.with_connection
-    def create_index_table(self) -> None:
+    @write
+    def create_collections_table(self) -> None:
         """Create the index table if it does not exist."""
-        self.cursor.execute(
-            """CREATE TABLE IF NOT EXISTS dbindex (id TEXT PRIMARY KEY, path TEXT)"""
+        self.engine.cursor.execute(
+            f"""CREATE TABLE IF NOT EXISTS {self.COLLECTIONS_TABLE} (id TEXT PRIMARY KEY, path TEXT)"""
         )
 
-    def get_database_table(self, id: str) -> DatabaseTable:
+    def get_collection_table(self, id: str) -> CollectionTable:
         """Get the table of a database.
 
         Args:
             - id (str): ID of the database
         """
-        return DatabaseTable(id, _index=self)
+        return CollectionTable(id, database=self)
 
-    @sql.with_connection
+    @get
     def read_table(self, *args, **kwargs) -> pd.DataFrame:
         """Read the index table.
 
@@ -178,20 +192,19 @@ class IndexAPI:
             pd.DataFrame: index table
         """
         return pd.read_sql_query(
-            "SELECT * FROM dbindex", self.connection, *args, **kwargs
+            f"SELECT * FROM {self.COLLECTIONS_TABLE}", self.engine.conn, *args, **kwargs
         )
 
-    @sql.with_connection
-    def fetch(self, query: str, *args, **kwargs) -> pd.DataFrame:
+    @get
+    def fetch(self, query: str, *args, **kwargs) -> list[Any]:
         """Query the index table.
 
         Args:
             query (str): query string
         """
-        self.cursor.execute(query, *args, **kwargs)
-        return self.cursor.fetchall()
+        return self.engine.execute(query, *args, **kwargs).fetchall()
 
-    @sql.with_connection
+    @get
     def get_path(self, id: str) -> str:
         """Get the path of a database from its ID.
 
@@ -201,40 +214,37 @@ class IndexAPI:
         Returns:
             str: path of the database
         """
-        self.cursor.execute("SELECT path FROM dbindex WHERE id=?", (id,))
-        path_db = self.cursor.fetchone()
-        if path_db and _check_path(id, path_db[0]):
-            return path_db[0]
+        path = self.engine.execute(
+            f"SELECT path FROM {self.COLLECTIONS_TABLE} WHERE id=?", (id,)
+        ).fetchone()
+        if path and _check_path(id, path[0]):
+            return path[0]
 
         # if path is wrong, try to find it
-        for root_dir in get_known_paths():
+        for root_dir in config.index.searchPaths:
+            log.debug(f"Searching for database {id} in {root_dir}")
             res = find(id, root_dir)
             if res:
                 path = os.path.dirname(res[0])
                 self.insert_path(id, path)
                 return path
 
-        # last resort, check home
-        res = find(id, config.paths.home)
-        if res:
-            path = os.path.dirname(res[0])
-            self.insert_path(id, path)
-            return path
-
         raise FileNotFoundError(f"Database {id} not found on system.")
 
-    @sql.with_connection
+    @write
     def insert_path(self, id: str, path: str) -> None:
         """Insert a database path into the index.
 
         Args:
-            id (str): ID of the database
-            path (str): path of the database
+            id: ID of the database
+            path: path of the database
         """
         path = os.path.abspath(path)
-        self.cursor.execute("INSERT OR REPLACE INTO dbindex VALUES (?, ?)", (id, path))
+        self.engine.execute(
+            f"INSERT OR REPLACE INTO {self.COLLECTIONS_TABLE} VALUES (?, ?)", (id, path)
+        )
 
-    @sql.with_connection
+    @get
     def get_id(self, path: str) -> str:
         """Get the ID of a database from its path.
 
@@ -248,146 +258,149 @@ class IndexAPI:
             DatabaseNotFoundError: if the database is not found in the index
         """
         path = os.path.abspath(path)
-        self.cursor.execute("SELECT id FROM dbindex WHERE path=?", (path,))
-        fetched = self.cursor.fetchone()
-        if fetched is None:
+        found_id = self.engine.execute(
+            "SELECT id FROM dbindex WHERE path=?", (path,)
+        ).fetchone()
+        if found_id is None:
             raise DatabaseNotFoundError(f"Database at {path} not found in index.")
-        return fetched[0]
+        return found_id[0]
 
-    @sql.with_connection
-    def scan_known_paths(self) -> dict:
-        """Scan known paths for databases and update the index."""
-        for path in get_known_paths():
-            completed_process = subprocess.run(
-                ["find", path, "-iname", f"{PREFIX}*", "-not", "-path", r"*/\.git/*"],
-                capture_output=True,
-            )
-            databases_found = completed_process.stdout.decode("utf-8").splitlines()
-            for database in databases_found:
-                name = os.path.basename(database)
-                id = name.split("-")[1]
-                self.insert_path(id, os.path.dirname(database))
+    @write
+    def scan_known_paths(
+        self, search_paths: Sequence[Union[str, Path]] = config.index.searchPaths
+    ) -> None:
+        """Scan known paths for databases and update the index.
 
-    def commit_once(self, func) -> Callable:
-        """Decorator to bundle changes to a single commit.
-
-        Example:
-            >>> @Index.commit_once
-            >>> def create_a_bunch_of_simulations():
-            >>>     for i in range(1000):
-            >>>         db.create_simulation(parameters={...})
-            >>>
-            >>> create_a_bunch_of_simulations()
+        Args:
+            search_paths (List[Path], optional): Paths to scan for databases.
+                Defaults to config.index.searchPaths.
         """
+        for path in search_paths:
+            path = Path(path)
+            log.info(f"Scanning {path}")
 
-        def wrapper(*args, **kwargs):
-            with self.open(ensure_commit=True):
-                return func(*args, **kwargs)
+            if not path.exists():
+                log.warning(f"Path does not exist: {path}")
+                continue
 
-        return wrapper
+            try:
+                completed_process = subprocess.run(
+                    [
+                        "find",
+                        path.as_posix(),
+                        "-iname",
+                        f"{PREFIX}*",
+                        "-not",
+                        "-path",
+                        "*/.git/*",
+                    ],
+                    capture_output=True,
+                    text=True,
+                    check=True,  # Raise exception if the command fails
+                )
+            except subprocess.CalledProcessError as e:
+                log.error(f"Error scanning path {path}: {e}")
+                continue
 
-    @sql.with_connection
-    def clean(self, purge: bool = False) -> IndexAPI:
+            databases_found = completed_process.stdout.splitlines()
+
+            if not databases_found:
+                log.info(f"No databases found in {path}")
+                continue
+
+            for database in databases_found:
+                name = Path(database).name
+                try:
+                    id = name.split("-")[1]
+                    self.insert_path(id, Path(database).parent.as_posix())
+                except IndexError:
+                    log.warning(f"Invalid database name format: {name}")
+
+    @write
+    def clean(self, purge: bool = False) -> Database:
         """Clean the index from wrong paths.
 
         Args:
-            purge (bool, optional): Also deletes the table of unmatching uid/path pairs. Defaults to False.
+            purge: Also deletes the table of unmatching
+                uid/path pairs. Defaults to False.
         """
-        index = self.cursor.execute("SELECT id, path FROM dbindex").fetchall()
-        for id, path in index:
+        collections = self.engine.execute(
+            f"SELECT id, path FROM {self.COLLECTIONS_TABLE}"
+        ).fetchall()
+        for id, path in collections:
             if not _check_path(id, path):
-                self.cursor.execute("DELETE FROM dbindex WHERE id=?", (id,))
+                self.drop_path(id)
 
         if purge:
             # all tables starting with db_ are tables of databases
-            all_tables = self.cursor.execute(
+            all_tables = self.engine.execute(
                 "SELECT name FROM sqlite_master WHERE type='table'"
             ).fetchall()
             id_list_tables = {
                 i[0].split("_")[1] for i in all_tables if i[0].startswith("db_")
             }
-            id_list = self.cursor.execute("SELECT id FROM dbindex").fetchall()
+            id_list = self.engine.execute("SELECT id FROM dbindex").fetchall()
 
             for id in id_list_tables:
                 if id not in id_list:
-                    self.cursor.execute(f"DROP TABLE db_{id}")
-                    self.cursor.execute(f"DROP TABLE db_{id}_t")
+                    self.engine.execute(f"DROP TABLE db_{id}")
+                    self.engine.execute(f"DROP TABLE db_{id}_t")
+                    log.debug(f"Removed table db_{id}")
 
         return self
 
-    @sql.with_connection
+    @write
     def drop_path(self, id: str) -> None:
         """Drop a path from the index.
 
         Args:
-            id (str): ID of the database
+            id: ID of the database
         """
-        self.cursor.execute("DELETE FROM dbindex WHERE id=?", (id,))
+        self.engine.execute(f"DELETE FROM {self.COLLECTIONS_TABLE} WHERE id=?", (id,))
+        log.debug(f"Removed {id} from collections table")
 
     def check_path(self, id: str, path: str) -> bool:
         """Check if path is going to the correct database."""
         return _check_path(id, path)
 
 
-class DatabaseTable:
-    """
-    Class to manage the table of a database. Multiton pattern. One table per
+class CollectionTable:
+    """Class to manage the table of a database. Multiton pattern. One table per
     database.
     """
 
-    _instances = {}
+    def __init__(
+        self,
+        id: str,
+        database: Database,
+        engine: sql.SQLEngine | None = None,
+    ):
+        self.id: str = id
+        self.database: Database = database
+        self.engine: sql.SQLEngine = engine or database.engine
+        self.path: str = self.database.get_path(self.id)
 
-    def __new__(cls, id: str, *args, **kwargs) -> DatabaseTable:
-        if _comm.rank != 0:
-            return Null()
+        self.TABLENAME = f"coll_{self.id}"
+        self.TABLENAME_UPDATE_TIME = f"coll_{self.id}_t"
 
-        if id not in cls._instances:
-            cls._instances[id] = super().__new__(cls)
-        return cls._instances[id]
-
-    def __init__(self, id: str, *, _index: IndexAPI = None):
-        if hasattr(self, "_initialized"):
-            return
-
-        self.id = id
         self._entries = {}
         self._initialized = True
-        self._index = _index if _index is not None else IndexAPI()
-        self.path = self._index.get_path(self.id)
-        self.tablename_db = f"db_{self.id}"
-        self.tablename_update_times = f"db_{self.id}_t"
         self.create_database_table()
 
-    def __getattr__(self, name):
-        if name in {
-            "_conn",
-            "_cursor",
-            "open",
-            "close",
-            "commit",
-            "_is_open",
-            "commit_once",
-        }:
-            return getattr(self._index, name)
-        return self.__getattribute__(name)
-
-    # ---------------------
-    # Database table functions
-    # ---------------------
-    @sql.with_connection
+    @get
     def read_table(self) -> pd.DataFrame:
         """Read the table of the database.
 
         Returns:
-            pd.DataFrame: table of the database
+            Table of the database
         """
-        df = pd.read_sql_query(f"SELECT * FROM {self.tablename_db}", self._conn)
+        df = pd.read_sql_query(f"SELECT * FROM {self.TABLENAME}", self.engine.conn)
         # drop "hidden" columns which start with _
         df = df.loc[:, ~df.columns.str.startswith("_")]
         df.rename(columns=lambda x: x.replace(DOT_REPLACEMENT, "."), inplace=True)
         return df
 
-    @sql.with_connection
+    @get
     def read_entry(self, entry_id: str) -> pd.Series:
         """Read an entry from the database.
 
@@ -397,15 +410,17 @@ class DatabaseTable:
         Returns:
             pd.Series: entry from the database
         """
-        self._cursor.execute(
-            f"SELECT * FROM {self.tablename_db} WHERE id=?", (entry_id,)
+        cursor = self.engine.execute(
+            f"SELECT * FROM {self.TABLENAME} WHERE id=?", (entry_id,)
         )
-        series = pd.Series(*self._cursor.fetchall())
-        series.index = [description[0] for description in self._cursor.description]
+        series = pd.Series(*cursor.fetchone())
+        print(series)
+        series.index = [description[0] for description in cursor.description]
+        print(cursor.description)
         series.rename(index=lambda x: x.replace(DOT_REPLACEMENT, "."), inplace=True)
         return series
 
-    @sql.with_connection
+    @get
     def read_column(self, *columns: str) -> pd.DataFrame:
         """Read columns from the database.
 
@@ -415,32 +430,34 @@ class DatabaseTable:
         Returns:
             pd.DataFrame: columns from the database
         """
-        self._cursor.execute(f"SELECT {', '.join(columns)} FROM {self.tablename_db}")
-        df = pd.DataFrame.from_records(self._cursor.fetchall(), columns=columns)
+        cursor = self.engine.execute(
+            f"SELECT {', '.join(columns)} FROM {self.TABLENAME}"
+        )
+        df = pd.DataFrame.from_records(cursor.fetchall(), columns=columns)
         df.rename(columns=lambda x: x.replace(DOT_REPLACEMENT, "."), inplace=True)
         return df
 
-    @sql.with_connection
+    @write
     def drop_table(self) -> None:
         """Drop the table of the database."""
-        self._cursor.execute(f"DROP TABLE {self.tablename_db}")
-        self._cursor.execute(f"DROP TABLE {self.tablename_update_times}")
+        self.engine.execute(f"DROP TABLE {self.TABLENAME}")
+        self.engine.execute(f"DROP TABLE {self.TABLENAME_UPDATE_TIME}")
 
-    @sql.with_connection
+    @write
     def create_database_table(self) -> None:
         """Create a table for a database."""
-        self._cursor.execute(
-            f"""CREATE TABLE IF NOT EXISTS {self.tablename_db} 
+        self.engine.execute(
+            f"""CREATE TABLE IF NOT EXISTS {self.TABLENAME} 
                 (id TEXT PRIMARY KEY NOT NULL, time_stamp DATETIME, notes TEXT, processors INTEGER)
             """
         )
-        self._cursor.execute(
-            f"""CREATE TABLE IF NOT EXISTS {self.tablename_update_times} (id TEXT PRIMARY KEY,
+        self.engine.execute(
+            f"""CREATE TABLE IF NOT EXISTS {self.TABLENAME_UPDATE_TIME} (id TEXT PRIMARY KEY,
                 update_time DATETIME)
             """
         )
 
-    @sql.with_connection
+    @write
     def update_entry(self, entry_id: str, data: dict) -> None:
         """Update an entry in the database.
 
@@ -453,8 +470,8 @@ class DatabaseTable:
             return
 
         # get columns of table
-        self._cursor.execute(f"PRAGMA table_info({self.tablename_db})")
-        cols = self._cursor.fetchall()
+        cursor = self.engine.execute(f"PRAGMA table_info({self.TABLENAME})")
+        cols = cursor.fetchall()
 
         # replace dots in keys
         for key in list(data.keys()):
@@ -470,8 +487,8 @@ class DatabaseTable:
             if any(key == column[1] for column in cols):
                 continue
             dtype = sql.get_sqlite_column_type(val)
-            self._cursor.execute(
-                f"ALTER TABLE {self.tablename_db} ADD COLUMN [{key}] {dtype}"
+            self.engine.execute(
+                f"ALTER TABLE {self.TABLENAME} ADD COLUMN [{key}] {dtype}"
             )
 
         # insert data into table
@@ -482,21 +499,21 @@ class DatabaseTable:
         updates = ", ".join([f"[{key}] = excluded.[{key}]" for key in data.keys()])
 
         query = f"""
-        INSERT INTO {self.tablename_db} (id, {keys})
+        INSERT INTO {self.TABLENAME} (id, {keys})
         VALUES (:id, {values})
         ON CONFLICT(id) DO UPDATE SET
         {updates}
         """
         data["id"] = entry_id
-        self._cursor.execute(query, data)
+        self.engine.execute(query, data)
 
         # update update time
-        self._cursor.execute(
-            f"INSERT OR REPLACE INTO {self.tablename_update_times} VALUES (?, ?)",
+        self.engine.execute(
+            f"INSERT OR REPLACE INTO {self.TABLENAME_UPDATE_TIME} VALUES (?, ?)",
             (entry_id, time()),
         )
 
-    @sql.with_connection
+    @write
     def sync(self) -> None:
         """Sync the table with the file system."""
         all_ids_fs = set(
@@ -507,18 +524,16 @@ class DatabaseTable:
             ]
         )
 
-        self._cursor.execute(
-            f"SELECT id, update_time FROM {self.tablename_update_times}"
+        cursor = self.engine.execute(
+            f"SELECT id, update_time FROM {self.TABLENAME_UPDATE_TIME}"
         )
 
-        for id, last_up_time in self._cursor.fetchall():
+        for id, last_up_time in cursor.fetchall():
             # remove entries that do not exist on the file system
             if id not in all_ids_fs:
-                self._cursor.execute(
-                    f"DELETE FROM {self.tablename_db} WHERE id=?", (id,)
-                )
-                self._cursor.execute(
-                    f"DELETE FROM {self.tablename_update_times} WHERE id=?", (id,)
+                self.engine.execute(f"DELETE FROM {self.TABLENAME} WHERE id=?", (id,))
+                self.engine.execute(
+                    f"DELETE FROM {self.TABLENAME_UPDATE_TIME} WHERE id=?", (id,)
                 )
                 continue
 
@@ -531,7 +546,7 @@ class DatabaseTable:
         for id in all_ids_fs:
             self.update_entry(id, self.entry(id).get_all_metadata())
 
-    @sql.with_connection
+    @get
     def entry(self, entry_id: str) -> Entry:
         """Get the Entry object of an entry.
         Multiton pattern. One Entry per entry.
@@ -565,8 +580,10 @@ class Entry:
         with open_h5file(self.h5file, "r") as file:
             try:
                 tmp_dict.update(file["parameters"].attrs)
-                for key in file["parameters"].keys():
-                    tmp_dict.update({key: file[f"parameters/{key}"][()]})
+                for key in cast(h5py.Group, file["parameters"]).keys():
+                    tmp_dict.update(
+                        {key: cast(h5py.Dataset, file[f"parameters/{key}"])[()]}
+                    )
             except KeyError:
                 pass
 
@@ -625,7 +642,7 @@ def _find_posix(uid, root_dir) -> list:
     return paths_found
 
 
-def _find_python(uid, root_dir) -> list:
+def _find_python(uid, root_dir) -> None:
     """Some find function for Windows or other if `find` is not working.
 
     TODO: to be implemented
