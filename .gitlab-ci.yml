@@ -10,6 +10,8 @@ test:
     - cd tests/
     - pytest --cov=bamboost --cov-report term
   coverage: /(?i)total.*? (100(?:\.0+)?\%|[1-9]?\d(?:\.\d+)?\%)$/
+  rules:
+    - if: '$CI_COMMIT_BRANCH != "next"'
 
 build_doc_source:
   stage: docs
