@@ -15,21 +15,21 @@ from __future__ import annotations
 import json
 import sqlite3
 from contextlib import contextmanager
-from functools import wraps
 from pathlib import Path
-from typing import Callable, Generator, Iterable, Optional
+from typing import Generator, Iterable
 
 import numpy as np
-from typing_extensions import Self
 
 from bamboost import BAMBOOST_LOGGER
-from bamboost.core.mpi import MPI
 
-__all__ = ["SQLiteHandler"]
+__all__ = [
+    "get_sqlite_column_type",
+    "SQLEngine",
+]
 
 log = BAMBOOST_LOGGER.getChild(__name__.split(".")[-1])
 
-_type_to_sql_column_type = {
+TYPE_MAP = {
     np.ndarray: "ARRAY",
     np.datetime64: "DATETIME",
     int: "INTEGER",
@@ -43,8 +43,8 @@ def get_sqlite_column_type(val):
     dtype = type(val)
     if isinstance(val, np.generic):
         dtype = type(val.item())
-    if dtype in _type_to_sql_column_type:
-        return _type_to_sql_column_type[dtype]
+    if dtype in TYPE_MAP:
+        return TYPE_MAP[dtype]
 
     if isinstance(val, Iterable):
         return "JSON"
@@ -92,23 +92,8 @@ def _register_sqlite_converters(convert_arrays: bool = True):
     sqlite3.register_converter("BOOL", convert_bool)
 
 
-# ----------------
-# DECORATORS
-# ----------------
-def with_connection(func: Callable) -> Callable:
-    """Decorator to ensure that the cursor is available. If the cursor is not
-    available, the connection is opened and closed after the function is
-    executed."""
-
-    @wraps(func)
-    def wrapper(self: SQLiteHandler, *args, **kwargs):
-        # check if cursor is available
-        if not self.is_open or self.cursor is None:
-            with self.open():
-                return func(self, *args, **kwargs)
-        return func(self, *args, **kwargs)
-
-    return wrapper
+_register_sqlite_adapters()
+_register_sqlite_converters()
 
 
 class SQLEngine:
@@ -149,6 +134,11 @@ class SQLEngine:
                 self.conn = None
         return self
 
+    def commit(self) -> None:
+        if not self.conn:
+            raise ValueError("Connection is not available. Please open the connection.")
+        self.conn.commit()
+
     @contextmanager
     def open(self, *, force_commit: bool = False) -> Generator[SQLEngine, None, None]:
         self.connect()
@@ -171,89 +161,3 @@ class SQLEngine:
 
         self.cursor.execute(query, *args)
         return self.cursor
-
-
-class SQLiteHandler:
-    """Class to handle sqlite databases."""
-
-    def __init__(
-        self, file: str, _comm=MPI.COMM_WORLD, convert_arrays: bool = True
-    ) -> None:
-        if _comm.rank != 0:
-            return
-        # self._comm = _comm
-        self.file = file
-        self.connection: Optional[sqlite3.Connection] = None
-        self.cursor: Optional[sqlite3.Cursor] = None
-        self.is_open: bool = False
-        self._lock_stack = 0
-
-        _register_sqlite_adapters()
-        _register_sqlite_converters(convert_arrays=convert_arrays)
-
-    @property
-    def _lock_stack(self) -> int:
-        return self.__lock_stack
-
-    @_lock_stack.setter
-    def _lock_stack(self, value: int) -> None:
-        self.__lock_stack = value if value >= 0 else 0
-
-    def connect(self) -> Self:
-        self._lock_stack += 1
-        if not self.connection:
-            log.debug(f"Connecting to {self.file}")
-            self.connection = sqlite3.connect(
-                self.file, detect_types=sqlite3.PARSE_DECLTYPES
-            )
-            self.cursor = self.connection.cursor()
-            self.is_open = True
-        return self
-
-    def close(self, *, force: bool = False, ensure_commit: bool = False) -> Self:
-        assert self.connection is not None
-
-        if force:
-            self._lock_stack = 0
-        else:
-            self._lock_stack -= 1
-
-        if self._lock_stack <= 0 and self.is_open:
-            log.debug(f"Closing connection to {self.file}")
-            self.connection.commit()
-            self.connection.close()
-            self.is_open = False
-            return self
-
-        if ensure_commit:
-            self.connection.commit()
-
-        return self
-
-    def commit(self) -> Self:
-        assert self.connection
-        self.connection.commit()
-        return self
-
-    @contextmanager
-    def open(
-        self,
-        *,
-        force_close: bool = False,
-        ensure_commit: bool = False,
-    ) -> Generator[Self]:
-        """The open method is used as a context manager.
-
-        Args:
-            - ensure_commit (bool, optional): Ensure that the connection is
-              committed. Defaults to False.
-
-        Example:
-            >>> with index.open() as table:
-            >>>     table._cursor.execute("SELECT * FROM database")
-        """
-        self.connect()
-        try:
-            yield self
-        finally:
-            self.close(ensure_commit=ensure_commit, force=force_close)

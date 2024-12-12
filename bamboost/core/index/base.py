@@ -32,8 +32,6 @@ __all__ = [
     "THREAD_SAFE",
     "CONVERT_ARRAYS",
     "PREFIX",
-    "DOT_REPLACEMENT",
-    "MPI",
 ]
 
 import os
@@ -54,7 +52,7 @@ from typing import (
 import h5py
 import pandas as pd
 
-import bamboost.core.index.sqlite_database as sql
+import bamboost.core.index.engine as sql
 from bamboost import config
 from bamboost.core.hdf5.file_handler import open_h5file
 from bamboost.core.mpi import MPI
@@ -396,8 +394,8 @@ class CollectionTable:
         """
         df = pd.read_sql_query(f"SELECT * FROM {self.TABLENAME}", self.engine.conn)
         # drop "hidden" columns which start with _
+        # TODO: is this necessary?
         df = df.loc[:, ~df.columns.str.startswith("_")]
-        df.rename(columns=lambda x: x.replace(DOT_REPLACEMENT, "."), inplace=True)
         return df
 
     @get
@@ -413,28 +411,27 @@ class CollectionTable:
         cursor = self.engine.execute(
             f"SELECT * FROM {self.TABLENAME} WHERE id=?", (entry_id,)
         )
-        series = pd.Series(*cursor.fetchone())
-        print(series)
-        series.index = [description[0] for description in cursor.description]
-        print(cursor.description)
-        series.rename(index=lambda x: x.replace(DOT_REPLACEMENT, "."), inplace=True)
+        values = cursor.fetchone()
+        description = cursor.description
+        series = pd.Series(
+            values, index=[description[0] for description in description]
+        )
         return series
 
     @get
-    def read_column(self, *columns: str) -> pd.DataFrame:
+    def read_columns(self, *columns: str) -> pd.DataFrame:
         """Read columns from the database.
 
         Args:
-            *columns (list): columns to read
+            *columns: columns to read
 
         Returns:
             pd.DataFrame: columns from the database
         """
         cursor = self.engine.execute(
-            f"SELECT {', '.join(columns)} FROM {self.TABLENAME}"
+            f"SELECT {', '.join(f'[{i}]' for i in columns)} FROM {self.TABLENAME}"
         )
         df = pd.DataFrame.from_records(cursor.fetchall(), columns=columns)
-        df.rename(columns=lambda x: x.replace(DOT_REPLACEMENT, "."), inplace=True)
         return df
 
     @write
@@ -465,50 +462,37 @@ class CollectionTable:
             entry_id (str): ID of the entry
             data (dict): data to update
         """
+        cursor = self.engine.cursor
         # return if data is empty
         if not data:
             return
 
         # get columns of table
-        cursor = self.engine.execute(f"PRAGMA table_info({self.TABLENAME})")
+        cursor.execute(f"PRAGMA table_info({self.TABLENAME})")
         cols = cursor.fetchall()
-
-        # replace dots in keys
-        for key in list(data.keys()):
-            new_key = key.replace(".", DOT_REPLACEMENT)
-            new_key = _remove_illegal_column_characters(new_key)
-            if new_key != key:
-                data[new_key] = data.pop(key)
 
         # check if columns exist
         for key, val in data.items():
-            # key = key.replace(".", DOT_REPLACEMENT)
-            # key = _remove_illegal_column_characters(key)
             if any(key == column[1] for column in cols):
                 continue
             dtype = sql.get_sqlite_column_type(val)
-            self.engine.execute(
-                f"ALTER TABLE {self.TABLENAME} ADD COLUMN [{key}] {dtype}"
-            )
+            cursor.execute(f"ALTER TABLE {self.TABLENAME} ADD COLUMN [{key}] {dtype}")
 
         # insert data into table
-        data.pop("id", None)
-
         keys = ", ".join([f"[{key}]" for key in data.keys()])
-        values = ", ".join([f":{key}" for key in data.keys()])
+        placeholders = ", ".join(["?" for _ in data.keys()])
         updates = ", ".join([f"[{key}] = excluded.[{key}]" for key in data.keys()])
 
         query = f"""
-        INSERT INTO {self.TABLENAME} (id, {keys})
-        VALUES (:id, {values})
-        ON CONFLICT(id) DO UPDATE SET
-        {updates}
+            INSERT INTO {self.TABLENAME} (id, {keys})
+            VALUES (?, {placeholders})
+            ON CONFLICT(id) DO UPDATE SET {updates}
         """
-        data["id"] = entry_id
-        self.engine.execute(query, data)
+        log.debug("execute query: {}".format(query))
+        cursor.execute(query, (entry_id, *data.values()))
 
         # update update time
-        self.engine.execute(
+        cursor.execute(
             f"INSERT OR REPLACE INTO {self.TABLENAME_UPDATE_TIME} VALUES (?, ?)",
             (entry_id, time()),
         )
