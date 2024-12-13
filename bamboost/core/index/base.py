@@ -29,9 +29,6 @@ __all__ = [
     "get_known_paths",
     "uid2",
     "DatabaseNotFoundError",
-    "THREAD_SAFE",
-    "CONVERT_ARRAYS",
-    "PREFIX",
 ]
 
 import os
@@ -66,22 +63,12 @@ log = BAMBOOST_LOGGER.getChild("database")
 PREFIX = ".BAMBOOST-"
 "prefix for databaseID identifier file"
 
-DOT_REPLACEMENT = "DOT"
-"replace dots with this in column names for sqlite"
-
-_comm = MPI.COMM_WORLD  # TODO: is this good practice?
-
-THREAD_SAFE = False
-CONVERT_ARRAYS = True
-
 
 # ------------------
 # Exceptions
 # ------------------
 class DatabaseNotFoundError(Exception):
     """Exception raised when a database is not found in the index."""
-
-    pass
 
 
 # ------------------
@@ -144,6 +131,10 @@ class Database:
     """Main class to manage the database of bamboost collections."""
 
     COLLECTIONS_TABLE: str = "collections"
+    COLLECTIONS_TABLE_KEYS: Sequence[str] = (
+        "id TEXT PRIMARY KEY",
+        "path TEXT",
+    )
 
     def __init__(
         self,
@@ -160,9 +151,8 @@ class Database:
     def _repr_html_(self) -> str | None:
         return self.read_table()._repr_html_()
 
-    @get
     def __getitem__(self, id: str) -> CollectionTable:
-        return CollectionTable(id, database=self)
+        return self.get_collection_table(id)
 
     def _ipython_key_completions_(self) -> list:
         return self.read_table().id.tolist()
@@ -171,7 +161,7 @@ class Database:
     def create_collections_table(self) -> None:
         """Create the index table if it does not exist."""
         self.engine.cursor.execute(
-            f"""CREATE TABLE IF NOT EXISTS {self.COLLECTIONS_TABLE} (id TEXT PRIMARY KEY, path TEXT)"""
+            f"""CREATE TABLE IF NOT EXISTS {self.COLLECTIONS_TABLE} ({", ".join(self.COLLECTIONS_TABLE_KEYS)})"""
         )
 
     def get_collection_table(self, id: str) -> CollectionTable:
@@ -203,7 +193,11 @@ class Database:
         return self.engine.execute(query, *args, **kwargs).fetchall()
 
     @get
-    def get_path(self, id: str) -> str:
+    def get_path(
+        self,
+        id: str,
+        search_paths: Sequence[Union[str, Path]] = config.index.searchPaths,
+    ) -> str:
         """Get the path of a database from its ID.
 
         Args:
@@ -219,7 +213,7 @@ class Database:
             return path[0]
 
         # if path is wrong, try to find it
-        for root_dir in config.index.searchPaths:
+        for root_dir in search_paths:
             log.debug(f"Searching for database {id} in {root_dir}")
             res = find(id, root_dir)
             if res:
@@ -356,10 +350,6 @@ class Database:
         """
         self.engine.execute(f"DELETE FROM {self.COLLECTIONS_TABLE} WHERE id=?", (id,))
         log.debug(f"Removed {id} from collections table")
-
-    def check_path(self, id: str, path: str) -> bool:
-        """Check if path is going to the correct database."""
-        return _check_path(id, path)
 
 
 class CollectionTable:
