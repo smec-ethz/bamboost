@@ -79,9 +79,9 @@ def main():
     # Scan
     # ----------------
     def scan_known_paths(args):
-        from bamboost.core.index.base import IndexAPI
+        from bamboost.core.caching.base import CollectionsTable
 
-        IndexAPI().scan_known_paths()
+        CollectionsTable().scan_paths_for_collections()
         rich.print("Scanned known paths")
 
     function_map["scan"] = scan_known_paths
@@ -120,13 +120,13 @@ def main():
 
 def submit_simulation(args):
     from bamboost.core.simulation.base import Simulation
-    from bamboost.core.index.base import IndexAPI
+    from bamboost.core.caching.base import CollectionsTable
 
     if args.path is not None:
         db_path, uid = args.path.rstrip("/").rsplit("/", 1)
         sim = Simulation(uid, db_path)
         args.id = uid
-        args.db = IndexAPI().get_id(db_path)
+        args.db = CollectionsTable().get_id(db_path)
     else:
         assert args.id and args.db, "Simulation ID and database ID must be provided"
         sim = Simulation(args.id, args.db)
@@ -137,10 +137,10 @@ def submit_simulation(args):
 
 def manage_db(args):
     from bamboost.core.manager import Manager
-    from bamboost.core.index.base import IndexAPI
+    from bamboost.core.caching.base import CollectionsTable
 
     # test if the database exists
-    df = IndexAPI().read_table()
+    df = CollectionsTable().get_df()
     if args.db_id not in df["id"].values:
         match = df[
             df["path"].astype(str).str.contains(args.db_id, na=False)
@@ -156,30 +156,30 @@ def manage_db(args):
     if args.subcommand == "list":
         rich.print(Manager(uid=args.db_id).df)
     if args.subcommand == "reset":
-        with IndexAPI().open():
-            IndexAPI()._conn.execute(f"DROP TABLE IF EXISTS db_{args.db_id}")
-            IndexAPI()._conn.execute(f"DROP TABLE IF EXISTS db_{args.db_id}_t")
+        with CollectionsTable().open():
+            CollectionsTable().connection.execute(f"DROP TABLE IF EXISTS db_{args.db_id}")
+            CollectionsTable().connection.execute(f"DROP TABLE IF EXISTS db_{args.db_id}_t")
         rich.print(f"Database {args.db_id} dropped")
 
     if args.subcommand == "drop":
-        with IndexAPI().open():
-            IndexAPI()._conn.execute(f"DROP TABLE IF EXISTS db_{args.db_id}")
-            IndexAPI()._conn.execute(f"DROP TABLE IF EXISTS db_{args.db_id}_t")
-        IndexAPI().drop_path(args.db_id)
+        with CollectionsTable().open():
+            CollectionsTable().connection.execute(f"DROP TABLE IF EXISTS db_{args.db_id}")
+            CollectionsTable().connection.execute(f"DROP TABLE IF EXISTS db_{args.db_id}_t")
+        CollectionsTable().drop_path(args.db_id)
         rich.print(f"Database {args.db_id} dropped")
 
 
 def list_databases(args):
-    from bamboost.core.index.base import IndexAPI
+    from bamboost.core.caching.base import CollectionsTable
 
-    table = IndexAPI().read_table()
+    table = CollectionsTable().get_df()
     rich.print(table.to_string())
 
 
 def clean_index(args, purge: bool = False):
-    from bamboost.core.index.base import IndexAPI
+    from bamboost.core.caching.base import CollectionsTable
 
-    IndexAPI().clean(purge=purge)
+    CollectionsTable().clean(purge=purge)
     rich.print("Index cleaned")
 
 

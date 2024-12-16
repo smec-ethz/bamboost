@@ -14,7 +14,10 @@ import pkgutil
 import shutil
 import uuid
 from ctypes import ArgumentError
+from pathlib import Path
 from typing import TYPE_CHECKING, Any, Generator, Iterable, Union
+
+from sqlalchemy.exc import SQLAlchemyError
 
 if TYPE_CHECKING:
     from mpi4py.MPI import Comm
@@ -23,10 +26,9 @@ import h5py
 import numpy as np
 import pandas as pd
 
-from bamboost import BAMBOOST_LOGGER
+from bamboost import BAMBOOST_LOGGER, default_cache
+from bamboost.caching.api import Database
 from bamboost.core.hdf5.file_handler import open_h5file
-from bamboost.core.index import base
-from bamboost.core.index.base import DatabaseTable, IndexAPI, config
 from bamboost.core.mpi import MPI
 from bamboost.core.simulation.base import Simulation
 from bamboost.core.simulation.writer import SimulationWriter
@@ -34,43 +36,9 @@ from bamboost.core.utilities import flatten_dict
 
 __all__ = [
     "Manager",
-    "ManagerFromUID",
-    "ManagerFromName",
 ]
 
 log = BAMBOOST_LOGGER.getChild(__name__.split(".")[-1])
-
-
-class ManagerFromUID(object):
-    """Get a database by its UID. This is used for autocompletion in ipython."""
-
-    def __init__(self) -> None:
-        # or [] to circumvent Null type (MPI)
-        ids = IndexAPI().fetch("SELECT id, path FROM dbindex") or []
-        self.completion_keys = tuple(
-            [f'{key} - {"..."+val[-25:] if len(val)>=25 else val}' for key, val in ids]
-        )
-
-    def _ipython_key_completions_(self):
-        return self.completion_keys
-
-    def __getitem__(self, key) -> Manager:
-        key = key.split()[0]  # take only uid
-        return Manager(uid=key, create_if_not_exist=False)
-
-
-class ManagerFromName(object):
-    """Get a database by its path/name. This is used for autocompletion in ipython."""
-
-    def __init__(self) -> None:
-        paths = IndexAPI().fetch("SELECT path FROM dbindex") or []
-        self.completion_keys = tuple(paths)
-
-    def _ipython_key_completions_(self):
-        return self.completion_keys
-
-    def __getitem__(self, key) -> Manager:
-        return Manager(key, create_if_not_exist=False)
 
 
 class Manager:
@@ -94,12 +62,10 @@ class Manager:
     """
 
     FIX_DF = True
-    fromUID: ManagerFromUID = ManagerFromUID()
-    fromName: ManagerFromName = ManagerFromName()
 
     def __init__(
         self,
-        path: str | None = None,
+        path: str | Path | None = None,
         comm: Comm | None = None,
         uid: str | None = None,
         create_if_not_exist: bool = True,
@@ -109,10 +75,12 @@ class Manager:
         if uid is not None:
             path = self._index.get_path(uid.upper())
             path = self.comm.bcast(path, root=0)
-        self.path = path
+
+        assert isinstance(path, (str, Path)), "Path must be a string or Path object."
+        self.path = Path(path)
 
         # check if path exists
-        if not os.path.isdir(path):
+        if not self.path.is_dir():
             if not create_if_not_exist:
                 raise NotADirectoryError("Specified path is not a valid path.")
             log.info(f"Created new database ({path})")
@@ -120,16 +88,19 @@ class Manager:
 
         # retrieve the UID of the database from the id file
         # if not found, a new one is generated
-        self.UID = uid or self._retrieve_uid()
+        self.UID = uid or self._cache.resolve_uid(self.path)
 
         # Update the SQL table for the database
         try:
-            with self._index.open():
-                self._index.insert_path(self.UID, self.path)
-                self._table.create_database_table()
-                self._table.sync()
-        except base.Error as e:
+            with self._cache.cache.transaction():
+                self._cache.add_collection(self.UID, self.path)
+                self._cache.sync_collection(self.UID)
+        except SQLAlchemyError as e:
             log.warning(f"index error: {e}")
+
+    @property
+    def _cache(self) -> Database:
+        return Database(default_cache)
 
     def __getitem__(self, key: Union[str, int]) -> Simulation:
         """Returns the simulation in the specified row of the dataframe.
@@ -168,14 +139,14 @@ class Manager:
         return self.all_uids
 
     @property
-    def _index(self) -> IndexAPI:
+    def _index(self) -> CollectionsTable:
         """The index which contains this database."""
-        return IndexAPI()
+        return CollectionsTable()
 
     @property
-    def _table(self) -> DatabaseTable:
+    def _table(self) -> CollectionTable:
         """The table in the sql database for this database."""
-        return self._index.get_database_table(self.UID)
+        return self._index.get_collection_table(self.UID)
 
     def _retrieve_uid(self) -> str:
         """Get the UID of this database from the file tree."""

@@ -1,17 +1,3 @@
-# This file is part of bamboost, a Python library built for datamanagement
-# using the HDF5 file format.
-#
-# https://gitlab.ethz.ch/compmechmat/research/libs/dbmanager
-#
-# Copyright 2023 Flavio Lorez and contributors
-#
-# There is no warranty for this code
-"""
-This module provides a class to handle sqlite databases.
-"""
-
-from __future__ import annotations
-
 from sqlalchemy import (
     JSON,
     Column,
@@ -22,6 +8,14 @@ from sqlalchemy import (
     String,
     Table,
 )
+
+__all__ = [
+    "_metadata",
+    "collections",
+    "simulations",
+    "parameters",
+]
+
 
 _metadata = MetaData()
 
@@ -46,7 +40,7 @@ simulations = Table(
     Column("description", String),
     Column("status", String, nullable=False, default="pending"),
     Column("created_at", DateTime, nullable=False),
-    Column("modified_at", DateTime, nullable=False),
+    Column("updated_at", DateTime, nullable=False),
 )
 
 parameters = Table(

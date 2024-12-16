@@ -11,7 +11,7 @@ from __future__ import annotations
 import os
 import time
 from functools import wraps
-from typing import Any, Literal, Type
+from typing import Any, Literal, Type, Union
 
 import h5py
 
@@ -145,7 +145,7 @@ class FileHandler:
         return self
 
     @capture_key_error
-    def __getitem__(self, key) -> Any:
+    def __getitem__(self, key) -> Union[h5py.Group, h5py.Dataset, h5py.Datatype]:
         return self.file_object[key]
 
     @capture_key_error

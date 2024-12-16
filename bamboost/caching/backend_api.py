@@ -15,31 +15,22 @@ Attributes:
 
 from __future__ import annotations
 
-from functools import wraps
-from pathlib import Path
-
-from bamboost import BAMBOOST_LOGGER
-
-__all__ = [
-    "Database",
-    "CollectionTable",
-    "Entry",
-    "find",
-    "get_uid_from_path",
-    "get_known_paths",
-    "uid2",
-    "DatabaseNotFoundError",
-]
-
 import os
 import subprocess
+from abc import ABC, abstractmethod
+from contextlib import contextmanager
 from dataclasses import dataclass
+from datetime import datetime
+from functools import wraps
+from pathlib import Path
 from time import time
 from typing import (
     TYPE_CHECKING,
     Any,
     Callable,
-    Protocol,
+    Generator,
+    Literal,
+    Optional,
     Sequence,
     TypeVar,
     Union,
@@ -48,11 +39,15 @@ from typing import (
 
 import h5py
 import pandas as pd
+from sqlalchemy import Connection, Row, create_engine, func, select, update
+from sqlalchemy.dialects.sqlite import insert
+from sqlalchemy.engine.result import RMKeyView
 
-import bamboost.core.index.engine as sql
-from bamboost import config
+from bamboost import BAMBOOST_LOGGER, config
 from bamboost.core.hdf5.file_handler import open_h5file
 from bamboost.core.mpi import MPI
+
+from .schema import DateTime, collections, create_all, parameters, simulations
 
 if TYPE_CHECKING:
     from mpi4py import MPI
@@ -64,292 +59,311 @@ PREFIX = ".BAMBOOST-"
 "prefix for databaseID identifier file"
 
 
-# ------------------
-# Exceptions
-# ------------------
-class DatabaseNotFoundError(Exception):
-    """Exception raised when a database is not found in the index."""
+_APIMethod = TypeVar("_APIMethod", bound=Callable[..., Any])
 
 
-# ------------------
-# Classes
-# ------------------
+def _with_mpi(make_changes: bool = False) -> Callable[[_APIMethod], _APIMethod]:
+    def decorator(method: _APIMethod) -> _APIMethod:
+        """Decorator to handle MPI communication in methods.
 
-Error = sql.sqlite3.Error
-"""Error exception for index errors."""
+        Args:
+            method: method to decorate
+        """
+
+        @wraps(method)
+        def inner(instance: CacheAPI, *args, **kwargs):
+            comm = MPI.COMM_WORLD
+
+            # handle MPI
+            if comm.rank == 0:
+                with instance.transaction(make_changes=make_changes):
+                    result = method(instance, *args, **kwargs)
+
+            return comm.bcast(result, root=0)
+
+        return cast(_APIMethod, inner)
+
+    return decorator
 
 
-# Define a TypeVar for a bound method of IndexAPI
-IndexAPIMethod = TypeVar("IndexAPIMethod", bound=Callable[..., Any])
-
-
-class DatabaseProtocol(Protocol):
-    engine: sql.SQLEngine
-
-
-def get(method: IndexAPIMethod) -> IndexAPIMethod:
-    """Decorator for methods in IndexAPI to handle MPI broadcasting.
+def _json_serializer(value: Any) -> str:
+    """Convert a value to a JSON string.
 
     Args:
-        method: A method of IndexAPI, where the first argument is `self`.
+        value: value to convert
 
     Returns:
-        A decorated function that takes the same arguments as `method`.
+        str: JSON string
     """
-    comm = MPI.COMM_WORLD
+    import json
 
-    @wraps(method)
-    def inner(self: DatabaseProtocol, *args, **kwargs):
-        # handle MPI
-        if comm.rank == 0:
-            with self.engine.open():
-                result = method(self, *args, **kwargs)
+    if hasattr(value, "item"):
+        return json.dumps(value.item())
 
-        return comm.bcast(result, root=0)
-
-    return cast(IndexAPIMethod, inner)
+    return json.dumps(value)
 
 
-def write(method: IndexAPIMethod) -> IndexAPIMethod:
-    comm = MPI.COMM_WORLD
-
-    @wraps(method)
-    def inner_root(self: Database, *args, **kwargs):
-        with self.engine.open():
-            method(self, *args, **kwargs)
-
-    def inner_off_root(*_args, **_kwargs):
-        pass
-
-    if comm.rank == 0:
-        return cast(IndexAPIMethod, inner_root)
-    else:
-        return cast(IndexAPIMethod, inner_off_root)
-
-
-class Database:
-    """Main class to manage the database of bamboost collections."""
-
-    COLLECTIONS_TABLE: str = "collections"
-    COLLECTIONS_TABLE_KEYS: Sequence[str] = (
-        "id TEXT PRIMARY KEY",
-        "path TEXT",
-    )
-
-    def __init__(
-        self,
-        file: str | Path = config.index.databaseFile,
-    ):
-        self.engine = sql.SQLEngine(file)
-        self.create_collections_table()
-        self.clean()
-        self._initialized = True
-
-    def __repr__(self) -> str:
-        return self.read_table().__repr__()
-
-    def _repr_html_(self) -> str | None:
-        return self.read_table()._repr_html_()
-
-    def __getitem__(self, id: str) -> CollectionTable:
-        return self.get_collection_table(id)
-
-    def _ipython_key_completions_(self) -> list:
-        return self.read_table().id.tolist()
-
-    @write
-    def create_collections_table(self) -> None:
-        """Create the index table if it does not exist."""
-        self.engine.cursor.execute(
-            f"""CREATE TABLE IF NOT EXISTS {self.COLLECTIONS_TABLE} ({", ".join(self.COLLECTIONS_TABLE_KEYS)})"""
+class CacheAPI:
+    def __init__(self, file: str | Path) -> None:
+        self.file = file
+        self.engine = create_engine(
+            f"sqlite:///{file}", json_serializer=_json_serializer
         )
+        self.conn: Connection | None = None
+        self._context_stack: int = 0
+        self._needs_commit: bool = False
 
-    def get_collection_table(self, id: str) -> CollectionTable:
-        """Get the table of a database.
+        # Create the tables if they do not exist
+        create_all(self.engine)
 
-        Args:
-            - id (str): ID of the database
-        """
-        return CollectionTable(id, database=self)
+    def connect(self, *, make_changes: bool = False) -> Connection:
+        self._context_stack += 1
+        self._needs_commit = self._needs_commit or make_changes
 
-    @get
-    def read_table(self, *args, **kwargs) -> pd.DataFrame:
-        """Read the index table.
+        if getattr(self.conn, "closed", True):  # if self.conn.closed is True
+            self.conn = self.engine.connect()
+            log.debug(f"Opened connection to {self.file}")
 
-        Returns:
-            pd.DataFrame: index table
-        """
-        return pd.read_sql_query(
-            f"SELECT * FROM {self.COLLECTIONS_TABLE}", self.engine.conn, *args, **kwargs
-        )
+        return cast(Connection, self.conn)
 
-    @get
-    def fetch(self, query: str, *args, **kwargs) -> list[Any]:
-        """Query the index table.
+    def close(self) -> CacheAPI:
+        self._context_stack -= 1
 
-        Args:
-            query (str): query string
-        """
-        return self.engine.execute(query, *args, **kwargs).fetchall()
-
-    @get
-    def get_path(
-        self,
-        id: str,
-        search_paths: Sequence[Union[str, Path]] = config.index.searchPaths,
-    ) -> str:
-        """Get the path of a database from its ID.
-
-        Args:
-            id (str): ID of the database
-
-        Returns:
-            str: path of the database
-        """
-        path = self.engine.execute(
-            f"SELECT path FROM {self.COLLECTIONS_TABLE} WHERE id=?", (id,)
-        ).fetchone()
-        if path and _check_path(id, path[0]):
-            return path[0]
-
-        # if path is wrong, try to find it
-        for root_dir in search_paths:
-            log.debug(f"Searching for database {id} in {root_dir}")
-            res = find(id, root_dir)
-            if res:
-                path = os.path.dirname(res[0])
-                self.insert_path(id, path)
-                return path
-
-        raise FileNotFoundError(f"Database {id} not found on system.")
-
-    @write
-    def insert_path(self, id: str, path: str) -> None:
-        """Insert a database path into the index.
-
-        Args:
-            id: ID of the database
-            path: path of the database
-        """
-        path = os.path.abspath(path)
-        self.engine.execute(
-            f"INSERT OR REPLACE INTO {self.COLLECTIONS_TABLE} VALUES (?, ?)", (id, path)
-        )
-
-    @get
-    def get_id(self, path: str) -> str:
-        """Get the ID of a database from its path.
-
-        Args:
-            path (str): path of the database
-
-        Returns:
-            str: ID of the database
-
-        Raises:
-            DatabaseNotFoundError: if the database is not found in the index
-        """
-        path = os.path.abspath(path)
-        found_id = self.engine.execute(
-            "SELECT id FROM dbindex WHERE path=?", (path,)
-        ).fetchone()
-        if found_id is None:
-            raise DatabaseNotFoundError(f"Database at {path} not found in index.")
-        return found_id[0]
-
-    @write
-    def scan_known_paths(
-        self, search_paths: Sequence[Union[str, Path]] = config.index.searchPaths
-    ) -> None:
-        """Scan known paths for databases and update the index.
-
-        Args:
-            search_paths (List[Path], optional): Paths to scan for databases.
-                Defaults to config.index.searchPaths.
-        """
-        for path in search_paths:
-            path = Path(path)
-            log.info(f"Scanning {path}")
-
-            if not path.exists():
-                log.warning(f"Path does not exist: {path}")
-                continue
+        if self._context_stack <= 0:
+            self._context_stack = 0
 
             try:
-                completed_process = subprocess.run(
-                    [
-                        "find",
-                        path.as_posix(),
-                        "-iname",
-                        f"{PREFIX}*",
-                        "-not",
-                        "-path",
-                        "*/.git/*",
-                    ],
-                    capture_output=True,
-                    text=True,
-                    check=True,  # Raise exception if the command fails
-                )
-            except subprocess.CalledProcessError as e:
-                log.error(f"Error scanning path {path}: {e}")
-                continue
-
-            databases_found = completed_process.stdout.splitlines()
-
-            if not databases_found:
-                log.info(f"No databases found in {path}")
-                continue
-
-            for database in databases_found:
-                name = Path(database).name
-                try:
-                    id = name.split("-")[1]
-                    self.insert_path(id, Path(database).parent.as_posix())
-                except IndexError:
-                    log.warning(f"Invalid database name format: {name}")
-
-    @write
-    def clean(self, purge: bool = False) -> Database:
-        """Clean the index from wrong paths.
-
-        Args:
-            purge: Also deletes the table of unmatching
-                uid/path pairs. Defaults to False.
-        """
-        collections = self.engine.execute(
-            f"SELECT id, path FROM {self.COLLECTIONS_TABLE}"
-        ).fetchall()
-        for id, path in collections:
-            if not _check_path(id, path):
-                self.drop_path(id)
-
-        if purge:
-            # all tables starting with db_ are tables of databases
-            all_tables = self.engine.execute(
-                "SELECT name FROM sqlite_master WHERE type='table'"
-            ).fetchall()
-            id_list_tables = {
-                i[0].split("_")[1] for i in all_tables if i[0].startswith("db_")
-            }
-            id_list = self.engine.execute("SELECT id FROM dbindex").fetchall()
-
-            for id in id_list_tables:
-                if id not in id_list:
-                    self.engine.execute(f"DROP TABLE db_{id}")
-                    self.engine.execute(f"DROP TABLE db_{id}_t")
-                    log.debug(f"Removed table db_{id}")
+                if self._needs_commit:
+                    self.conn.commit()
+            except AttributeError:
+                pass
+            finally:
+                self.conn.close()
+                log.debug(f"Closed connection to {self.file}")
 
         return self
 
-    @write
-    def drop_path(self, id: str) -> None:
-        """Drop a path from the index.
+    @contextmanager
+    def transaction(
+        self, *, make_changes: bool = False, force_commit: bool = False
+    ) -> Generator[Connection, None, None]:
+        conn = self.connect(make_changes=make_changes)
+
+        try:
+            yield conn
+        finally:
+            if force_commit:
+                conn.commit()
+            self.close()
+
+    @_with_mpi()
+    def read_all(self) -> Sequence[Row[Any]]:
+        query = select(collections)
+        return self.conn.execute(query).fetchall()
+
+    @_with_mpi()
+    def simulations(self, collection_id: str) -> Sequence[Row[Any]]:
+        query = select(simulations).where(simulations.c.collection_id == collection_id)
+        return self.conn.execute(query).fetchall()
+
+    @_with_mpi()
+    def get_path(
+        self,
+        uid: str,
+    ) -> str:
+        """Get the path of a collection from its UID.
 
         Args:
-            id: ID of the database
+            id: UID of the collection
+
+        Returns:
+            str: path of the collection
         """
-        self.engine.execute(f"DELETE FROM {self.COLLECTIONS_TABLE} WHERE id=?", (id,))
-        log.debug(f"Removed {id} from collections table")
+        query = select(collections.c.path).where(collections.c.id == uid)
+        return self.conn.execute(query).scalar_one()
+
+    @_with_mpi(make_changes=True)
+    def insert_path(self, uid: str, path: str) -> None:
+        """Insert a collection path into the cache.
+
+        Args:
+            id: ID of the collection
+            path: path of the collection
+        """
+        stmt = (
+            insert(collections)
+            .values(id=uid, path=path)
+            .on_conflict_do_update(index_elements=["id"], set_={"path": path})
+        )
+        self.conn.execute(stmt)
+
+    @_with_mpi()
+    def get_uid(self, path: str) -> str:
+        """Get the UID of a collection from its path.
+
+        Args:
+            path: path to the collection
+
+        Returns:
+            str: UID of the collection
+
+        Raises:
+            DatabaseNotFoundError: if the collection is not found in the index
+        """
+        stmt = select(collections.c.id).where(collections.c.path == path)
+        return self.conn.execute(stmt).scalar_one()
+
+    @_with_mpi(make_changes=True)
+    def drop_collection(self, uid: str) -> None:
+        """Drop a collection from the cache.
+
+        Args:
+            uid: UID of the collection
+        """
+        stmt = collections.delete().where(collections.c.id == uid)
+        self.conn.execute(stmt)
+
+    @_with_mpi(make_changes=True)
+    def drop_simulation(self, uid: int) -> None:
+        """Drop a simulation from the cache.
+
+        Args:
+            uid: UID of the simulation
+        """
+        stmt = simulations.delete().where(simulations.c.id == uid)
+        self.conn.execute(stmt)
+
+    @_with_mpi()
+    def get_collection(self, uid: str) -> tuple[RMKeyView, Sequence[Row[Any]]]:
+        subquery = (
+            select(
+                parameters.c.simulation_id,
+                func.json_group_object(parameters.c.key, parameters.c.value).label(
+                    "params"
+                ),
+            )
+            .group_by(parameters.c.simulation_id)
+            .subquery()
+        )
+
+        stmt = (
+            select(
+                simulations.c.id.label("simulation_id"),
+                simulations.c.name.label("simulation_name"),
+                simulations.c.created_at,
+                simulations.c.modified_at,
+                subquery.c.params,
+            )
+            .select_from(
+                simulations.join(
+                    collections, simulations.c.collection_id == collections.c.id
+                ).join(subquery, simulations.c.id == subquery.c.simulation_id)
+            )
+            .where(collections.c.id == uid)
+            .group_by(simulations.c.id)
+        )
+        cursor_result = self.conn.execute(stmt)
+        return cursor_result.keys(), cursor_result.all()
+
+    @_with_mpi()
+    def get_from_collection(
+        self,
+        uid: str,
+        column: Literal["id", "name", "created_at", "modified_at"],
+    ) -> Sequence[Row[Any]]:
+        stmt = (
+            select(simulations.c.id, simulations.c.name, simulations.c[column])
+            .select_from(
+                simulations.join(
+                    collections, simulations.c.collection_id == collections.c.id
+                )
+            )
+            .where(collections.c.id == uid)
+        )
+        return self.conn.execute(stmt).all()
+
+    @_with_mpi(make_changes=True)
+    def insert_simulation(
+        self,
+        collection_id: str,
+        simulation_name: str,
+        created_at: datetime,
+        modified_at: datetime,
+        simulation_id: Optional[int] = None,
+        description: str = "",
+        status: str = "",
+        params: dict = {},
+    ) -> None:
+        stmt = (
+            insert(simulations)
+            .values(
+                id=simulation_id,
+                name=simulation_name,
+                collection_id=collection_id,
+                created_at=created_at,
+                modified_at=modified_at,
+                description=description,
+                status=status,
+            )
+            .on_conflict_do_update(
+                index_elements=["id"],
+                set_={
+                    "name": simulation_name,
+                    "collection_id": collection_id,
+                    "modified_at": modified_at,
+                    "description": description,
+                    "status": status,
+                },
+            )
+        )
+        result = self.conn.execute(stmt)
+
+        if simulation_id is None:
+            simulation_id = result.lastrowid
+
+        for key, value in params.items():
+            stmt = (
+                insert(parameters)
+                .values(
+                    simulation_id=simulation_id,
+                    key=key,
+                    value=value,
+                )
+                .on_conflict_do_update(
+                    index_elements=["simulation_id", "key"],
+                    set_={"value": value},
+                )
+            )
+            self.conn.execute(stmt)
+
+
+class CollectionEntry:
+    def __init__(self, id: str, collections_table: CollectionsTable) -> None:
+        self.id = id
+        self.table = collections_table
+        self.engine = collections_table.engine
+
+    def get_df(self) -> pd.DataFrame:
+        query: str = """
+            SELECT 
+                s.id AS simulation_id,
+                s.name AS simulation_name,
+                s.created_at,
+                s.updated_at,
+                s.status,
+                p.key AS parameter_key,
+                p.value AS parameter_value
+            FROM
+                Simulations s
+            INNER JOIN
+                Collections c ON s.collection_id = c.id
+            LEFT JOIN
+                Parameters p ON s.id = p.simulation_id
+            WHERE
+                c.id = ?;
+        """
+        result = pd.read_sql_query(query, self.engine.conn, params=[self.id])
+        return result
 
 
 class CollectionTable:
@@ -360,12 +374,12 @@ class CollectionTable:
     def __init__(
         self,
         id: str,
-        database: Database,
-        engine: sql.SQLEngine | None = None,
+        database: CollectionsTable,
+        engine: sql.Engine | None = None,
     ):
         self.id: str = id
-        self.database: Database = database
-        self.engine: sql.SQLEngine = engine or database.engine
+        self.database: CollectionsTable = database
+        self.engine: sql.Engine = engine or database.engine
         self.path: str = self.database.get_path(self.id)
 
         self.TABLENAME = f"coll_{self.id}"
@@ -375,7 +389,6 @@ class CollectionTable:
         self._initialized = True
         self.create_database_table()
 
-    @get
     def read_table(self) -> pd.DataFrame:
         """Read the table of the database.
 
@@ -388,7 +401,6 @@ class CollectionTable:
         df = df.loc[:, ~df.columns.str.startswith("_")]
         return df
 
-    @get
     def read_entry(self, entry_id: str) -> pd.Series:
         """Read an entry from the database.
 
@@ -408,7 +420,6 @@ class CollectionTable:
         )
         return series
 
-    @get
     def read_columns(self, *columns: str) -> pd.DataFrame:
         """Read columns from the database.
 
@@ -424,13 +435,11 @@ class CollectionTable:
         df = pd.DataFrame.from_records(cursor.fetchall(), columns=columns)
         return df
 
-    @write
     def drop_table(self) -> None:
         """Drop the table of the database."""
         self.engine.execute(f"DROP TABLE {self.TABLENAME}")
         self.engine.execute(f"DROP TABLE {self.TABLENAME_UPDATE_TIME}")
 
-    @write
     def create_database_table(self) -> None:
         """Create a table for a database."""
         self.engine.execute(
@@ -444,7 +453,6 @@ class CollectionTable:
             """
         )
 
-    @write
     def update_entry(self, entry_id: str, data: dict) -> None:
         """Update an entry in the database.
 
@@ -487,7 +495,6 @@ class CollectionTable:
             (entry_id, time()),
         )
 
-    @write
     def sync(self) -> None:
         """Sync the table with the file system."""
         all_ids_fs = set(
@@ -520,7 +527,6 @@ class CollectionTable:
         for id in all_ids_fs:
             self.update_entry(id, self.entry(id).get_all_metadata())
 
-    @get
     def entry(self, entry_id: str) -> Entry:
         """Get the Entry object of an entry.
         Multiton pattern. One Entry per entry.
@@ -602,7 +608,7 @@ def get_uid_from_path(path: str) -> str:
     raise FileNotFoundError("No UID file found at specified path.")
 
 
-def get_known_paths() -> list:
+def get_known_paths() -> set[Path]:
     return config.index.searchPaths
 
 

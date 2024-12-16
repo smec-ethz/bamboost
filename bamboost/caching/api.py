@@ -1,13 +1,15 @@
 from __future__ import annotations
 
 import subprocess
+from datetime import datetime
 from pathlib import Path
-from typing import Iterator, Sequence, Set, Union
+from typing import Any, Iterator, Optional, Sequence, Set, Union
 
+from sqlalchemy import Row
 from sqlalchemy.exc import NoResultFound
 
 from bamboost import BAMBOOST_LOGGER, config
-from bamboost.core.index.backend_api import CacheAPI
+from bamboost.caching.backend_api import CacheAPI
 
 log = BAMBOOST_LOGGER.getChild(__name__)
 
@@ -30,7 +32,9 @@ def _find_collection(uid: str, root_dir: Path) -> tuple[Path, ...]:
         root_dir: root directory for search
     """
     try:
-        return tuple(Path(i).absolute() for i in _find_posix(uid, root_dir.as_posix()))
+        return tuple(
+            Path(i).parent.absolute() for i in _find_posix(uid, root_dir.as_posix())
+        )
     except subprocess.CalledProcessError:
         raise NotImplementedError(
             "Only POSIX systems are supported for now. Install `find`."
@@ -52,8 +56,10 @@ def _find_posix(uid: str, root_dir: str) -> tuple[str, ...]:
         capture_output=True,
         check=True,
     )
-    paths_found = tuple(completed_process.stdout.decode("utf-8").splitlines())
-    return paths_found
+    identifier_files_found = tuple(
+        completed_process.stdout.decode("utf-8").splitlines()
+    )
+    return identifier_files_found
 
 
 class Database:
@@ -71,6 +77,8 @@ class Database:
             stored_path = Path(stored_path)
             if _validate_path(stored_path, uid):
                 return stored_path
+            else:
+                log.debug(f"--> Found path in cache for collection {uid} is not valid.")
         except NoResultFound:
             log.debug(f"--> No path found in cache for collection {uid}")
 
@@ -88,6 +96,73 @@ class Database:
                 return paths_found[0]
 
         raise FileNotFoundError(f"Database with {uid} was not found.")
+
+    def resolve_uid(self, path: str | Path) -> str:
+        path = Path(path)
+        return self.cache.get_uid(path.as_posix())
+
+    def add_collection(self, uid: str, path: str | Path) -> None:
+        path = Path(path)
+        self.cache.insert_path(uid, path.as_posix())
+
+    def sync_collection(self, uid: str, path: str | Path | None = None) -> None:
+        """Sync the table with the file system."""
+        if path is None:
+            path = self.resolve_path(uid)
+        else:
+            path = Path(path)
+
+        all_entries_fs = set((i.name for i in path.iterdir() if i.is_dir()))
+
+        for simulation_id, name, modified_at in self.cache.get_from_collection(
+            uid, "modified_at"
+        ):
+            if name not in all_entries_fs:
+                self.cache.drop_simulation(simulation_id)
+                continue
+
+            all_entries_fs.remove(name)
+            if (
+                datetime.fromtimestamp(
+                    path.joinpath(name, f"{name}.h5").stat().st_mtime
+                )
+                > modified_at
+            ):
+                self.cache_simulation(
+                    collection_id=uid, simulation_id=simulation_id, simulation_name=name
+                )
+
+        for name in all_entries_fs:
+            self.cache_simulation(collection_id=uid, simulation_name=name)
+
+    def cache_simulation(
+        self,
+        collection_id: str,
+        simulation_name: str,
+        simulation_id: Optional[int] = None,
+        *,
+        collection_path: Optional[Union[str, Path]] = None,
+    ) -> None:
+        from bamboost.core.hdf5.file_handler import open_h5file
+
+        if collection_path is None:
+            collection_path = self.resolve_path(collection_id)
+        else:
+            collection_path = Path(collection_path)
+
+        file = collection_path.joinpath(simulation_name, f"{simulation_name}.h5")
+
+        with open_h5file(file.as_posix(), "r") as f:
+            self.cache.insert_simulation(
+                collection_id=collection_id,
+                simulation_name=simulation_name,
+                simulation_id=simulation_id,
+                created_at=datetime.fromisoformat(f.attrs.get("time_stamp", 0)),
+                modified_at=datetime.fromtimestamp(file.stat().st_mtime),
+                description=f.attrs.get("notes", ""),
+                status=f.attrs.get("status", ""),
+                params=dict(f["parameters"].attrs),
+            )
 
     def scan_for_collections(
         self,
@@ -153,7 +228,10 @@ class Database:
                 log.warning(f"Invalid path in cache: {path}")
                 self.cache.drop_collection(uid)
 
-
     def dummy_add_collection(self, uid: str) -> None:
         from bamboost.core.manager import Manager
-        db = Manager(self.resolve_path(uid))
+
+        _ = Manager(self.resolve_path(uid))
+
+    def get_collection(self, uid: str) -> tuple[Sequence, Sequence[Row[Any]]]:
+        return self.cache.get_collection(uid)

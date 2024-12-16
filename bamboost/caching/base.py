@@ -18,7 +18,6 @@ from __future__ import annotations
 import os
 import subprocess
 from abc import ABC, abstractmethod
-from contextlib import contextmanager
 from dataclasses import dataclass
 from functools import wraps
 from pathlib import Path
@@ -27,7 +26,6 @@ from typing import (
     TYPE_CHECKING,
     Any,
     Callable,
-    Generator,
     Sequence,
     TypeVar,
     Union,
@@ -36,14 +34,12 @@ from typing import (
 
 import h5py
 import pandas as pd
-from sqlalchemy import Connection, Row, create_engine, select, update
-from sqlalchemy.dialects.sqlite import insert
 
 from bamboost import BAMBOOST_LOGGER, config
 from bamboost.core.hdf5.file_handler import open_h5file
 from bamboost.core.mpi import MPI
 
-from .schema import collections, create_all, parameters, simulations
+from .engine import Engine, create_all, schema
 
 if TYPE_CHECKING:
     from mpi4py import MPI
@@ -55,170 +51,165 @@ PREFIX = ".BAMBOOST-"
 "prefix for databaseID identifier file"
 
 
-_APIMethod = TypeVar("_APIMethod", bound=Callable[..., Any])
-
-
-def _with_mpi(make_changes: bool = False) -> Callable[[_APIMethod], _APIMethod]:
-    def decorator(method: _APIMethod) -> _APIMethod:
-        """Decorator to handle MPI communication in methods.
-
-        Args:
-            method: method to decorate
-        """
-
-        @wraps(method)
-        def inner(instance: CacheAPI, *args, **kwargs):
-            comm = MPI.COMM_WORLD
-
-            # handle MPI
-            if comm.rank == 0:
-                with instance.transaction(make_changes=make_changes):
-                    result = method(instance, *args, **kwargs)
-
-            return comm.bcast(result, root=0)
-
-        return cast(_APIMethod, inner)
-
-    return decorator
-
-
 class CacheAPI:
-    def __init__(self, file: str | Path) -> None:
-        self.file = file
-        self.engine = create_engine(f"sqlite:///{file}")
-        self.conn: Connection | None = None
-        self._context_stack: int = 0
-        self._needs_commit: bool = False
+    def __init__(self, engine: Engine) -> None:
+        self.engine = engine
 
         # Create the tables if they do not exist
-        create_all(self.engine)
+        create_all(engine)
 
-    def connect(self, *, make_changes: bool = False) -> Connection:
-        self._context_stack += 1
-        if getattr(self.conn, "closed", True):  # if self.conn.closed is True
-            self.conn = self.engine.connect()
-            log.debug(f"Opened connection to {self.file}")
+    def get_path(
+        self,
+        id: str,
+        search_paths: Sequence[Union[str, Path]] = config.index.searchPaths,
+    ) -> str:
+        """Get the path of a database from its ID.
 
-        return cast(Connection, self.conn)
+        Args:
+            id (str): ID of the database
 
-    def close(self) -> CacheAPI:
-        self._context_stack -= 1
+        Returns:
+            str: path of the database
+        """
+        path = self.engine.execute(
+            f"SELECT path FROM {self.__tablename__} WHERE id=?", (id,)
+        ).fetchone()
+        if path and _check_path(id, path[0]):
+            return path[0]
 
-        if self._context_stack <= 0:
-            self._context_stack = 0
+        # if path is wrong, try to find it
+        for root_dir in search_paths:
+            log.debug(f"Searching for database {id} in {root_dir}")
+            res = find(id, root_dir)
+            if res:
+                path = os.path.dirname(res[0])
+                self.insert_path(id, path)
+                return path
+
+        raise FileNotFoundError(f"Database {id} not found on system.")
+
+    def insert_path(self, id: str, path: str) -> None:
+        """Insert a database path into the index.
+
+        Args:
+            id: ID of the database
+            path: path of the database
+        """
+        path = os.path.abspath(path)
+        self.engine.execute(
+            f"INSERT OR REPLACE INTO {self.__tablename__} VALUES (?, ?)", (id, path)
+        )
+
+    def get_id(self, path: str) -> str:
+        """Get the ID of a database from its path.
+
+        Args:
+            path (str): path of the database
+
+        Returns:
+            str: ID of the database
+
+        Raises:
+            DatabaseNotFoundError: if the database is not found in the index
+        """
+        path = os.path.abspath(path)
+        found_id = self.engine.execute(
+            f"SELECT id FROM {self.__tablename__} WHERE path=?", (path,)
+        ).fetchone()
+        if found_id is None:
+            raise DatabaseNotFoundError(f"Database at {path} not found in index.")
+        return found_id[0]
+
+    def scan_paths_for_collections(
+        self, search_paths: Sequence[Union[str, Path]] = config.index.searchPaths
+    ) -> None:
+        """Scan known paths for databases and update the index.
+
+        Args:
+            search_paths (List[Path], optional): Paths to scan for databases.
+                Defaults to config.index.searchPaths.
+        """
+        for path in search_paths:
+            path = Path(path)
+            log.info(f"Scanning {path}")
+
+            if not path.exists():
+                log.warning(f"Path does not exist: {path}")
+                continue
 
             try:
-                if self._needs_commit:
-                    self.conn.commit()
-            except AttributeError:
-                pass
-            finally:
-                self.conn.close()
-                log.debug(f"Closed connection to {self.file}")
+                completed_process = subprocess.run(
+                    [
+                        "find",
+                        path.as_posix(),
+                        "-iname",
+                        f"{PREFIX}*",
+                        "-not",
+                        "-path",
+                        "*/.git/*",
+                    ],
+                    capture_output=True,
+                    text=True,
+                    check=True,  # Raise exception if the command fails
+                )
+            except subprocess.CalledProcessError as e:
+                log.error(f"Error scanning path {path}: {e}")
+                continue
+
+            databases_found = completed_process.stdout.splitlines()
+
+            if not databases_found:
+                log.info(f"No databases found in {path}")
+                continue
+
+            for database in databases_found:
+                name = Path(database).name
+                try:
+                    id = name.split("-")[1]
+                    self.insert_path(id, Path(database).parent.as_posix())
+                except IndexError:
+                    log.warning(f"Invalid database name format: {name}")
+
+    def clean(self, purge: bool = False) -> CollectionsTable:
+        """Clean the index from wrong paths.
+
+        Args:
+            purge: Also deletes the table of unmatching
+                uid/path pairs. Defaults to False.
+        """
+        collections = self.engine.execute(
+            f"SELECT id, path FROM {self.__tablename__}"
+        ).fetchall()
+        for id, path in collections:
+            if not _check_path(id, path):
+                self.drop_path(id)
+
+        if purge:
+            # all tables starting with db_ are tables of databases
+            all_tables = self.engine.execute(
+                "SELECT name FROM sqlite_master WHERE type='table'"
+            ).fetchall()
+            id_list_tables = {
+                i[0].split("_")[1] for i in all_tables if i[0].startswith("db_")
+            }
+            id_list = self.engine.execute("SELECT id FROM dbindex").fetchall()
+
+            for id in id_list_tables:
+                if id not in id_list:
+                    self.engine.execute(f"DROP TABLE db_{id}")
+                    self.engine.execute(f"DROP TABLE db_{id}_t")
+                    log.debug(f"Removed table db_{id}")
 
         return self
 
-    @contextmanager
-    def transaction(
-        self, *, make_changes: bool = False, force_commit: bool = False
-    ) -> Generator[Connection, None, None]:
-        conn = self.connect()
-        self._needs_commit = self._needs_commit or make_changes
-
-        try:
-            yield conn
-        finally:
-            if force_commit:
-                conn.commit()
-            self.close()
-
-    @_with_mpi()
-    def read_all(self) -> Sequence[Row[Any]]:
-        query = select(collections)
-        return self.conn.execute(query).fetchall()
-
-    @_with_mpi()
-    def simulations(self, collection_id: str) -> Sequence[Row[Any]]:
-        query = select(simulations).where(simulations.c.collection_id == collection_id)
-        return self.conn.execute(query).fetchall()
-
-    @_with_mpi()
-    def get_path(
-        self,
-        uid: str,
-    ) -> str:
-        """Get the path of a collection from its UID.
+    def drop_path(self, id: str) -> None:
+        """Drop a path from the index.
 
         Args:
-            id: UID of the collection
-
-        Returns:
-            str: path of the collection
+            id: ID of the database
         """
-        query = select(collections.c.path).where(collections.c.id == uid)
-        return self.conn.execute(query).scalar_one()
-
-    @_with_mpi(make_changes=True)
-    def insert_path(self, uid: str, path: str) -> None:
-        """Insert a collection path into the cache.
-
-        Args:
-            id: ID of the collection
-            path: path of the collection
-        """
-        stmt = (
-            insert(collections)
-            .values(id=uid, path=path)
-            .on_conflict_do_update(index_elements=["id"], set_={"path": path})
-        )
-        self.conn.execute(stmt)
-
-    @_with_mpi()
-    def get_uid(self, path: str) -> str:
-        """Get the UID of a collection from its path.
-
-        Args:
-            path: path to the collection
-
-        Returns:
-            str: UID of the collection
-
-        Raises:
-            DatabaseNotFoundError: if the collection is not found in the index
-        """
-        stmt = select(collections.c.id).where(collections.c.path == path)
-        return self.conn.execute(stmt).scalar_one()
-
-    @_with_mpi(make_changes=True)
-    def drop_collection(self, uid: str) -> None:
-        """Drop a collection from the cache.
-
-        Args:
-            uid: UID of the collection
-        """
-        stmt = collections.delete().where(collections.c.id == uid)
-        self.conn.execute(stmt)
-
-    @_with_mpi()
-    def get_collection(self, uid: str) -> tuple[Sequence, Sequence[Row[Any]]]:
-        stmt = (
-            select(
-                simulations.c.id.label("simulation_id"),
-                simulations.c.name.label("simulation_name"),
-                simulations.c.created_at,
-                simulations.c.modified_at,
-                parameters.c.key.label("parameter_key"),
-                parameters.c.value.label("parameter_value"),
-            )
-            .select_from(
-                simulations.join(
-                    collections, simulations.c.collection_id == collections.c.id
-                ).outerjoin(parameters, simulations.c.id == parameters.c.simulation_id)
-            )
-            .where(collections.c.id == uid)
-        )
-        cursor_result = self.conn.execute(stmt)
-        return cursor_result.cursor.description, cursor_result.all()
+        self.engine.execute(f"DELETE FROM {self.__tablename__} WHERE id=?", (id,))
+        log.debug(f"Removed {id} from collections table")
 
 
 class CollectionEntry:
@@ -492,7 +483,7 @@ def get_uid_from_path(path: str) -> str:
     raise FileNotFoundError("No UID file found at specified path.")
 
 
-def get_known_paths() -> set[Path]:
+def get_known_paths() -> list:
     return config.index.searchPaths
 
 

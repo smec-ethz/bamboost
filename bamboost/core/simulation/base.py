@@ -27,7 +27,7 @@ from bamboost.core.hdf5.accessors.fielddata import DataGroup
 from bamboost.core.hdf5.accessors.globals import GlobalGroup
 from bamboost.core.hdf5.accessors.meshes import Mesh, MeshGroup
 from bamboost.core.hdf5.file_handler import FileHandler, with_file_open
-from bamboost.core.index import base
+from bamboost.caching import base
 from bamboost.core.mpi import MPI
 from bamboost.core.simulation.xdmf import XDMFWriter
 
@@ -142,7 +142,7 @@ class Simulation:
 
     @classmethod
     def fromUID(
-        cls, full_uid: str, *, index_database: base.IndexAPI = None, **kwargs
+        cls, full_uid: str, *, index_database: base.CollectionsTable = None, **kwargs
     ) -> Self:
         """Return the `Simulation` with given UID.
 
@@ -150,7 +150,7 @@ class Simulation:
             full_uid: the full id (Database uid : simulation uid)
         """
         if index_database is None:
-            index_database = base.IndexAPI()
+            index_database = base.CollectionsTable()
         db_uid, sim_uid = full_uid.split(":")
         db_path = index_database.get_path(db_uid)
         return cls(sim_uid, db_path, create_if_not_exists=False, **kwargs)
@@ -228,7 +228,7 @@ class Simulation:
         if not config.options.sync_tables:
             return
         try:
-            base.DatabaseTable(self.database_id).update_entry(self.uid, update_dict)
+            base.CollectionTable(self.database_id).update_entry(self.uid, update_dict)
         except base.Error as e:
             log.warning(f"Could not update sqlite database: {e}")
 

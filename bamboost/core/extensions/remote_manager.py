@@ -24,8 +24,8 @@ from bamboost.core.mpi import MPI
 from bamboost.core.utilities import unflatten_dict
 from bamboost.core.manager import Manager, ManagerFromUID
 from bamboost.core.simulation.base import Simulation
-from bamboost.core.index.base import DatabaseTable, IndexAPI
-from bamboost.core.index.sqlite_database import SQLiteHandler, with_connection
+from bamboost.core.caching.base import CollectionTable, CollectionsTable
+from bamboost.core.caching.sqlite_database import SQLiteHandler, with_connection
 
 __all__ = [
     "Remote",
@@ -101,7 +101,7 @@ if not hasattr(Simulation.fromUID, "__wrapped__"):
     Simulation.fromUID = classmethod(_extend_simulation_from_uid(Simulation.fromUID))
 
 
-class Remote(IndexAPI, SQLiteHandler):
+class Remote(CollectionsTable, SQLiteHandler):
     """Access bamboost database of a remote server. The index is fetched using
     rsync over ssh. The `remote_name` can be a hostname or an IP address. Make
     sure that ssh keys are set and working, as there is no user authentication.
@@ -150,7 +150,7 @@ class Remote(IndexAPI, SQLiteHandler):
         ]
 
     def _ipython_key_completions_(self) -> list[str]:
-        ids = self.read_table()[["id", "path"]].values
+        ids = self.get_df()[["id", "path"]].values
         completion_keys = [
             f'{key} - {"..."+val[-25:] if len(val)>=25 else val}' for key, val in ids
         ]
@@ -175,8 +175,8 @@ class Remote(IndexAPI, SQLiteHandler):
 
     @with_connection
     def get_path(self, id: str) -> str:
-        self._cursor.execute("SELECT path FROM dbindex WHERE id=?", (id,))
-        fetch = self._cursor.fetchone()
+        self.cursor.execute("SELECT path FROM dbindex WHERE id=?", (id,))
+        fetch = self.cursor.fetchone()
         if fetch is None:
             raise KeyError(f"No database found with id: {id}")
         else:
@@ -185,19 +185,19 @@ class Remote(IndexAPI, SQLiteHandler):
     @with_connection
     def insert_local_path(self, id: str, path: str) -> None:
         try:
-            self._cursor.execute(
+            self.cursor.execute(
                 "UPDATE dbindex SET local_path=? WHERE id=?", (path, id)
             )
         except sqlite3.OperationalError:
-            self._cursor.execute(
+            self.cursor.execute(
                 "ALTER TABLE dbindex ADD COLUMN local_path TEXT DEFAULT NULL"
             )
-            self._cursor.execute(
+            self.cursor.execute(
                 "UPDATE dbindex SET local_path=? WHERE id=?", (path, id)
             )
 
 
-class RemoteDatabaseTable(DatabaseTable):
+class RemoteDatabaseTable(CollectionTable):
     def sync(self) -> None:
         """Don't sync a remote database."""
         return None
@@ -266,7 +266,7 @@ class RemoteManager(Manager):
         return [uid for (uid,) in uids_in_tuple]
 
     @property
-    def _index(self) -> IndexAPI:
+    def _index(self) -> CollectionsTable:
         return self.remote
 
     @property
