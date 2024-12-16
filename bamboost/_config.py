@@ -36,7 +36,7 @@ CONFIG_DIR = Path("~/.config/bamboost").expanduser()
 CONFIG_FILE = CONFIG_DIR.joinpath("config.toml")
 LOCAL_DIR = Path("~/.local/share/bamboost").expanduser()
 CACHE_DIR = Path("~/.cache/bamboost").expanduser()
-DATABASE_FILE_NAME = "bamboost.db"
+DATABASE_FILE_NAME = "bamboost-next.sqlite"
 
 
 def _find_root_dir() -> Path:
@@ -204,6 +204,11 @@ class _Base:
         return instance
 
 
+# -----------------------------
+# Default configuration values
+# -----------------------------
+
+
 @dataclass(repr=False)
 class _Paths(_Base):
     """Paths used by bamboost.
@@ -241,6 +246,11 @@ class _Options(_Base):
     sortTableOrder: str = field(default="desc")
 
 
+class _PathSet(set[Path]):
+    def add(self, element: str | Path, /) -> None:
+        return super().add(Path(element).expanduser())
+
+
 @dataclass(repr=False)
 class _IndexOptions(_Base):
     """Index options for bamboost.
@@ -262,7 +272,9 @@ class _IndexOptions(_Base):
         "paths": "searchPaths",
     }
 
-    searchPaths: list[Path] = field(default_factory=lambda: [Path("~").expanduser()])
+    searchPaths: _PathSet = field(
+        default_factory=lambda: _PathSet([Path("~").expanduser()])
+    )
     syncTables: bool = field(default=True)
     convertArrays: bool = True
     databaseFileName: str = field(default=DATABASE_FILE_NAME)
@@ -271,15 +283,15 @@ class _IndexOptions(_Base):
 
     def __post_init__(self) -> None:
         # Parse search paths to Path objects
-        self.searchPaths = [
+        self.searchPaths = _PathSet(
             Path(p).expanduser() if isinstance(p, str) else p for p in self.searchPaths
-        ]
+        )
 
         # Handle isolated mode
         if self.isolated:
             ROOT_DIR.joinpath(".bamboost_cache").mkdir(parents=True, exist_ok=True)
             self.databaseFile = ROOT_DIR.joinpath(".bamboost_cache", "bamboost.sqlite")
-            self.searchPaths = [ROOT_DIR]
+            self.searchPaths = _PathSet([ROOT_DIR])
         else:
             self.databaseFile = LOCAL_DIR.joinpath(self.databaseFileName)
 
