@@ -366,8 +366,8 @@ class CacheAPI(metaclass=MPISafeMeta):
     def update_collection(self, uid: str, path: str) -> None:
         stmt = (
             insert(Collection)
-            .values(id=uid, path=path)
-            .on_conflict_do_update(["id"], set_=dict(path=path))
+            .values(uid=uid, path=path)
+            .on_conflict_do_update(["uid"], set_=dict(path=path))
         )
         self.session.execute(stmt)
 
@@ -418,15 +418,15 @@ class Collection(_Base):
         "Simulation", back_populates="collection", cascade="all, delete-orphan"
     )
 
-    def __init__(self, id: str, path: str) -> None:
-        self.uid = id
+    def __init__(self, uid: str, path: str) -> None:
+        self.uid = uid
         self.path = path
 
     def __repr__(self) -> str:
         return f"<Collection {self.uid}>"
 
     def as_tuple(self) -> tuple[str, str]:
-        """Return the collection as a tuple of (id, path)."""
+        """Return the collection as a tuple of (uid, path)."""
         return self.uid, self.path
 
 

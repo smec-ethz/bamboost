@@ -18,7 +18,8 @@ from bamboost.cache2.model import (
 
 log = BAMBOOST_LOGGER.getChild("Database")
 
-PREFIX = ".BAMBOOST-"
+IDENTIFIER_PREFIX = ".BAMBOOST"
+IDENTIFIER_SEPARATOR = "-"
 
 
 StrPath: TypeAlias = Union[str, Path]
@@ -40,45 +41,12 @@ class Database:
                 Defaults to config.index.searchPaths.
         """
         for path in search_paths:
-            log.info(f"Scanning {path}")
-
-            if not path.exists():
-                log.warning(f"Path does not exist: {path}")
-                continue
-
-            try:
-                completed_process = subprocess.run(
-                    [
-                        "find",
-                        path.as_posix(),
-                        "-iname",
-                        f"{PREFIX}*",
-                        "-not",
-                        "-path",
-                        "*/.git/*",
-                    ],
-                    capture_output=True,
-                    text=True,
-                    check=True,  # Raise exception if the command fails
-                )
-            except subprocess.CalledProcessError as e:
-                log.error(f"Error scanning path {path}: {e}")
-                continue
-
-            found_collections = completed_process.stdout.splitlines()
-
-            if not found_collections:
-                log.info(f"No collections found in {path}")
-                continue
+            found_collections = _scan_directory_for_collections(path)
 
             with self._cache.scoped_session(make_changes=True):
-                for collection in found_collections:
-                    log.info(f"Found collection: {collection}")
-                    identifier_file = Path(collection)
-                    self._cache.update_collection(
-                        uid=identifier_file.name.split("-")[1],
-                        path=identifier_file.parent.as_posix(),
-                    )
+                for uid, path in found_collections:
+                    log.info(f"Inserting found collection {uid} at {path}")
+                    self._cache.update_collection(uid, path.as_posix())
 
     def check_integrity(self) -> None:
         """Check the integrity of the cache.
@@ -204,18 +172,39 @@ class Database:
         return self._cache.get_simulation(collection_id, simulation_name)
 
 
+def simulation_metadata_from_h5(
+    file: Path,
+) -> Tuple[_SimulationMetadataT, _SimulationParameterT]:
+    """Extract metadata and parameters from a BAMBOOST simulation HDF5 file.
+
+    Args:
+        file: Path to the HDF5 file.
+    """
+    from bamboost.core.hdf5.file_handler import open_h5file
+
+    with open_h5file(file.as_posix(), "r") as f:
+        meta: _SimulationMetadataT = {
+            "created_at": datetime.fromisoformat(f.attrs.get("time_stamp", 0)),
+            "modified_at": datetime.fromtimestamp(file.stat().st_mtime),
+            "description": f.attrs.get("notes", ""),
+            "status": f.attrs.get("status", ""),
+        }
+        params: _SimulationParameterT = dict(f["parameters"].attrs)
+
+        return meta, params
+
+
 def _identifier_filename(uid: str) -> str:
-    return PREFIX + uid
+    return IDENTIFIER_PREFIX + IDENTIFIER_SEPARATOR + uid
 
 
 def _validate_path(path: Path, uid: str) -> bool:
     return path.is_dir() and path.joinpath(_identifier_filename(uid)).is_file()
 
 
-def _find_uid_from_path(path: StrPath) -> Optional[str]:
-    path = Path(path)
+def _find_uid_from_path(path: Path) -> Optional[str]:
     try:
-        return path.glob(f"{PREFIX}*").__next__().name.split("-")[1]
+        return path.glob(f"{IDENTIFIER_PREFIX}*").__next__().name.split("-")[1]
     except StopIteration:
         return None
 
@@ -237,6 +226,53 @@ def _find_collection(uid: str, root_dir: Path) -> tuple[Path, ...]:
         )
 
 
+def _scan_directory_for_collections(root_dir: Path) -> tuple[tuple[str, Path], ...]:
+    """Scan the directory for collections.
+
+    Args:
+        root_dir: Directory to scan for collections
+
+    Returns:
+        Tuple of tuples with the UID and path of the collection
+    """
+
+    log.info(f"Scanning {root_dir}")
+
+    if not root_dir.exists():
+        log.warning(f"Path does not exist: {root_dir}")
+        return ()
+
+    try:
+        completed_process = subprocess.run(
+            [
+                "find",
+                root_dir.as_posix(),
+                "-iname",
+                f"{IDENTIFIER_PREFIX}{IDENTIFIER_SEPARATOR}*",
+                "-not",
+                "-path",
+                "*/.git/*",
+            ],
+            capture_output=True,
+            text=True,
+            check=True,  # Raise exception if the command fails
+        )
+    except subprocess.CalledProcessError as e:
+        log.error(f"Error scanning path {root_dir}: {e}")
+        return ()
+
+    found_indicator_files = completed_process.stdout.splitlines()
+
+    if not found_indicator_files:
+        log.info(f"No collections found in {root_dir}")
+        return ()
+
+    return tuple(
+        (i.split(IDENTIFIER_SEPARATOR)[-1], Path(i).parent)
+        for i in found_indicator_files
+    )
+
+
 def _find_posix(uid: str, root_dir: str) -> tuple[str, ...]:
     """Find function using system `find` on linux."""
     completed_process = subprocess.run(
@@ -256,20 +292,3 @@ def _find_posix(uid: str, root_dir: str) -> tuple[str, ...]:
         completed_process.stdout.decode("utf-8").splitlines()
     )
     return identifier_files_found
-
-
-def simulation_metadata_from_h5(
-    file: Path,
-) -> Tuple[_SimulationMetadataT, _SimulationParameterT]:
-    from bamboost.core.hdf5.file_handler import open_h5file
-
-    with open_h5file(file.as_posix(), "r") as f:
-        meta: _SimulationMetadataT = {
-            "created_at": datetime.fromisoformat(f.attrs.get("time_stamp", 0)),
-            "modified_at": datetime.fromtimestamp(file.stat().st_mtime),
-            "description": f.attrs.get("notes", ""),
-            "status": f.attrs.get("status", ""),
-        }
-        params: _SimulationParameterT = dict(f["parameters"].attrs)
-
-        return meta, params
