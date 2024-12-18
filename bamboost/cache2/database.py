@@ -131,7 +131,7 @@ class Database:
             path: Path of the collection
         """
         path = Path(path)
-        cached_uid = self._cache.get_collection(path=path.as_posix()).id
+        cached_uid = self._cache.get_collection(path=path.as_posix()).uid
         if _validate_path(path, cached_uid):
             return cached_uid
 
@@ -165,8 +165,9 @@ class Database:
                     datetime.fromtimestamp(h5_file.stat().st_mtime) > sim.modified_at
                 ):
                     metadata, params = simulation_metadata_from_h5(h5_file)
-                    sim.update_metadata(metadata)
-                    sim.update_parameters(params)
+                    self._cache.update_simulation(
+                        sim.collection_uid, sim.name, metadata, params
+                    )
 
         for name in all_entries_fs:
             self.cache_simulation(collection_id=uid, simulation_name=name)

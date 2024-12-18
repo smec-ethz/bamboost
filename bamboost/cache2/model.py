@@ -21,7 +21,6 @@ from typing import (
     overload,
 )
 
-import numpy as np
 from sqlalchemy import (
     JSON,
     DateTime,
@@ -75,7 +74,7 @@ _SimulationParameterT = Dict[str, Any]
 _APIMethod = TypeVar("_APIMethod", bound=Callable[..., Any])
 
 
-def compose(*funcs: Callable) -> Callable:
+def compose_while_not_none(*funcs: Callable) -> Callable:
     """Compose multiple functions into a single function. The output of each
     function is passed as the input to the next function. The functions are
     applied from left to right. If a function returns `None`, the next function
@@ -89,8 +88,8 @@ def compose(*funcs: Callable) -> Callable:
     """
 
     def function(f: Any, g: Callable) -> Callable:
-        def composed(x: Any) -> Any:
-            result = f(x)
+        def composed(*x: Any) -> Any:
+            result = f(*x)
             if result is None:
                 return None
             else:
@@ -110,6 +109,8 @@ def _json_serializer(value: Any) -> str:
     Returns:
         str: JSON string
     """
+    import numpy as np
+
     if isinstance(value, np.ndarray):
         return json.dumps(value.tolist())
 
@@ -292,15 +293,21 @@ class CacheAPI(metaclass=MPISafeMeta):
 
     @_with_scope(make_changes=True)
     def delete_collection(self, uid: str) -> None:
-        compose(self.session.query(Collection).get, self.session.delete)(uid)
+        compose_while_not_none(self.session.query(Collection).get, self.session.delete)(
+            uid
+        )
 
     @_with_scope(make_changes=True)
     def delete_simulation(self, collection_id: str, simulation_name: str) -> None:
-        simulation = self.session.query(Simulation).filter(
-            Simulation.collection_id == collection_id,
-            Simulation.name == simulation_name,
-        )
-        self.session.delete(simulation)
+        compose_while_not_none(
+            self.session.query(Simulation)
+            .filter(
+                Simulation.collection_uid == collection_id,
+                Simulation.name == simulation_name,
+            )
+            .first,
+            self.session.delete,
+        )()
 
     @_bcast
     @_with_scope()
@@ -314,7 +321,7 @@ class CacheAPI(metaclass=MPISafeMeta):
         self, uid: Optional[str] = None, path: Optional[str] = None
     ) -> Collection:
         if uid:
-            filter_stmt = Collection.id == uid
+            filter_stmt = Collection.uid == uid
         elif path:
             filter_stmt = Collection.path == path
         else:
@@ -337,7 +344,7 @@ class CacheAPI(metaclass=MPISafeMeta):
             self.session.query(Simulation)
             .options(joinedload(Simulation.parameters))
             .filter(
-                Simulation.collection_id == collection_id,
+                Simulation.collection_uid == collection_id,
                 Simulation.name == simulation_name,
             )
             .one()
@@ -403,7 +410,7 @@ class CacheAPI(metaclass=MPISafeMeta):
 class Collection(_Base):
     __tablename__ = "collections"
 
-    id: Mapped[str] = mapped_column(primary_key=True)
+    uid: Mapped[str] = mapped_column(primary_key=True)
     path: Mapped[str] = mapped_column(String)
 
     # Relationships
@@ -412,25 +419,25 @@ class Collection(_Base):
     )
 
     def __init__(self, id: str, path: str) -> None:
-        self.id = id
+        self.uid = id
         self.path = path
 
     def __repr__(self) -> str:
-        return f"<Collection {self.id}>"
+        return f"<Collection {self.uid}>"
 
     def as_tuple(self) -> tuple[str, str]:
         """Return the collection as a tuple of (id, path)."""
-        return self.id, self.path
+        return self.uid, self.path
 
 
 class Simulation(_Base):
     __tablename__ = "simulations"
     __table_args__ = (
-        UniqueConstraint("collection_id", "name", name="uix_collection_name"),
+        UniqueConstraint("collection_uid", "name", name="uix_collection_name"),
     )
 
     id: Mapped[int] = mapped_column(primary_key=True, autoincrement=True, unique=True)
-    collection_id: Mapped[str] = mapped_column(ForeignKey(Collection.id))
+    collection_uid: Mapped[str] = mapped_column(ForeignKey(Collection.uid))
     name: Mapped[str] = mapped_column(String, nullable=False)
 
     # Metadata
@@ -470,7 +477,7 @@ class Simulation(_Base):
         return super().__init__(*args, **kwargs)
 
     def __repr__(self) -> str:
-        return f"<Simulation {self.collection_id}+{self.name}>"
+        return f"<Simulation {self.collection_uid}+{self.name}>"
 
     def update_metadata(self, metadata: _SimulationMetadataT) -> None:
         for key, value in metadata.items():
