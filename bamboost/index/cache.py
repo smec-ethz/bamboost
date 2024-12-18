@@ -17,7 +17,6 @@ from typing import (
     TypedDict,
     TypeVar,
     Union,
-    cast,
     overload,
 )
 
@@ -32,16 +31,13 @@ from sqlalchemy import (
     create_engine,
 )
 from sqlalchemy.dialects.sqlite import insert
-from sqlalchemy.exc import NoResultFound
 from sqlalchemy.orm import (
     Mapped,
     Session,
     create_session,
     declarative_base,
     joinedload,
-    lazyload,
     mapped_column,
-    query,
     relationship,
 )
 from sqlalchemy.sql import ClauseElement, text

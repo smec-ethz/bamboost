@@ -1,3 +1,27 @@
+"""Module for indexing BAMBOOST collections.
+
+Uses a caching mechanism using SQLAlchemy and an SQLite database to store
+information about collections and simulations.
+
+Usage:
+    Create an instance of the `Index` class and use its methods to interact
+    with the index.
+    >>> from bamboost.index import Index
+    >>> index = Index()
+
+    Scan for collections in known paths:
+    >>> index.scan_for_collections()
+
+    Resolve the path of a collection:
+    >>> index.resolve_path(<collection-uid>)
+
+    Get a simulation from its collection and simulation name:
+    >>> index.get_simulation(<collection-uid>, <simulation-name>)
+
+Classes:
+    Index: API for indexing BAMBOOST collections and simulations.
+"""
+
 from __future__ import annotations
 
 import subprocess
@@ -9,7 +33,7 @@ from sqlalchemy.exc import NoResultFound
 from typing_extensions import TypeAlias
 
 from bamboost import BAMBOOST_LOGGER, config
-from bamboost.cache2.model import (
+from bamboost.index.cache import (
     CacheAPI,
     Collection,
     _SimulationMetadataT,
@@ -21,11 +45,37 @@ log = BAMBOOST_LOGGER.getChild("Database")
 IDENTIFIER_PREFIX = ".BAMBOOST"
 IDENTIFIER_SEPARATOR = "-"
 
+__all__ = [
+    "Index",
+    "simulation_metadata_from_h5",
+]
 
 StrPath: TypeAlias = Union[str, Path]
 
 
-class Database:
+class Index:
+    """API for indexing BAMBOOST collections and simulations.
+
+    Usage:
+        Create an instance of the `Index` class and use its methods to interact
+        with the index.
+        >>> from bamboost.index import Index
+        >>> index = Index()
+
+        Scan for collections in known paths:
+        >>> index.scan_for_collections()
+
+        Resolve the path of a collection:
+        >>> index.resolve_path(<collection-uid>)
+
+        Get a simulation from its collection and simulation name:
+        >>> index.get_simulation(<collection-uid>, <simulation-name>)
+
+    Args:
+        cache: CacheAPI instance to use for the index. If not provided, a new
+            instance is created with the default cache file.
+    """
+
     def __init__(self, cache: Optional[CacheAPI] = None) -> None:
         self._cache = cache or CacheAPI(config.index.databaseFile)
 
@@ -34,10 +84,14 @@ class Database:
         *,
         search_paths: Set[Path] = config.index.searchPaths,
     ) -> None:
-        """Scan known paths for databases and update the index.
+        """Scan known paths for collections and update the index.
+
+        Iterates through the search paths and searches files with the
+        identifier file structure. If a collection is found, it is added to the
+        cache.
 
         Args:
-            search_paths (List[Path], optional): Paths to scan for databases.
+            search_paths (List[Path], optional): Paths to scan for collections.
                 Defaults to config.index.searchPaths.
         """
         for path in search_paths:
@@ -65,6 +119,12 @@ class Database:
         *,
         search_paths: Set[Path] = config.index.searchPaths,
     ) -> Path:
+        """Resolve and return the path of a collection from its UID.
+
+        Args:
+            uid: UID of the collection
+            search_paths: Paths to search for the collection
+        """
         try:
             stored_path = self._cache.get_collection(uid).path
             stored_path = Path(stored_path)
@@ -75,7 +135,7 @@ class Database:
         except NoResultFound:
             log.debug(f"--> No path found in cache for collection {uid}")
 
-        # Try to find the database in the search paths
+        # Try to find the collection in the search paths
         for root_dir in search_paths:
             log.debug(f"--> Searching for collection {uid} in {root_dir}")
             paths_found = _find_collection(uid, Path(root_dir))
@@ -90,7 +150,7 @@ class Database:
 
         raise FileNotFoundError(f"Database with {uid} was not found.")
 
-    def resolve_uid(self, path: str | Path) -> Optional[str]:
+    def resolve_uid(self, path: StrPath) -> Optional[str]:
         """Resolve the UID of a collection from a path.
 
         Returns the UID of the collection or `None` if it can't be determined.
@@ -108,11 +168,25 @@ class Database:
         return uid
 
     def update_collection(self, uid: str, path: StrPath) -> None:
+        """Update the path of a collection in the cache.
+
+        Args:
+            uid: UID of the collection
+            path: New path of the collection
+        """
         path = Path(path)
         self._cache.update_collection(uid, path.as_posix())
 
     def sync_collection(self, uid: str, path: Optional[StrPath] = None) -> None:
-        """Sync the table with the file system."""
+        """Sync the table with the file system.
+
+        Iterates through the simulations in the collection and updates the
+        metadata and parameters if the HDF5 file has been modified.
+
+        Args:
+            uid: UID of the collection
+            path (Optional): Path of the collection
+        """
         if path is None:
             path = self.resolve_path(uid)
         else:
@@ -141,9 +215,20 @@ class Database:
             self.cache_simulation(collection_id=uid, simulation_name=name)
 
     def drop_collection(self, uid: str) -> None:
+        """Drop a collection from the cache.
+
+        Args:
+            uid: UID of the collection
+        """
         self._cache.delete_collection(uid)
 
     def drop_simulation(self, collection_id: str, simulation_name: str) -> None:
+        """Drop a simulation from the cache.
+
+        Args:
+            collection_id: UID of the collection
+            simulation_name: Name of the simulation
+        """
         self._cache.delete_simulation(collection_id, simulation_name)
 
     def cache_simulation(
@@ -153,6 +238,13 @@ class Database:
         *,
         collection_path: Optional[StrPath] = None,
     ) -> None:
+        """Cache a simulation from a collection.
+
+        Args:
+            collection_id: UID of the collection
+            simulation_name: Name of the simulation
+            collection_path (Optional): Path of the collection
+        """
         if collection_path is None:
             collection_path = self.resolve_path(collection_id)
         else:
@@ -176,6 +268,9 @@ def simulation_metadata_from_h5(
     file: Path,
 ) -> Tuple[_SimulationMetadataT, _SimulationParameterT]:
     """Extract metadata and parameters from a BAMBOOST simulation HDF5 file.
+
+    Reads the metadata and parameters from the HDF5 file and returns them as a
+    tuple.
 
     Args:
         file: Path to the HDF5 file.
@@ -210,7 +305,7 @@ def _find_uid_from_path(path: Path) -> Optional[str]:
 
 
 def _find_collection(uid: str, root_dir: Path) -> tuple[Path, ...]:
-    """Find the database with UID under given root_dir.
+    """Find the collection with UID under given root_dir.
 
     Args:
         uid: UID to search for
