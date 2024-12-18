@@ -10,7 +10,6 @@ from typing import (
     Any,
     Callable,
     Dict,
-    Generator,
     List,
     Optional,
     Sequence,
@@ -23,9 +22,7 @@ from typing import (
 from sqlalchemy import (
     JSON,
     DateTime,
-    Engine,
     ForeignKey,
-    Row,
     String,
     UniqueConstraint,
     create_engine,
@@ -40,14 +37,18 @@ from sqlalchemy.orm import (
     mapped_column,
     relationship,
 )
-from sqlalchemy.sql import ClauseElement, text
-from typing_extensions import TypeAlias
+from sqlalchemy.sql import text
 
 from bamboost import BAMBOOST_LOGGER
 from bamboost.core.mpi import MPI
 
 if TYPE_CHECKING:
+    from typing import Generator
+
     from mpi4py.MPI import Comm
+    from sqlalchemy import Engine, Row
+    from sqlalchemy.sql import ClauseElement
+    from typing_extensions import TypeAlias
 
 
 log = BAMBOOST_LOGGER.getChild(__name__)
