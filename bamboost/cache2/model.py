@@ -1,30 +1,39 @@
 from __future__ import annotations
 
+import json
 from contextlib import contextmanager
 from datetime import datetime
-from functools import wraps
+from functools import reduce, wraps
 from pathlib import Path
 from typing import (
     TYPE_CHECKING,
     Any,
     Callable,
+    Dict,
     Generator,
     List,
     Optional,
+    Sequence,
+    TypedDict,
     TypeVar,
     Union,
     cast,
+    overload,
 )
 
+import numpy as np
 from sqlalchemy import (
     JSON,
     DateTime,
     Engine,
     ForeignKey,
+    Row,
     String,
     UniqueConstraint,
     create_engine,
 )
+from sqlalchemy.dialects.sqlite import insert
+from sqlalchemy.exc import NoResultFound
 from sqlalchemy.orm import (
     Mapped,
     Session,
@@ -33,8 +42,10 @@ from sqlalchemy.orm import (
     joinedload,
     lazyload,
     mapped_column,
+    query,
     relationship,
 )
+from sqlalchemy.sql import ClauseElement, text
 from typing_extensions import TypeAlias
 
 from bamboost import BAMBOOST_LOGGER
@@ -50,7 +61,44 @@ _Base = declarative_base()
 
 StrPath: TypeAlias = Union[str, Path]
 
+
+class _SimulationMetadataT(TypedDict):
+    created_at: datetime
+    modified_at: datetime
+    description: str
+    status: str
+
+
+_SimulationParameterT = Dict[str, Any]
+
+
 _APIMethod = TypeVar("_APIMethod", bound=Callable[..., Any])
+
+
+def compose(*funcs: Callable) -> Callable:
+    """Compose multiple functions into a single function. The output of each
+    function is passed as the input to the next function. The functions are
+    applied from left to right. If a function returns `None`, the next function
+    is not called and `None` is returned.
+
+    Args:
+        *funcs: Functions to compose.
+
+    Returns:
+        Callable: The composed function.
+    """
+
+    def function(f: Any, g: Callable) -> Callable:
+        def composed(x: Any) -> Any:
+            result = f(x)
+            if result is None:
+                return None
+            else:
+                return g(result)
+
+        return composed
+
+    return reduce(function, funcs)
 
 
 def _json_serializer(value: Any) -> str:
@@ -62,12 +110,26 @@ def _json_serializer(value: Any) -> str:
     Returns:
         str: JSON string
     """
-    import json
+    if isinstance(value, np.ndarray):
+        return json.dumps(value.tolist())
 
+    # Convert numpy scalar types to their item
     if hasattr(value, "item"):
         return json.dumps(value.item())
 
     return json.dumps(value)
+
+
+def _json_deserializer(value: str) -> Any:
+    """Convert a JSON string to a value.
+
+    Args:
+        value: JSON string to convert
+
+    Returns:
+        Any: Converted value
+    """
+    return json.loads(value)
 
 
 comm = MPI.COMM_WORLD
@@ -175,9 +237,12 @@ class CacheAPI(metaclass=MPISafeMeta):
         self._init_engine(file)
 
     def _init_engine(self, file: StrPath) -> None:
-        self.engine: Engine = create_engine(f"sqlite:///{file}")
+        self.engine: Engine = create_engine(
+            f"sqlite:///{file}",
+            json_serializer=_json_serializer,
+            json_deserializer=_json_deserializer,
+        )
         self.session: Session = create_session(self.engine)
-        print(f"CacheAPI init from rank {self._comm.rank}")
 
         # Create all tables
         _Base.metadata.create_all(self.engine)
@@ -201,31 +266,138 @@ class CacheAPI(metaclass=MPISafeMeta):
     def scoped_session(
         self, make_changes: bool = False
     ) -> Generator[Session, None, None]:
-        print(f"Transaction from rank {self._comm.rank}")
         try:
             self.connect(make_changes=make_changes)
             yield self.session
         finally:
             self.close()
 
+    @overload
+    def query(self, stmt: str) -> Sequence[Row[Any]]: ...
+
+    @overload
+    def query(self, stmt: ClauseElement) -> Sequence[Row[Any]]: ...
+
+    @_bcast
+    @_with_scope()
+    def query(self, stmt: Any) -> Sequence[Row[Any]]:
+        if isinstance(stmt, str):
+            stmt = text(stmt)
+
+        return self.session.execute(stmt).fetchall()
+
+    @_with_scope(make_changes=True)
+    def delete(self, instance: object) -> None:
+        self.session.delete(instance)
+
+    @_with_scope(make_changes=True)
+    def delete_collection(self, uid: str) -> None:
+        compose(self.session.query(Collection).get, self.session.delete)(uid)
+
+    @_with_scope(make_changes=True)
+    def delete_simulation(self, collection_id: str, simulation_name: str) -> None:
+        simulation = self.session.query(Simulation).filter(
+            Simulation.collection_id == collection_id,
+            Simulation.name == simulation_name,
+        )
+        self.session.delete(simulation)
+
     @_bcast
     @_with_scope()
     def get_collections(self) -> List[Collection]:
-        log.info(f"Getting collections on rank {self._comm.rank}")
+        log.debug(f"Getting collections on rank {self._comm.rank}")
         return self.session.query(Collection).all()
 
     @_bcast
     @_with_scope()
-    def get_collection(self, uid: str) -> Collection:
+    def get_collection(
+        self, uid: Optional[str] = None, path: Optional[str] = None
+    ) -> Collection:
+        if uid:
+            filter_stmt = Collection.id == uid
+        elif path:
+            filter_stmt = Collection.path == path
+        else:
+            raise ValueError("Either uid or path must be provided")
+
         collection = (
             self.session.query(Collection)
             .options(
                 joinedload(Collection.simulations).subqueryload(Simulation.parameters)
             )
-            .filter(Collection.id == uid)
-            .scalar()
+            .filter(filter_stmt)
+            .one()
         )
         return collection
+
+    @_bcast
+    @_with_scope()
+    def get_simulation(self, collection_id: str, simulation_name: str) -> Simulation:
+        return (
+            self.session.query(Simulation)
+            .options(joinedload(Simulation.parameters))
+            .filter(
+                Simulation.collection_id == collection_id,
+                Simulation.name == simulation_name,
+            )
+            .one()
+        )
+
+    @_with_scope(make_changes=True)
+    def insert_collection(self, collection: Collection) -> None:
+        self.session.add(collection)
+
+    @_with_scope(make_changes=True)
+    def insert_simulation(self, simulation: Simulation) -> None:
+        self.session.add(simulation)
+
+    @_with_scope(make_changes=True)
+    def insert_parameter(self, parameter: Parameter) -> None:
+        self.session.add(parameter)
+
+    @_with_scope(make_changes=True)
+    def update_collection(self, uid: str, path: str) -> None:
+        stmt = (
+            insert(Collection)
+            .values(id=uid, path=path)
+            .on_conflict_do_update(["id"], set_=dict(path=path))
+        )
+        self.session.execute(stmt)
+
+    @_with_scope(make_changes=True)
+    def update_simulation(
+        self,
+        collection_id: str,
+        simulation_name: str,
+        metadata: _SimulationMetadataT,
+        params: _SimulationParameterT,
+    ) -> None:
+        stmt = (
+            insert(Simulation)
+            .values(
+                collection_id=collection_id,
+                name=simulation_name,
+                **metadata,
+            )
+            .on_conflict_do_update(["collection_id", "name"], set_=metadata)
+        )
+        log.debug(f"Updating simulation {collection_id}+{simulation_name}")
+        result = self.session.execute(stmt)
+
+        self.update_parameters(result.lastrowid, params=params)
+
+    @_with_scope(make_changes=True)
+    def update_parameters(
+        self, simulation_id: int, params: _SimulationParameterT
+    ) -> None:
+        for k, v in params.items():
+            stmt = (
+                insert(Parameter)
+                .values(simulation_id=simulation_id, key=k, value=v)
+                .on_conflict_do_update(["simulation_id", "key"], set_=dict(value=v))
+            )
+            log.debug(f"Updating parameter {k} = {v} for simulation {simulation_id}")
+            self.session.execute(stmt)
 
 
 class Collection(_Base):
@@ -247,15 +419,21 @@ class Collection(_Base):
         return f"<Collection {self.id}>"
 
     def as_tuple(self) -> tuple[str, str]:
+        """Return the collection as a tuple of (id, path)."""
         return self.id, self.path
 
 
 class Simulation(_Base):
     __tablename__ = "simulations"
+    __table_args__ = (
+        UniqueConstraint("collection_id", "name", name="uix_collection_name"),
+    )
 
-    id: Mapped[int] = mapped_column(primary_key=True, autoincrement=True)
+    id: Mapped[int] = mapped_column(primary_key=True, autoincrement=True, unique=True)
     collection_id: Mapped[str] = mapped_column(ForeignKey(Collection.id))
     name: Mapped[str] = mapped_column(String, nullable=False)
+
+    # Metadata
     created_at: Mapped[DateTime] = mapped_column(
         DateTime, nullable=False, default=datetime.now
     )
@@ -273,8 +451,37 @@ class Simulation(_Base):
         "Parameter", back_populates="simulation", cascade="all, delete-orphan"
     )
 
+    @overload
+    def __init__(
+        self,
+        id: Optional[int],
+        collection_id: str,
+        name: str,
+        created_at: Optional[datetime],
+        modified_at: Optional[datetime],
+        description: Optional[str],
+        status: Optional[str],
+    ) -> None: ...
+
+    @overload
+    def __init__(self, *args, **kwargs) -> None: ...
+
+    def __init__(self, *args, **kwargs) -> None:
+        return super().__init__(*args, **kwargs)
+
     def __repr__(self) -> str:
-        return f"<Simulation {self.name}>"
+        return f"<Simulation {self.collection_id}+{self.name}>"
+
+    def update_metadata(self, metadata: _SimulationMetadataT) -> None:
+        for key, value in metadata.items():
+            setattr(self, key, value)
+
+    def update_parameters(self, params: _SimulationParameterT) -> None:
+        self.parameters.clear()
+
+        for key, value in params.items():
+            new_parameter = Parameter(simulation_id=self.id, key=key, value=value)
+            self.parameters.append(new_parameter)
 
 
 class Parameter(_Base):
@@ -296,4 +503,4 @@ class Parameter(_Base):
     )
 
     def __repr__(self) -> str:
-        return f"<Parameter {self.key}={self.value}>"
+        return f"<Parameter {self.key} = {self.value}>"
