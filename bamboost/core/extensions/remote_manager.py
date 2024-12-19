@@ -22,7 +22,7 @@ from bamboost import BAMBOOST_LOGGER
 from bamboost.config import config
 from bamboost.core.mpi import MPI
 from bamboost.core.utilities import unflatten_dict
-from bamboost.core.manager import Manager, ManagerFromUID
+from bamboost.core.manager import Collection, ManagerFromUID
 from bamboost.core.simulation.base import Simulation
 from bamboost.core.caching.base import CollectionTable, CollectionsTable
 from bamboost.core.caching.sqlite_database import SQLiteHandler, with_connection
@@ -71,7 +71,7 @@ if not hasattr(ManagerFromUID.__getitem__, "__wrapped__"):
     ManagerFromUID.__getitem__ = _extend_manager_from_uid_getitem(
         ManagerFromUID.__getitem__
     )
-    Manager.fromUID = ManagerFromUID()
+    Collection.fromUID = ManagerFromUID()
 
 
 # MonkeyPatch Simulation.fromUID
@@ -203,7 +203,7 @@ class RemoteDatabaseTable(CollectionTable):
         return None
 
 
-class RemoteManager(Manager):
+class RemoteManager(Collection):
     """
     Manager class with remote functionality. Constructor takes an existing ID
     of a database on a remote server. The ssh connection must be set up to work

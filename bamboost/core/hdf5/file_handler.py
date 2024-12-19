@@ -11,7 +11,7 @@ from __future__ import annotations
 import os
 import time
 from functools import wraps
-from typing import Any, Literal, Type, Union
+from typing import Any, Literal, Union
 
 import h5py
 

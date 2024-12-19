@@ -14,93 +14,146 @@ import pkgutil
 import shutil
 import uuid
 from ctypes import ArgumentError
+from functools import cached_property, wraps
 from pathlib import Path
-from typing import TYPE_CHECKING, Any, Generator, Iterable, Union
-
-from sqlalchemy.exc import SQLAlchemyError
-
-if TYPE_CHECKING:
-    from mpi4py.MPI import Comm
+from typing import (
+    TYPE_CHECKING,
+    Any,
+    Callable,
+    Generator,
+    Iterable,
+    Optional,
+    TypeVar,
+    Union,
+    cast,
+)
 
 import h5py
 import numpy as np
 import pandas as pd
+from sqlalchemy.exc import SQLAlchemyError
+from typing_extensions import ParamSpec, TypeAlias
 
-from bamboost import BAMBOOST_LOGGER, default_cache
-from bamboost.caching.api import Database
+from bamboost import BAMBOOST_LOGGER, index
 from bamboost.core.hdf5.file_handler import open_h5file
 from bamboost.core.mpi import MPI
-from bamboost.core.simulation.base import Simulation
-from bamboost.core.simulation.writer import SimulationWriter
+
+# from bamboost.core.simulation.base import Simulation
+# from bamboost.core.simulation.writer import SimulationWriter
 from bamboost.core.utilities import flatten_dict
+from bamboost.index import Index, StrPath
+
+if TYPE_CHECKING:
+    from mpi4py.MPI import Comm as _MPIComm
+
+    from bamboost.core.mpi.mock import Comm as _MockComm
+
+    Comm: TypeAlias = Union[_MPIComm, _MockComm]
+
 
 __all__ = [
-    "Manager",
+    "Collection",
 ]
 
 log = BAMBOOST_LOGGER.getChild(__name__.split(".")[-1])
 
+_T = TypeVar("_T")
+_P = ParamSpec("_P")
 
-class Manager:
+
+def on_rank(func: Callable[_P, _T], comm: Comm, rank: int) -> Callable[_P, _T]:
+    @wraps(func)
+    def inner(*args, **kwargs) -> _T:
+        result = None
+        if comm.rank == rank:
+            result = func(*args, **kwargs)
+        return cast(_T, comm.bcast(result, root=rank))
+
+    return inner
+
+
+def on_root(func: Callable[_P, _T], comm: Comm) -> Callable[_P, _T]:
+    return on_rank(func, comm, 0)
+
+
+class CollectionUID(str):
+    """UID of a collection."""
+
+    def __new__(
+        cls, uid: Optional[Union[str, CollectionUID]] = None, length: Optional[int] = 10
+    ):
+        length = length or 10
+        uid = uid or cls.generate_uid(length)
+        return super().__new__(cls, uid.upper())
+
+    @staticmethod
+    def generate_uid(length: int) -> str:
+        length = length
+        return uuid.uuid4().hex[:length].upper()
+
+
+class Collection:
     """View of database.
 
     Args:
-        path (`str`): path to the directory of the database. If doesn't exist,
+        path: path to the directory of the database. If doesn't exist,
             a new database will be created.
-        comm (`MPI.Comm`): MPI communicator
+        comm: MPI communicator
         uid: UID of the database
 
     Attributes:
-        FIX_DF: If False, the dataframe of the database is reconstructed every
-            time it is accessed.
-        fromUID: Access a database by its UID
-        fromName: Access a database by its path/name
+        ...
 
     Example:
         >>> db = Manager("path/to/db")
         >>> db.df # DataFrame of the database
     """
 
-    FIX_DF = True
+    LIVE = False
 
     def __init__(
         self,
-        path: str | Path | None = None,
-        comm: Comm | None = None,
-        uid: str | None = None,
+        path: Optional[StrPath] = None,
+        uid: Optional[str] = None,
+        *,
         create_if_not_exist: bool = True,
+        comm: Optional[Comm] = None,
     ):
-        # provided uid has precedence
         self.comm = comm or MPI.COMM_WORLD
-        if uid is not None:
-            path = self._index.get_path(uid.upper())
-            path = self.comm.bcast(path, root=0)
 
-        assert isinstance(path, (str, Path)), "Path must be a string or Path object."
+        # find path, provided uid has precedence
+        if uid is not None:
+            path = on_root(self._index.resolve_path, self.comm)(uid.upper())
+
+        assert path is not None, "Either path or uid must be provided."
         self.path = Path(path)
 
         # check if path exists
         if not self.path.is_dir():
             if not create_if_not_exist:
                 raise NotADirectoryError("Specified path is not a valid path.")
+            uid = self._make_new(path)
             log.info(f"Created new database ({path})")
-            self._make_new(path)
+        else:
+            uid = CollectionUID(
+                uid
+                or on_root(self._index.resolve_uid, self.comm)(self.path)
+                or on_root(self._retrieve_uid, self.comm)()
+            )
 
-        # retrieve the UID of the database from the id file
-        # if not found, a new one is generated
-        self.UID = uid or self._cache.resolve_uid(self.path)
+        self.UID = uid
 
         # Update the SQL table for the database
         try:
-            with self._cache.cache.transaction():
-                self._cache.add_collection(self.UID, self.path)
-                self._cache.sync_collection(self.UID)
+            with self._index._cache.scoped_session():
+                self._index.update_collection(self.UID, self.path)
+                self._index.sync_collection(self.UID, self.path)
         except SQLAlchemyError as e:
             log.warning(f"index error: {e}")
 
-    @property
-    def _cache(self) -> Database:
-        return Database(default_cache)
+    @cached_property
+    def _index(self) -> Index:
+        return Index()
 
     def __getitem__(self, key: Union[str, int]) -> Simulation:
         """Returns the simulation in the specified row of the dataframe.
@@ -129,82 +182,75 @@ class Manager:
         )
 
     def __len__(self) -> int:
-        return len(self.all_uids)
+        return len(self.all_simulation_names)
 
     def __iter__(self) -> Generator[Simulation, None, None]:
         for sim in self.sims():
             yield sim
 
     def _ipython_key_completions_(self):
-        return self.all_uids
+        return self.all_simulation_names
 
-    @property
-    def _index(self) -> CollectionsTable:
-        """The index which contains this database."""
-        return CollectionsTable()
-
-    @property
-    def _table(self) -> CollectionTable:
-        """The table in the sql database for this database."""
-        return self._index.get_collection_table(self.UID)
-
-    def _retrieve_uid(self) -> str:
+    def _retrieve_uid(self) -> str | None:
         """Get the UID of this database from the file tree."""
-        try:
-            return base.get_uid_from_path(self.path)
-        except FileNotFoundError:
-            pass
+        return index._find_uid_from_path(self.path)
 
-        log.warning("Database exists but no UID found. Generating new UID.")
-        return self._make_new(self.path)
+    def _make_new(self, path) -> CollectionUID:
+        """Initialize a new collection.
 
-    def _make_new(self, path) -> str:
-        """Initialize a new database."""
+        Returns:
+            UID of the new collection
+        """
         from datetime import datetime
 
-        # Create directory for database
+        # Create directory for collection
         os.makedirs(path, exist_ok=True)
 
-        # Assign a unique id to the database
-        self.UID = f"{uuid.uuid4().hex[:10]}".upper()
-        uid_file = os.path.join(path, f".BAMBOOST-{self.UID}")
-        with open(uid_file, "a") as f:
-            f.write(self.UID + "\n")
-            f.write(f'Date of creation: {datetime.now().strftime("%d/%m/%Y %H:%M:%S")}')
-        os.chmod(uid_file, 0o444)  # read only for uid file
+        # Assign a unique id to the collection
+        uid = CollectionUID()
 
-        log.info(f"Registered new database (uid = {self.UID})")
-        self._index.insert_path(self.UID, path)
-        return self.UID
+        # Create the identifier file with the uid
+        identifier_file = os.path.join(path, f".BAMBOOST-{uid}")
+        with open(identifier_file, "a") as f:
+            f.write(uid + "\n")
+            f.write(f'Date of creation: {datetime.now().strftime("%d/%m/%Y %H:%M:%S")}')
+        os.chmod(identifier_file, 0o444)  # read only for uid file
+
+        self._index.update_collection(path, uid)
+        log.info(f"Cached new collection [uid = {uid}]")
+        return uid
 
     @property
-    def all_uids(self) -> list:
-        if not self.FIX_DF or not hasattr(self, "_all_uids"):
-            self._all_uids = self._get_uids()
+    def all_simulation_names(self) -> list:
+        if not self.LIVE:
+            try:
+                return self._all_uids
+            except AttributeError:
+                self._all_uids = self._get_simulation_names()
+                return self._all_uids
+
+        # if LIVE, get the simulation names from the filesystem
+        self._all_uids = self._get_simulation_names_from_fs()
         return self._all_uids
 
-    @all_uids.setter
-    def all_uids(self, value: set | list):
-        self._all_uids = value
+    def _get_simulation_names(self) -> list[str]:
+        """Get all simulation names in the collection."""
+        return [i.name for i in self._index.get_collection(self.UID).simulations]
 
-    def _get_uids(self) -> list:
-        """Get all simulation names in the database."""
-        all_uids = list()
-        for dir in os.listdir(self.path):
-            if not os.path.isdir(os.path.join(self.path, dir)):
-                continue
-            if any(
-                [i.endswith(".h5") for i in os.listdir(os.path.join(self.path, dir))]
-            ):
-                all_uids.append(dir)
-        return all_uids
+    def _get_simulation_names_from_fs(self) -> list[str]:
+        """Get all simulation names in the collection from the filesystem."""
+        return [
+            i.name
+            for i in self.path.iterdir()
+            if (i.is_dir() and i.joinpath(f"{i.name}.h5").exists())
+        ]
 
     @property
     def df(self) -> pd.DataFrame:
-        """View of the database and its parametric space.
+        """View of the collection and its parametric space.
 
         Returns:
-            :class:`pd.DataFrame`
+            A dataframe of the collection
         """
         if not hasattr(self, "_dataframe"):
             return self.get_view()
@@ -254,30 +300,43 @@ class Manager:
         if include_linked_sims:
             return self.get_view_from_hdf_files(include_linked_sims=include_linked_sims)
 
-        try:
-            with self._table.open():
-                self._table.sync()
-                df = self._table.read_table()
-        except base.Error as e:
-            log.warning(f"index error: {e}")
-            return self.get_view_from_hdf_files(include_linked_sims=include_linked_sims)
+        simulations = self._index.get_collection(self.UID).simulations
+        df = pd.DataFrame.from_records(
+            {
+                "name": sim.name,
+                "created_at": sim.created_at,
+                "status": sim.status,
+                "description": sim.description,
+                **{i.key: i.value for i in sim.parameters},
+            }
+            for sim in simulations
+        )
+        return df
 
-        if df.empty:
-            return df
-        df["time_stamp"] = pd.to_datetime(df["time_stamp"])
-
-        # Sort dataframe columns
-        columns_start = ["id", "notes", "status", "time_stamp"]
-        columns_start = [col for col in columns_start if col in df.columns]
-        self._dataframe = df[[*columns_start, *df.columns.difference(columns_start)]]
-
-        if config.options.sortTableKey is not None:
-            self._dataframe.sort_values(
-                config.options.sortTableKey,
-                ascending=config.options.sortTableOrder == "asc",
-                inplace=True,
-            )
-        return self._dataframe
+        # try:
+        #     with self._table.open():
+        #         self._table.sync()
+        #         df = self._table.read_table()
+        # except base.Error as e:
+        #     log.warning(f"index error: {e}")
+        #     return self.get_view_from_hdf_files(include_linked_sims=include_linked_sims)
+        #
+        # if df.empty:
+        #     return df
+        # df["time_stamp"] = pd.to_datetime(df["time_stamp"])
+        #
+        # # Sort dataframe columns
+        # columns_start = ["id", "notes", "status", "time_stamp"]
+        # columns_start = [col for col in columns_start if col in df.columns]
+        # self._dataframe = df[[*columns_start, *df.columns.difference(columns_start)]]
+        #
+        # if config.options.sortTableKey is not None:
+        #     self._dataframe.sort_values(
+        #         config.options.sortTableKey,
+        #         ascending=config.options.sortTableOrder == "asc",
+        #         inplace=True,
+        #     )
+        # return self._dataframe
 
     def get_view_from_hdf_files(
         self, include_linked_sims: bool = False
@@ -288,7 +347,7 @@ class Manager:
         Args:
             include_linked_sims: if True, include the parameters of linked sims
         """
-        all_uids = self._get_uids()
+        all_uids = self._get_simulation_names()
         data = list()
 
         for uid in all_uids:
@@ -316,7 +375,7 @@ class Manager:
             :class:`pd.DataFrame`
         """
         data = list()
-        for uid in self.all_uids:
+        for uid in self.all_simulation_names:
             h5file_for_uid = os.path.join(self.path, uid, f"{uid}.h5")
             with open_h5file(h5file_for_uid, "r") as file:
                 try:
@@ -384,7 +443,7 @@ class Manager:
             >>> db.sims(select=db.df["status"] == "finished", sort="time_stamp")
         """
         if select is None:
-            id_list = self.all_uids
+            id_list = self.all_simulation_names
         elif isinstance(select, pd.DataFrame):
             id_list = select["id"].values
         elif isinstance(select, pd.Series):
@@ -650,7 +709,9 @@ class Manager:
         Returns:
             New uid string
         """
-        uid_list = [uid for uid in self.all_uids if uid.startswith(uid_base)]
+        uid_list = [
+            uid for uid in self.all_simulation_names if uid.startswith(uid_base)
+        ]
         subiterator = max(
             [int(id.split(".")[1]) for id in uid_list if len(id.split(".")) > 1] + [0]
         )
