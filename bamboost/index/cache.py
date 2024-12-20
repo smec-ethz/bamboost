@@ -11,6 +11,7 @@ from typing import (
     Callable,
     Dict,
     List,
+    Literal,
     Optional,
     Sequence,
     TypedDict,
@@ -21,8 +22,10 @@ from typing import (
 
 from sqlalchemy import (
     JSON,
+    CursorResult,
     DateTime,
     ForeignKey,
+    Result,
     String,
     UniqueConstraint,
     create_engine,
@@ -40,7 +43,7 @@ from sqlalchemy.orm import (
 from sqlalchemy.sql import text
 
 from bamboost import BAMBOOST_LOGGER
-from bamboost.core.mpi import MPI
+from bamboost.core.mpi import MPI, MPISafeMeta, bcast
 
 if TYPE_CHECKING:
     from typing import Generator
@@ -54,6 +57,7 @@ if TYPE_CHECKING:
 log = BAMBOOST_LOGGER.getChild(__name__)
 
 _Base = declarative_base()
+create_all = _Base.metadata.create_all
 
 StrPath: TypeAlias = Union[str, Path]
 
@@ -66,9 +70,8 @@ class _SimulationMetadataT(TypedDict):
 
 
 _SimulationParameterT = Dict[str, Any]
-
-
 _APIMethod = TypeVar("_APIMethod", bound=Callable[..., Any])
+_T = TypeVar("_T")
 
 
 def compose_while_not_none(*funcs: Callable) -> Callable:
@@ -84,7 +87,7 @@ def compose_while_not_none(*funcs: Callable) -> Callable:
         Callable: The composed function.
     """
 
-    def function(f: Any, g: Callable) -> Callable:
+    def function(f: Callable, g: Callable) -> Callable:
         def composed(*x: Any) -> Any:
             result = f(*x)
             if result is None:
@@ -130,68 +133,6 @@ def _json_deserializer(value: str) -> Any:
     return json.loads(value)
 
 
-comm = MPI.COMM_WORLD
-
-
-class MPISafeMeta(type):
-    """A metaclass that makes classes MPI-safe by ensuring methods are only
-    executed on the root process.
-
-    This metaclass modifies class methods to either use broadcast communication
-    (if decorated with @bcast) or to only execute on the root process (rank 0).
-    """
-
-    def __new__(mcs, name: str, bases: tuple, attrs: dict):
-        """Create a new class with MPI-safe methods.
-
-        Args:
-            name: The name of the class being created.
-            bases: The base classes of the class being created.
-            attrs: The attributes of the class being created.
-
-        Returns:
-            type: The new class with MPI-safe methods.
-        """
-        for attr_name, attr_value in attrs.items():
-            if callable(attr_value) and not attr_name.startswith("__"):
-                if hasattr(attr_value, "_bcast"):
-                    attrs[attr_name] = attr_value
-                else:
-                    attrs[attr_name] = mcs.root_only(attr_value)
-        return super().__new__(mcs, name, bases, attrs)
-
-    @staticmethod
-    def root_only(func):
-        """Decorator that ensures a method is only executed on the root process
-        (rank 0).
-
-        Args:
-            func (callable): The method to be decorated.
-
-        Returns:
-            callable: The wrapped method that only executes on the root process.
-        """
-
-        @wraps(func)
-        def wrapper(self: CacheAPI, *args, **kwargs):
-            if self._comm.rank == 0:
-                return func(self, *args, **kwargs)
-
-        return wrapper
-
-
-def _bcast(func):
-    @wraps(func)
-    def wrapper(self: CacheAPI, *args, **kwargs):
-        result = None
-        if self._comm.rank == 0:
-            result = func(self, *args, **kwargs)
-        return self._comm.bcast(result, root=0)
-
-    wrapper._bcast = True  # type: ignore
-    return wrapper
-
-
 def _with_scope(make_changes: bool = False):
     """Decorator that provides a scoped transaction to a method.
 
@@ -221,7 +162,7 @@ class CacheAPI(metaclass=MPISafeMeta):
     """API for interacting with the cache database.
 
     The metaclass ensures that methods are only executed on the root process.
-    If they are decorated with `_bcast`, their results are broadcast to all
+    If they are decorated with `bcast`, their results are broadcast to all
     other processes.
 
     Args:
@@ -251,7 +192,7 @@ class CacheAPI(metaclass=MPISafeMeta):
     def connect(self, make_changes: bool = False) -> None:
         self._context_stack += 1
         self._needs_commit = self._needs_commit or make_changes
-        self.session.connection()
+        self._conn = self.session.connection()
 
     def close(self) -> None:
         self._context_stack -= 1
@@ -270,19 +211,38 @@ class CacheAPI(metaclass=MPISafeMeta):
         finally:
             self.close()
 
+    def cm(self, func: Callable[..., _T]) -> Callable[..., _T]:
+        with self.scoped_session():
+            return func
+
+    def execute(self, stmt: Union[str, ClauseElement]) -> CursorResult:
+        if isinstance(stmt, str):
+            stmt = text(stmt)
+        return self.session.execute(stmt)
+
     @overload
     def query(self, stmt: str) -> Sequence[Row[Any]]: ...
 
     @overload
     def query(self, stmt: ClauseElement) -> Sequence[Row[Any]]: ...
 
-    @_bcast
+    @bcast
     @_with_scope()
-    def query(self, stmt: Any) -> Sequence[Row[Any]]:
+    def query(
+        self, stmt: Any, fetch: Literal["one", "all"] = "all"
+    ) -> Sequence[Row[Any]]:
         if isinstance(stmt, str):
             stmt = text(stmt)
 
-        return self.session.execute(stmt).fetchall()
+        res = self.session.execute(stmt)
+        return self._fetch(res, fetch)
+
+    @staticmethod
+    def _fetch(result: Result[Any], fetch: Literal["one", "all"]) -> Sequence[Row[Any]]:
+        if fetch == "one":
+            return result.one()
+        elif fetch == "all":
+            return result.all()
 
     @_with_scope(make_changes=True)
     def delete(self, instance: object) -> None:
@@ -290,79 +250,83 @@ class CacheAPI(metaclass=MPISafeMeta):
 
     @_with_scope(make_changes=True)
     def delete_collection(self, uid: str) -> None:
-        compose_while_not_none(self.session.query(Collection).get, self.session.delete)(
-            uid
-        )
+        compose_while_not_none(
+            self.session.query(CollectionORM).get, self.session.delete
+        )(uid)
 
     @_with_scope(make_changes=True)
-    def delete_simulation(self, collection_id: str, simulation_name: str) -> None:
+    def delete_simulation(self, collection_uid: str, simulation_name: str) -> None:
         compose_while_not_none(
-            self.session.query(Simulation)
+            self.session.query(SimulationORM)
             .filter(
-                Simulation.collection_uid == collection_id,
-                Simulation.name == simulation_name,
+                SimulationORM.collection_uid == collection_uid,
+                SimulationORM.name == simulation_name,
             )
             .first,
             self.session.delete,
         )()
 
-    @_bcast
+    @bcast
     @_with_scope()
-    def get_collections(self) -> List[Collection]:
+    def get_collections(self) -> List[CollectionORM]:
         log.debug(f"Getting collections on rank {self._comm.rank}")
-        return self.session.query(Collection).all()
+        return self.session.query(CollectionORM).all()
 
-    @_bcast
+    @bcast
     @_with_scope()
     def get_collection(
         self, uid: Optional[str] = None, path: Optional[str] = None
-    ) -> Collection:
+    ) -> CollectionORM:
         if uid:
-            filter_stmt = Collection.uid == uid
+            filter_stmt = CollectionORM.uid == uid
         elif path:
-            filter_stmt = Collection.path == path
+            filter_stmt = CollectionORM.path == path
         else:
             raise ValueError("Either uid or path must be provided")
 
         collection = (
-            self.session.query(Collection)
+            self.session.query(CollectionORM)
             .options(
-                joinedload(Collection.simulations).subqueryload(Simulation.parameters)
+                joinedload(CollectionORM.simulations).subqueryload(
+                    SimulationORM.parameters
+                )
             )
             .filter(filter_stmt)
             .one()
         )
         return collection
 
-    @_bcast
+    @bcast
     @_with_scope()
-    def get_simulation(self, collection_id: str, simulation_name: str) -> Simulation:
+    def get_simulation(
+        self, collection_uid: str, simulation_name: str
+    ) -> SimulationORM:
         return (
-            self.session.query(Simulation)
-            .options(joinedload(Simulation.parameters))
+            self.session.query(SimulationORM)
+            .options(joinedload(SimulationORM.parameters))
             .filter(
-                Simulation.collection_uid == collection_id,
-                Simulation.name == simulation_name,
+                SimulationORM.collection_uid == collection_uid,
+                SimulationORM.name == simulation_name,
             )
             .one()
         )
 
     @_with_scope(make_changes=True)
-    def insert_collection(self, collection: Collection) -> None:
+    def insert_collection(self, collection: CollectionORM) -> None:
         self.session.add(collection)
 
     @_with_scope(make_changes=True)
-    def insert_simulation(self, simulation: Simulation) -> None:
+    def insert_simulation(self, simulation: SimulationORM) -> None:
         self.session.add(simulation)
 
     @_with_scope(make_changes=True)
-    def insert_parameter(self, parameter: Parameter) -> None:
+    def insert_parameter(self, parameter: ParameterORM) -> None:
         self.session.add(parameter)
 
     @_with_scope(make_changes=True)
     def update_collection(self, uid: str, path: str) -> None:
         stmt = (
-            insert(Collection)
+            insert(CollectionORM)
             .values(uid=uid, path=path)
             .on_conflict_do_update(["uid"], set_=dict(path=path))
         )
@@ -371,21 +335,21 @@ class CacheAPI(metaclass=MPISafeMeta):
     @_with_scope(make_changes=True)
     def update_simulation(
         self,
-        collection_id: str,
+        collection_uid: str,
         simulation_name: str,
         metadata: _SimulationMetadataT,
         params: _SimulationParameterT,
     ) -> None:
         stmt = (
-            insert(Simulation)
+            insert(SimulationORM)
             .values(
-                collection_id=collection_id,
+                collection_uid=collection_uid,
                 name=simulation_name,
                 **metadata,
             )
-            .on_conflict_do_update(["collection_id", "name"], set_=metadata)
+            .on_conflict_do_update(["collection_uid", "name"], set_=metadata)
         )
-        log.debug(f"Updating simulation {collection_id}+{simulation_name}")
+        log.debug(f"Updating simulation {collection_uid}+{simulation_name}")
         result = self.session.execute(stmt)
 
         self.update_parameters(result.lastrowid, params=params)
@@ -396,7 +360,7 @@ class CacheAPI(metaclass=MPISafeMeta):
     ) -> None:
         for k, v in params.items():
             stmt = (
-                insert(Parameter)
+                insert(ParameterORM)
                 .values(simulation_id=simulation_id, key=k, value=v)
                 .on_conflict_do_update(["simulation_id", "key"], set_=dict(value=v))
             )
@@ -404,15 +368,15 @@ class CacheAPI(metaclass=MPISafeMeta):
             self.session.execute(stmt)
 
 
-class Collection(_Base):
+class CollectionORM(_Base):
     __tablename__ = "collections"
 
     uid: Mapped[str] = mapped_column(primary_key=True)
     path: Mapped[str] = mapped_column(String)
 
     # Relationships
-    simulations: Mapped[List[Simulation]] = relationship(
-        "Simulation", back_populates="collection", cascade="all, delete-orphan"
+    simulations: Mapped[List[SimulationORM]] = relationship(
+        "SimulationORM", back_populates="collection", cascade="all, delete-orphan"
     )
 
     def __init__(self, uid: str, path: str) -> None:
@@ -427,14 +391,14 @@ class Collection(_Base):
         return self.uid, self.path
 
 
-class Simulation(_Base):
+class SimulationORM(_Base):
     __tablename__ = "simulations"
     __table_args__ = (
         UniqueConstraint("collection_uid", "name", name="uix_collection_name"),
     )
 
     id: Mapped[int] = mapped_column(primary_key=True, autoincrement=True, unique=True)
-    collection_uid: Mapped[str] = mapped_column(ForeignKey(Collection.uid))
+    collection_uid: Mapped[str] = mapped_column(ForeignKey(CollectionORM.uid))
     name: Mapped[str] = mapped_column(String, nullable=False)
 
     # Metadata
@@ -448,18 +412,18 @@ class Simulation(_Base):
     status: Mapped[str] = mapped_column(String, nullable=False, default="pending")
 
     # Relationships
-    collection: Mapped[Collection] = relationship(
-        "Collection", back_populates="simulations"
+    collection: Mapped[CollectionORM] = relationship(
+        "CollectionORM", back_populates="simulations"
     )
-    parameters: Mapped[List[Parameter]] = relationship(
-        "Parameter", back_populates="simulation", cascade="all, delete-orphan"
+    parameters: Mapped[List[ParameterORM]] = relationship(
+        "ParameterORM", back_populates="simulation", cascade="all, delete-orphan"
     )
 
     @overload
     def __init__(
         self,
         id: Optional[int],
-        collection_id: str,
+        collection_uid: str,
         name: str,
         created_at: Optional[datetime],
         modified_at: Optional[datetime],
@@ -476,7 +440,7 @@ class Simulation(_Base):
     def __repr__(self) -> str:
         return f"<Simulation {self.collection_uid}+{self.name}>"
 
-    def update_metadata(self, metadata: _SimulationMetadataT) -> None:
+    def update(self, metadata: _SimulationMetadataT) -> None:
         for key, value in metadata.items():
             setattr(self, key, value)
 
@@ -484,11 +448,11 @@ class Simulation(_Base):
         self.parameters.clear()
 
         for key, value in params.items():
-            new_parameter = Parameter(simulation_id=self.id, key=key, value=value)
+            new_parameter = ParameterORM(simulation_id=self.id, key=key, value=value)
             self.parameters.append(new_parameter)
 
 
-class Parameter(_Base):
+class ParameterORM(_Base):
     __tablename__ = "parameters"
     __table_args__ = (
         UniqueConstraint("simulation_id", "key", name="uix_simulation_key"),
@@ -496,14 +460,14 @@ class Parameter(_Base):
 
     id: Mapped[int] = mapped_column(primary_key=True, autoincrement=True)
     simulation_id: Mapped[int] = mapped_column(
-        ForeignKey(Simulation.id), nullable=False
+        ForeignKey(SimulationORM.id), nullable=False
     )
     key: Mapped[str] = mapped_column(String, nullable=False)
     value: Mapped[JSON] = mapped_column(JSON, nullable=False)
 
     # Relationships
-    simulation: Mapped[Simulation] = relationship(
-        "Simulation", back_populates="parameters"
+    simulation: Mapped[SimulationORM] = relationship(
+        "SimulationORM", back_populates="parameters"
     )
 
     def __repr__(self) -> str:

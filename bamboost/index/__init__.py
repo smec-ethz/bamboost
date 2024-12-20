@@ -25,20 +25,43 @@ Classes:
 from __future__ import annotations
 
 import subprocess
+import uuid
 from datetime import datetime
+from functools import wraps
 from pathlib import Path
-from typing import Optional, Set, Tuple, Union
+from typing import (
+    TYPE_CHECKING,
+    Any,
+    Callable,
+    Optional,
+    Sequence,
+    Set,
+    Tuple,
+    Union,
+    cast,
+)
 
+from sqlalchemy import create_engine, select
+from sqlalchemy.dialects.sqlite import insert
 from sqlalchemy.exc import NoResultFound
+from sqlalchemy.orm import Session, sessionmaker
 from typing_extensions import TypeAlias
 
 from bamboost import BAMBOOST_LOGGER, config
+from bamboost.core.mpi import MPI, MPISafeMeta, bcast, on_root
 from bamboost.index.cache import (
     CacheAPI,
-    Collection,
+    CollectionORM,
+    SimulationORM,
+    _json_deserializer,
+    _json_serializer,
     _SimulationMetadataT,
     _SimulationParameterT,
+    create_all,
 )
+
+if TYPE_CHECKING:
+    from bamboost.core.mpi import Comm
 
 log = BAMBOOST_LOGGER.getChild("Database")
 
@@ -48,12 +71,57 @@ IDENTIFIER_SEPARATOR = "-"
 __all__ = [
     "Index",
     "simulation_metadata_from_h5",
+    "on_root",
+    "CacheAPI",
 ]
 
 StrPath: TypeAlias = Union[str, Path]
 
 
-class Index:
+class CollectionUID(str):
+    """UID of a collection."""
+
+    def __new__(cls, uid: Optional[str] = None, length: int = 10):
+        uid = uid or cls.generate_uid(length)
+        return super().__new__(cls, uid.upper())
+
+    @staticmethod
+    def generate_uid(length: int) -> str:
+        return uuid.uuid4().hex[:length].upper()
+
+
+class SimulationName(str):
+    """Name of a simulation."""
+
+    def __new__(cls, name: Optional[str] = None, length: int = 10):
+        name = name or cls.generate_name(length)
+        return super().__new__(cls, name)
+
+    @staticmethod
+    def generate_name(length: int) -> str:
+        return uuid.uuid4().hex[:length]
+
+
+def with_session(func: Callable[..., Any]) -> Callable[..., Any]:
+    """Decorator to add a session to the function signature.
+
+    Args:
+        func: The function to decorate.
+    """
+
+    @wraps(func)
+    def inner(self: Index, *args, **kwargs) -> Any:
+        if self._context_stack <= 0:
+            with cast(Session, self._sm()) as session, session.begin():
+                self._s = session
+                return func(self, *args, **kwargs)
+        else:
+            return func(self, *args, **kwargs)
+
+    return inner
+
+
+class Index(metaclass=MPISafeMeta):
     """API for indexing BAMBOOST collections and simulations.
 
     Usage:
@@ -76,8 +144,22 @@ class Index:
             instance is created with the default cache file.
     """
 
-    def __init__(self, cache: Optional[CacheAPI] = None) -> None:
-        self._cache = cache or CacheAPI(config.index.databaseFile)
+    _sm: sessionmaker
+    _s: Session
+
+    def __init__(
+        self, sql_file: Optional[StrPath] = None, comm: Optional[Comm] = None
+    ) -> None:
+        self._comm = comm or MPI.COMM_WORLD
+        self._engine = create_engine(
+            f"sqlite:///{sql_file}",
+            json_serializer=_json_serializer,
+            json_deserializer=_json_deserializer,
+        )
+        on_root(create_all, self._comm)(self._engine)
+        self._sm = sessionmaker(bind=self._engine)
+
+        self._context_stack: int = 0
 
     def scan_for_collections(
         self,
@@ -95,12 +177,28 @@ class Index:
                 Defaults to config.index.searchPaths.
         """
         for path in search_paths:
-            found_collections = _scan_directory_for_collections(path)
+            found_collections: tuple[tuple[str, Path], ...] = (
+                _scan_directory_for_collections(path)
+            )
+            if not found_collections:
+                continue
+            collections_data = [
+                {"uid": uid, "path": str(path)} for uid, path in found_collections
+            ]
+            self._s.execute(
+                insert(CollectionORM)
+                .values(collections_data)
+                .on_conflict_do_update(
+                    index_elements=["uid"],
+                    set_=dict(path=insert(CollectionORM).excluded.path),
+                )
+            )
+            self._s.commit()
+            log.info(f"Inserting found collections:\n{found_collections}")
 
-            with self._cache.scoped_session(make_changes=True):
-                for uid, path in found_collections:
-                    log.info(f"Inserting found collection {uid} at {path}")
-                    self._cache.update_collection(uid, path.as_posix())
+            # for uid, path in found_collections:
+            #     log.info(f"Inserting found collection {uid} at {path}")
+            #     self._c.update_collection(uid, path.as_posix())
 
     def check_integrity(self) -> None:
         """Check the integrity of the cache.
@@ -108,10 +206,10 @@ class Index:
         This method checks if the paths stored in the cache are valid. If a
         path is not valid, it is removed from the cache.
         """
-        for coll in self._cache.get_collections():
+        for coll in self._c.get_collections():
             if not _validate_path(Path(coll.path), coll.uid):
                 log.warning(f"Invalid path in cache: {coll.path}")
-                self._cache.delete(coll)
+                self._c.delete(coll)
 
     def resolve_path(
         self,
@@ -124,10 +222,12 @@ class Index:
         Args:
             uid: UID of the collection
             search_paths: Paths to search for the collection
+
+        Raises:
+            FileNotFoundError: If the collection is not found in the search paths
         """
         try:
-            stored_path = self._cache.get_collection(uid).path
-            stored_path = Path(stored_path)
+            stored_path = Path(self._c.get_collection(uid).path)
             if _validate_path(stored_path, uid):
                 return stored_path
             else:
@@ -145,7 +245,7 @@ class Index:
                         f"Multiple collections found for {uid}. Using the first one."
                         f"\n{paths_found}"
                     )
-                self._cache.update_collection(uid, path=paths_found[0].as_posix())
+                self._c.update_collection(uid, path=paths_found[0].as_posix())
                 return paths_found[0]
 
         raise FileNotFoundError(f"Database with {uid} was not found.")
@@ -159,8 +259,11 @@ class Index:
             path: Path of the collection
         """
         path = Path(path)
-        cached_uid = self._cache.get_collection(path=path.as_posix()).uid
-        if _validate_path(path, cached_uid):
+        cached_uid: str | None = self._s.execute(
+            select(CollectionORM.uid).where(CollectionORM.path == path.as_posix())
+        ).scalar()
+        log.info(f"Cached UID for path {path}: {cached_uid}")
+        if cached_uid and _validate_path(path, cached_uid):
             return cached_uid
 
         log.debug(f"--> Found path in cache for collection {cached_uid} is not valid.")
@@ -175,7 +278,7 @@ class Index:
             path: New path of the collection
         """
         path = Path(path)
-        self._cache.update_collection(uid, path.as_posix())
+        self._c.update_collection(uid, path.as_posix())
 
     def sync_collection(self, uid: str, path: Optional[StrPath] = None) -> None:
         """Sync the table with the file system.
@@ -194,25 +297,24 @@ class Index:
 
         all_entries_fs = set((i.name for i in path.iterdir() if i.is_dir()))
 
-        with self._cache.scoped_session(make_changes=True):
-            for sim in self._cache.get_collection(uid).simulations:
-                if sim.name not in all_entries_fs:
-                    self._cache.delete(sim)
-                    continue
+        for sim in self.get_collection(uid).simulations:
+            if sim.name not in all_entries_fs:
+                self._s.delete(sim)
+                continue
 
-                all_entries_fs.remove(sim.name)
-                h5_file = path.joinpath(sim.name, f"{sim.name}.h5")
+            all_entries_fs.remove(sim.name)
+            h5_file = path.joinpath(sim.name, f"{sim.name}.h5")
 
-                if (  # type: ignore
-                    datetime.fromtimestamp(h5_file.stat().st_mtime) > sim.modified_at
-                ):
-                    metadata, params = simulation_metadata_from_h5(h5_file)
-                    self._cache.update_simulation(
-                        sim.collection_uid, sim.name, metadata, params
-                    )
+            if (  # type: ignore
+                datetime.fromtimestamp(h5_file.stat().st_mtime) > sim.modified_at
+            ):
+                metadata, params = simulation_metadata_from_h5(h5_file)
+                self._c.update_simulation(
+                    sim.collection_uid, sim.name, metadata, params
+                )
 
         for name in all_entries_fs:
-            self.cache_simulation(collection_id=uid, simulation_name=name)
+            self.cache_simulation(collection_uid=uid, simulation_name=name)
 
     def drop_collection(self, uid: str) -> None:
         """Drop a collection from the cache.
@@ -220,20 +322,20 @@ class Index:
         Args:
             uid: UID of the collection
         """
-        self._cache.delete_collection(uid)
+        self._c.delete_collection(uid)
 
-    def drop_simulation(self, collection_id: str, simulation_name: str) -> None:
+    def drop_simulation(self, collection_uid: str, simulation_name: str) -> None:
         """Drop a simulation from the cache.
 
         Args:
-            collection_id: UID of the collection
+            collection_uid: UID of the collection
             simulation_name: Name of the simulation
         """
-        self._cache.delete_simulation(collection_id, simulation_name)
+        self._c.delete_simulation(collection_uid, simulation_name)
 
     def cache_simulation(
         self,
-        collection_id: str,
+        collection_uid: str,
         simulation_name: str,
         *,
         collection_path: Optional[StrPath] = None,
@@ -241,27 +343,38 @@ class Index:
         """Cache a simulation from a collection.
 
         Args:
-            collection_id: UID of the collection
+            collection_uid: UID of the collection
             simulation_name: Name of the simulation
             collection_path (Optional): Path of the collection
         """
         if collection_path is None:
-            collection_path = self.resolve_path(collection_id)
+            collection_path = self.resolve_path(collection_uid)
         else:
             collection_path = Path(collection_path)
 
         h5_file = collection_path.joinpath(simulation_name, f"{simulation_name}.h5")
         metadata, params = simulation_metadata_from_h5(h5_file)
-        self._cache.update_simulation(collection_id, simulation_name, metadata, params)
+        self._c.update_simulation(collection_uid, simulation_name, metadata, params)
 
-    def get_collection(self, uid: str) -> Collection:
-        return self._cache.get_collection(uid)
+    def get_collection(self, uid: str) -> CollectionORM | None:
+        return self._s.execute(
+            select(CollectionORM).where(CollectionORM.uid == uid)
+        ).scalar()
 
-    def get_collections(self) -> list[Collection]:
-        return self._cache.get_collections()
+    @bcast
+    def get_collections(self) -> Sequence[CollectionORM]:
+        return self._s.execute(select(CollectionORM)).scalars().all()
 
-    def get_simulation(self, collection_id: str, simulation_name: str):
-        return self._cache.get_simulation(collection_id, simulation_name)
+    def get_simulation(
+        self, collection_uid: str, simulation_name: str
+    ) -> SimulationORM | None:
+        # return self._s.get_simulation(collection_uid, simulation_name)
+        return self._s.execute(
+            select(SimulationORM).where(
+                SimulationORM.collection_uid == collection_uid,
+                SimulationORM.name == simulation_name,
+            )
+        ).scalar()
 
 
 def simulation_metadata_from_h5(

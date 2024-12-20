@@ -36,17 +36,18 @@ from typing_extensions import ParamSpec, TypeAlias
 
 from bamboost import BAMBOOST_LOGGER, index
 from bamboost.core.hdf5.file_handler import open_h5file
-from bamboost.core.mpi import MPI
+from bamboost.core.mpi import MPI, on_root
 
 # from bamboost.core.simulation.base import Simulation
 # from bamboost.core.simulation.writer import SimulationWriter
 from bamboost.core.utilities import flatten_dict
-from bamboost.index import Index, StrPath
+from bamboost.index import CollectionUID, Index, StrPath
 
 if TYPE_CHECKING:
     from mpi4py.MPI import Comm as _MPIComm
 
     from bamboost.core.mpi.mock import Comm as _MockComm
+    from bamboost.core.simulation.base import Simulation
 
     Comm: TypeAlias = Union[_MPIComm, _MockComm]
 
@@ -55,41 +56,7 @@ __all__ = [
     "Collection",
 ]
 
-log = BAMBOOST_LOGGER.getChild(__name__.split(".")[-1])
-
-_T = TypeVar("_T")
-_P = ParamSpec("_P")
-
-
-def on_rank(func: Callable[_P, _T], comm: Comm, rank: int) -> Callable[_P, _T]:
-    @wraps(func)
-    def inner(*args, **kwargs) -> _T:
-        result = None
-        if comm.rank == rank:
-            result = func(*args, **kwargs)
-        return cast(_T, comm.bcast(result, root=rank))
-
-    return inner
-
-
-def on_root(func: Callable[_P, _T], comm: Comm) -> Callable[_P, _T]:
-    return on_rank(func, comm, 0)
-
-
-class CollectionUID(str):
-    """UID of a collection."""
-
-    def __new__(
-        cls, uid: Optional[Union[str, CollectionUID]] = None, length: Optional[int] = 10
-    ):
-        length = length or 10
-        uid = uid or cls.generate_uid(length)
-        return super().__new__(cls, uid.upper())
-
-    @staticmethod
-    def generate_uid(length: int) -> str:
-        length = length
-        return uuid.uuid4().hex[:length].upper()
+log = BAMBOOST_LOGGER.getChild("Collection")
 
 
 class Collection:
@@ -110,23 +77,27 @@ class Collection:
     """
 
     LIVE = False
+    uid: CollectionUID
+    path: Path
 
     def __init__(
         self,
         path: Optional[StrPath] = None,
-        uid: Optional[str] = None,
         *,
+        uid: Optional[str] = None,
         create_if_not_exist: bool = True,
         comm: Optional[Comm] = None,
     ):
+        assert path or uid, "Either path or uid must be provided."
+        assert not (path and uid), "Only one of path or uid must be provided."
+
         self.comm = comm or MPI.COMM_WORLD
-
-        # find path, provided uid has precedence
-        if uid is not None:
-            path = on_root(self._index.resolve_path, self.comm)(uid.upper())
-
-        assert path is not None, "Either path or uid must be provided."
-        self.path = Path(path)
+        self.path = Path(
+            path if path else on_root(self._index.resolve_path, self.comm)(uid.upper())
+        )
+        self.uid = CollectionUID(
+            uid or on_root(self._index.resolve_uid, self.comm)(self.path)
+        )
 
         # check if path exists
         if not self.path.is_dir():
@@ -134,20 +105,11 @@ class Collection:
                 raise NotADirectoryError("Specified path is not a valid path.")
             uid = self._make_new(path)
             log.info(f"Created new database ({path})")
-        else:
-            uid = CollectionUID(
-                uid
-                or on_root(self._index.resolve_uid, self.comm)(self.path)
-                or on_root(self._retrieve_uid, self.comm)()
-            )
-
-        self.UID = uid
 
         # Update the SQL table for the database
         try:
-            with self._index._cache.scoped_session():
-                self._index.update_collection(self.UID, self.path)
-                self._index.sync_collection(self.UID, self.path)
+            self._index.update_collection(self.uid, self.path)
+            self._index.sync_collection(self.uid, self.path)
         except SQLAlchemyError as e:
             log.warning(f"index error: {e}")
 
@@ -177,7 +139,7 @@ class Collection:
         return (
             html_string.replace("$ICON", icon)
             .replace("$db_path", self.path)
-            .replace("$db_uid", self.UID)
+            .replace("$db_uid", self.uid)
             .replace("$db_size", str(len(self)))
         )
 
@@ -235,7 +197,7 @@ class Collection:
 
     def _get_simulation_names(self) -> list[str]:
         """Get all simulation names in the collection."""
-        return [i.name for i in self._index.get_collection(self.UID).simulations]
+        return [i.name for i in self._index.get_collection(self.uid).simulations]
 
     def _get_simulation_names_from_fs(self) -> list[str]:
         """Get all simulation names in the collection from the filesystem."""
@@ -300,7 +262,7 @@ class Collection:
         if include_linked_sims:
             return self.get_view_from_hdf_files(include_linked_sims=include_linked_sims)
 
-        simulations = self._index.get_collection(self.UID).simulations
+        simulations = self._index.get_collection(self.uid).simulations
         df = pd.DataFrame.from_records(
             {
                 "name": sim.name,
@@ -396,8 +358,8 @@ class Collection:
     def sim(
         self,
         uid: str,
+        writer_type: SimulationWriter,
         return_writer: bool = False,
-        writer_type: SimulationWriter = SimulationWriter,
     ) -> Simulation:
         """Get an existing simulation with uid. Same as accessing with `db[uid]` directly.
 
@@ -412,7 +374,7 @@ class Collection:
         """
         if return_writer:
             return writer_type(uid, self.path, self.comm)
-        return Simulation(uid, self.path, self.comm, _db_id=self.UID)
+        return Simulation(uid, self.path, self.comm, _db_id=self.uid)
 
     def sims(
         self,
