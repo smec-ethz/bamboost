@@ -16,7 +16,7 @@ from bamboost import BAMBOOST_LOGGER, config
 if TYPE_CHECKING:
     from mpi4py.MPI import Comm as _MPIComm
 
-    from bamboost.core.mpi.mock import Comm as _MockComm
+    from bamboost.mpi.mock import Comm as _MockComm
 
     Comm: TypeAlias = Union[_MPIComm, _MockComm]
 
@@ -50,7 +50,7 @@ def _detect_if_mpi_needed() -> bool:
 
 def _get_mpi_module():
     if not MPI_ON:
-        import bamboost.core.mpi.mock as MockMPI
+        import bamboost.mpi.mock as MockMPI
 
         return MockMPI
 
@@ -59,7 +59,7 @@ def _get_mpi_module():
 
         return MPI
     except ImportError:
-        import bamboost.core.mpi.mock as MockMPI
+        import bamboost.mpi.mock as MockMPI
 
         log.info("`mpi4py` unavailable [using the mock MPI module]")
         return MockMPI

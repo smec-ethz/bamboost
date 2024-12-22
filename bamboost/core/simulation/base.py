@@ -28,7 +28,7 @@ from bamboost.core.hdf5.accessors.globals import GlobalGroup
 from bamboost.core.hdf5.accessors.meshes import Mesh, MeshGroup
 from bamboost.core.hdf5.file_handler import FileHandler, with_file_open
 from bamboost.caching import base
-from bamboost.core.mpi import MPI
+from bamboost.mpi import MPI
 from bamboost.core.simulation.xdmf import XDMFWriter
 
 if TYPE_CHECKING:

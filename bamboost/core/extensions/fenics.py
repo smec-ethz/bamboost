@@ -16,7 +16,7 @@ from typing import Literal, TypedDict
 import numpy as np
 
 from bamboost.core.hdf5.file_handler import open_h5file
-from bamboost.core.mpi import MPI
+from bamboost.mpi import MPI
 from bamboost.core.simulation.writer import SimulationWriter
 
 try:

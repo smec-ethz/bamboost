@@ -20,7 +20,7 @@ import pandas as pd
 
 from bamboost import BAMBOOST_LOGGER
 from bamboost.config import config
-from bamboost.core.mpi import MPI
+from bamboost.mpi import MPI
 from bamboost.core.utilities import unflatten_dict
 from bamboost.core.manager import Collection, ManagerFromUID
 from bamboost.core.simulation.base import Simulation

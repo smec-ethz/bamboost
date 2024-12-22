@@ -4,7 +4,7 @@ from typing import TYPE_CHECKING, Callable, Protocol, TypeVar, cast
 from typing_extensions import ParamSpec
 
 if TYPE_CHECKING:
-    from bamboost.core.mpi import Comm
+    from bamboost.mpi import Comm
 
 
 _T = TypeVar("_T")

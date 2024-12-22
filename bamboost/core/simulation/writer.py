@@ -20,7 +20,7 @@ import numpy as np
 from bamboost import BAMBOOST_LOGGER
 from bamboost.core.simulation.base import Simulation
 from bamboost.core.utilities import flatten_dict
-from bamboost.core.mpi import MPI
+from bamboost.mpi import MPI
 
 __all__ = ["SimulationWriter"]
 
