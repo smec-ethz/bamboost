@@ -369,6 +369,20 @@ class Index(metaclass=MPISafeMeta):
     @property
     @bcast
     @_sql_transaction
+    def all_simulations(self) -> Sequence[SimulationORM]:
+        """Return all simulations in the index. Eagerly loads the parameters."""
+        return (
+            self._s.execute(
+                select(SimulationORM).options(joinedload(SimulationORM.parameters))
+            )
+            .unique()
+            .scalars()
+            .all()
+        )
+
+    @property
+    @bcast
+    @_sql_transaction
     def all_parameters(self) -> Sequence[ParameterORM]:
         """Return all parameters in the index."""
         return self._s.execute(select(ParameterORM)).scalars().all()
@@ -543,6 +557,27 @@ def _find_collection(uid: str, root_dir: Path) -> tuple[Path, ...]:
         )
 
 
+def _find_posix(uid: str, root_dir: str) -> tuple[str, ...]:
+    """Find function using system `find` on linux."""
+    completed_process = subprocess.run(
+        [
+            "find",
+            root_dir,
+            "-iname",
+            _identifier_filename(uid),
+            "-not",
+            "-path",
+            r"*/\.git/*",
+        ],
+        capture_output=True,
+        check=True,
+    )
+    identifier_files_found = tuple(
+        completed_process.stdout.decode("utf-8").splitlines()
+    )
+    return identifier_files_found
+
+
 def _scan_directory_for_collections(root_dir: Path) -> tuple[tuple[str, Path], ...]:
     """Scan the directory for collections.
 
@@ -588,24 +623,3 @@ def _scan_directory_for_collections(root_dir: Path) -> tuple[tuple[str, Path], .
         (i.split(IDENTIFIER_SEPARATOR)[-1], Path(i).parent)
         for i in found_indicator_files
     )
-
-
-def _find_posix(uid: str, root_dir: str) -> tuple[str, ...]:
-    """Find function using system `find` on linux."""
-    completed_process = subprocess.run(
-        [
-            "find",
-            root_dir,
-            "-iname",
-            _identifier_filename(uid),
-            "-not",
-            "-path",
-            r"*/\.git/*",
-        ],
-        capture_output=True,
-        check=True,
-    )
-    identifier_files_found = tuple(
-        completed_process.stdout.decode("utf-8").splitlines()
-    )
-    return identifier_files_found
