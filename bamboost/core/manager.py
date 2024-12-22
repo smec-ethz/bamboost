@@ -12,7 +12,6 @@ import numbers
 import os
 import pkgutil
 import shutil
-import time
 import uuid
 from ctypes import ArgumentError
 from functools import cache
@@ -109,6 +108,16 @@ class Collection:
     def _orm(self):
         return self._index.collection(self.uid)
 
+    def __len__(self) -> int:
+        return len(self._orm.simulations)
+
+    def __getitem__(self, uid: str) -> SimulationORM:
+        return self._index.simulation(self.uid, uid)
+
+    @cache
+    def _ipython_key_completions_(self):
+        return tuple(s.name for s in self._orm.simulations)
+
     def _repr_html_(self) -> str:
         """HTML repr for ipython/notebooks. Uses string replacement to fill the
         template code.
@@ -121,25 +130,6 @@ class Collection:
             .replace("$db_uid", self.uid)
             .replace("$db_size", str(len(self)))
         )
-
-    def __len__(self) -> int:
-        return len(self._orm.simulations)
-
-    @cache
-    def _ipython_key_completions_(self):
-        return tuple(s.name for s in self._orm.simulations)
-
-    def __getitem__(self, uid: str) -> SimulationORM:
-        return self._index.simulation(self.uid, uid)
-
-    def _initialize_directory(self, uid: CollectionUID, path: Path) -> None:
-        """Initialize the file system for a new collection."""
-        # Create the directory for collection
-
-        # Create the identifier file with the uid
-        create_identifier_file(path, uid)
-
-        self._index.cache_collection(uid, path)
 
     @property
     def df(self) -> pd.DataFrame:
@@ -166,188 +156,15 @@ class Collection:
 
         return df
 
-    def get_view(self, include_linked_sims: bool = False) -> pd.DataFrame:
-        """View of the database and its parametric space. Read from the sql
-        database. If `include_linked_sims` is True, the individual h5 files are
-        scanned.
-
-        Args:
-            include_linked_sims: if True, include the parameters of linked sims
-
-        Examples:
-            >>> db.get_view()
-            >>> db.get_view(include_linked_sims=True)
-        """
-        if include_linked_sims:
-            return self.get_view_from_hdf_files(include_linked_sims=include_linked_sims)
-
-        simulations = self._index._get_collection(self.uid).simulations
-        df = pd.DataFrame.from_records(
-            {
-                "name": sim.name,
-                "created_at": sim.created_at,
-                "status": sim.status,
-                "description": sim.description,
-                **{i.key: i.value for i in sim.parameters},
-            }
-            for sim in simulations
-        )
-        return df
-
-        # try:
-        #     with self._table.open():
-        #         self._table.sync()
-        #         df = self._table.read_table()
-        # except base.Error as e:
-        #     log.warning(f"index error: {e}")
-        #     return self.get_view_from_hdf_files(include_linked_sims=include_linked_sims)
-        #
-        # if df.empty:
-        #     return df
-        # df["time_stamp"] = pd.to_datetime(df["time_stamp"])
-        #
-        # # Sort dataframe columns
-        # columns_start = ["id", "notes", "status", "time_stamp"]
-        # columns_start = [col for col in columns_start if col in df.columns]
-        # self._dataframe = df[[*columns_start, *df.columns.difference(columns_start)]]
-        #
-        # if config.options.sortTableKey is not None:
-        #     self._dataframe.sort_values(
-        #         config.options.sortTableKey,
-        #         ascending=config.options.sortTableOrder == "asc",
-        #         inplace=True,
-        #     )
-        # return self._dataframe
-
-    def get_view_from_hdf_files(
-        self, include_linked_sims: bool = False
-    ) -> pd.DataFrame:
-        """View of the database and its parametric space. Read from the h5
-        files metadata.
-
-        Args:
-            include_linked_sims: if True, include the parameters of linked sims
-        """
-        all_uids = self._get_simulation_names()
-        data = list()
-
-        for uid in all_uids:
-            tmp_dict = self._get_parameters_for_uid(
-                uid, include_linked_sims=include_linked_sims
-            )
-            data.append(tmp_dict)
-
-        df = pd.DataFrame.from_records(data)
-        if df.empty:
-            return df
-        df["time_stamp"] = pd.to_datetime(df["time_stamp"])
-
-        # Sort dataframe columns
-        columns_start = ["id", "notes", "status", "time_stamp"]
-        columns_start = [col for col in columns_start if col in df.columns]
-        self._dataframe = df[[*columns_start, *df.columns.difference(columns_start)]]
-        return self._dataframe
-
-    @property
-    def data_info(self) -> pd.DataFrame:
-        """Return view of stored data for all simulations
-
-        Returns:
-            :class:`pd.DataFrame`
-        """
-        data = list()
-        for uid in self.all_simulation_names:
-            h5file_for_uid = os.path.join(self.path, uid, f"{uid}.h5")
-            with open_h5file(h5file_for_uid, "r") as file:
-                try:
-                    tmp_dict = dict()
-                    tmp_dict = {
-                        key: (
-                            len(file[f"data/{key}"]),
-                            file[f"data/{key}/0"].shape,
-                            file[f"data/{key}/0"].dtype,
-                        )
-                        for key in file["data"].keys()
-                    }
-                except KeyError:
-                    tmp_dict = dict()
-                data.append(tmp_dict)
-        return pd.DataFrame.from_records(data)
-
-    def sim(
-        self,
-        uid: str,
-        writer_type: SimulationWriter,
-        return_writer: bool = False,
-    ) -> Simulation:
-        """Get an existing simulation with uid. Same as accessing with `db[uid]` directly.
-
-        Args:
-            uid (`str`): unique identifier
-            return_writer: if true, return `SimulationWriter`, otherwise
-                return `Simulation`
-            writer_type: Optionally, you can specify a custom writer type to return.
-
-        Returns:
-            :class:`~bamboost.simulation.Simulation`
-        """
-        if return_writer:
-            return writer_type(uid, self.path, self.comm)
-        return Simulation(uid, self.path, self.comm, _db_id=self.uid)
-
-    def sims(
-        self,
-        select: pd.Series | pd.DataFrame | dict = None,
-        sort: str = None,
-        reverse: bool = False,
-        exclude: set = None,
-        return_writer: bool = False,
-    ) -> list[Simulation]:
-        """Get all simulations in a list. Optionally, get all simulations matching the
-        given selection using pandas.
-
-        Args:
-            select: Selection of simulations. Can be one of the following.
-                - Pandas boolean series: A boolean series with the same length as the dataframe.
-                - Pandas DataFrame: A subset of the full dataframe.
-                - Dictionary: A dictionary with the parameters to select (see `find` for details).
-            sort (`str`): Optionally sort the list with this keyword
-            reverse (`bool`): swap sort direction
-            exclude (`list[str]`): sims to exclude
-            return_writer: if true, return `SimulationWriter`, otherwise
-                return `Simulation`
-
-        Returns:
-            A list of `:class:~bamboost.simulation.Simulation` objects
-
-        Examples:
-            >>> db.sims(select=db.df["status"] == "finished", sort="time_stamp")
-        """
-        if select is None:
-            id_list = self.all_simulation_names
-        elif isinstance(select, pd.DataFrame):
-            id_list = select["id"].values
-        elif isinstance(select, pd.Series):
-            id_list = self.df[select]["id"].values
-        elif isinstance(select, dict):
-            id_list = self.find(select)["id"].values
-        else:
-            raise ArgumentError('Invalid argument for argument "select"')
-
-        if exclude is not None:
-            exclude = list([exclude]) if isinstance(exclude, str) else exclude
-            id_list = [id for id in id_list if id not in exclude]
-
-        existing_sims = [self.sim(uid, return_writer) for uid in id_list]
-
-        if sort is None:
-            return existing_sims
-        else:
-            return sorted(
-                existing_sims, key=lambda s: s.parameters[sort], reverse=reverse
-            )
+    def sync_cache(self):
+        self._index.sync_collection(self.uid, self.path)
 
     def create_simulation(
+        self,
+    ) -> Simulation:
+        pass
+
+    def create_simulation_old(
         self,
         uid: str = None,
         parameters: dict = None,
@@ -454,15 +271,6 @@ class Collection:
             if self.comm.rank == 0:
                 self.remove(uid)
             raise e  # Re-raise the exception after cleanup
-
-    def remove(self, uid: str) -> None:
-        """CAUTION, DELETING DATA. Remove the data of a simulation.
-
-        Args:
-            uid (`str`): uid
-        """
-        shutil.rmtree(os.path.join(self.path, uid))
-        self._table.sync()
 
     def find(self, parameter_selection: dict[str, Any]) -> pd.DataFrame:
         """Find simulations with the given parameters.
@@ -580,59 +388,3 @@ class Collection:
             return True, self._generate_subuid(duplicates[0].split(".")[0])
 
         raise ArgumentError("Answer not valid! Aborting")
-
-    def _generate_subuid(self, uid_base: str) -> str:
-        """Return a new sub uid for the base uid.
-        Following the following format: `base_uid.1`
-
-        Args:
-            uid_base (`str`): base uid for which to find the next subid.
-        Returns:
-            New uid string
-        """
-        uid_list = [
-            uid for uid in self.all_simulation_names if uid.startswith(uid_base)
-        ]
-        subiterator = max(
-            [int(id.split(".")[1]) for id in uid_list if len(id.split(".")) > 1] + [0]
-        )
-        return f"{uid_base}.{subiterator+1}"
-
-    def global_fields_in_all(self) -> list:
-        """Get a list of all global fields in all simulations.
-
-        Returns:
-            List of global fields
-        """
-        fields = set()
-        for sim in self:
-            try:
-                fields.update(sim.globals.columns)
-            except KeyError:
-                continue
-
-        return fields
-
-    def get_parameters(self) -> dict:
-        """Get the parameters used in this database.
-
-        Returns:
-            Dictionary of parameters with it's count, range, and type. Sorted by count.
-        """
-        parameters = dict()
-        for sim in self:
-            for key, val in sim.parameters.items():
-                if key not in parameters:
-                    range = (val, val) if isinstance(val, numbers.Number) else None
-                    parameters[key] = {"range": range, "count": 1, "type": type(val)}
-                else:
-                    if isinstance(val, numbers.Number):
-                        parameters[key]["range"] = (
-                            min(parameters[key]["range"][0], val),
-                            max(parameters[key]["range"][1], val),
-                        )
-                    parameters[key]["count"] += 1
-                    parameters[key]["type"] = type(val)
-        return dict(
-            sorted(parameters.items(), key=lambda x: x[1]["count"], reverse=True)
-        )
