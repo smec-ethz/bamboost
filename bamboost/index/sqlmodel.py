@@ -30,7 +30,7 @@ from sqlalchemy.orm import (
     relationship,
 )
 from sqlalchemy.sql.dml import ReturningInsert
-from typing_extensions import NotRequired, ParamSpec, TypedDict
+from typing_extensions import Concatenate, NotRequired, ParamSpec, TypedDict
 
 from bamboost import BAMBOOST_LOGGER
 
@@ -154,6 +154,32 @@ class SimulationORM(_Base):
         )
         stmt = stmt.returning(cls.id)
         return stmt
+
+    def as_dict(self, standalone: bool = True) -> Dict[str, Any]:
+        """Return the simulation as a dictionary.
+
+        Args:
+            standalone (bool, optional): If False, "id", "collection_uid", and
+                "modified_at" are excluded. Defaults to True.
+        """
+        excluded_columns = (
+            {
+                "id",
+                "collection_uid",
+                "modified_at",
+            }
+            if not standalone
+            else set()
+        )
+        column_names = [
+            c.name for c in self.__table__.columns if c.name not in excluded_columns
+        ]
+
+        return {k: getattr(self, k) for k in column_names} | self.parameter_dict
+
+    @property
+    def parameter_dict(self) -> Dict[str, Any]:
+        return {p.key: p.value for p in self.parameters}
 
 
 class ParameterORM(_Base):

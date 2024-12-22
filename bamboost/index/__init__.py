@@ -55,9 +55,7 @@ from sqlalchemy.orm import Session, joinedload, sessionmaker
 from typing_extensions import Concatenate, ParamSpec, TypeAlias
 
 from bamboost import BAMBOOST_LOGGER, config
-from bamboost.core.mpi import MPI
-from bamboost.core.mpi.utilities import MPISafeMeta, bcast, on_root
-from bamboost.index.cache import (
+from bamboost.index.sqlmodel import (
     CollectionORM,
     ParameterORM,
     SimulationORM,
@@ -65,10 +63,12 @@ from bamboost.index.cache import (
     json_deserializer,
     json_serializer,
 )
+from bamboost.mpi import MPI
+from bamboost.mpi.utilities import MPISafeMeta, bcast, on_root
 from bamboost.utilities import PathSet, compose_while_not_none
 
 if TYPE_CHECKING:
-    from bamboost.core.mpi import Comm
+    from bamboost.mpi import Comm
 
 log = BAMBOOST_LOGGER.getChild("Database")
 
@@ -257,7 +257,8 @@ class Index(metaclass=MPISafeMeta):
         *,
         search_paths: Optional[Set[StrPath]] = None,
     ) -> Path:
-        """Resolve and return the path of a collection from its UID.
+        """Resolve and return the path of a collection from its UID. Raises a
+        `FileNotFoundError` if the collection is not found in the search paths.
 
         Args:
             uid: UID of the collection
@@ -300,7 +301,8 @@ class Index(metaclass=MPISafeMeta):
     def resolve_uid(self, path: StrPath) -> CollectionUID:
         """Resolve the UID of a collection from a path.
 
-        Returns the UID of the collection or `None` if it can't be determined.
+        Returns the UID of the collection or a new UID if it can't be
+        determined.
 
         Args:
             path: Path of the collection
@@ -353,7 +355,9 @@ class Index(metaclass=MPISafeMeta):
                     all_simulations_fs.remove(simulation.name)
 
         for name in all_simulations_fs:
-            self.cache_simulation(collection_uid=uid, simulation_name=name)
+            self.cache_simulation(
+                collection_uid=uid, simulation_name=name, collection_path=path
+            )
 
     @property
     @bcast
@@ -375,6 +379,29 @@ class Index(metaclass=MPISafeMeta):
             .all()
         )
 
+    @bcast
+    @_sql_transaction
+    def collection(self, uid: str) -> CollectionORM | None:
+        """Return a collection from the index.
+
+        Args:
+            uid: UID of the collection
+        """
+        log.debug("Fetching collection from cache.")
+        return (
+            self._s.execute(
+                select(CollectionORM)
+                .where(CollectionORM.uid == uid)
+                .options(
+                    joinedload(CollectionORM.simulations).subqueryload(
+                        SimulationORM.parameters
+                    )
+                )
+            )
+            .unique()
+            .scalar()
+        )
+
     @property
     @bcast
     @_sql_transaction
@@ -387,6 +414,28 @@ class Index(metaclass=MPISafeMeta):
             .unique()
             .scalars()
             .all()
+        )
+
+    @bcast
+    @_sql_transaction
+    def simulation(self, collection_uid: str, name: str) -> SimulationORM | None:
+        """Return a simulation from the index.
+
+        Args:
+            collection_uid: UID of the collection
+            name: Name of the simulation
+        """
+        return (
+            self._s.execute(
+                select(SimulationORM)
+                .where(
+                    SimulationORM.collection_uid == collection_uid,
+                    SimulationORM.name == name,
+                )
+                .options(joinedload(SimulationORM.parameters))
+            )
+            .unique()
+            .scalar()
         )
 
     @property
@@ -558,7 +607,8 @@ def _find_collection(uid: str, root_dir: Path) -> tuple[Path, ...]:
     """
     try:
         return tuple(
-            Path(i).parent.absolute() for i in _find_posix(uid, root_dir.as_posix())
+            Path(i).parent.absolute()
+            for i in _find_posix(_identifier_filename(uid), root_dir.as_posix())
         )
     except subprocess.CalledProcessError:
         raise NotImplementedError(
@@ -566,20 +616,24 @@ def _find_collection(uid: str, root_dir: Path) -> tuple[Path, ...]:
         )
 
 
-def _find_posix(uid: str, root_dir: str) -> tuple[str, ...]:
+def _find_posix(iname: str, root_dir: str) -> tuple[str, ...]:
     """Find function using system `find` on linux."""
+    # assert that "find" is available
+    assert (
+        subprocess.run(["which", "find"], capture_output=True).returncode == 0
+    ), "command `find` not available"
+
     completed_process = subprocess.run(
         [
             "find",
             root_dir,
             "-iname",
-            _identifier_filename(uid),
+            iname,
             "-not",
             "-path",
             r"*/\.git/*",
         ],
         capture_output=True,
-        check=True,
     )
     identifier_files_found = tuple(
         completed_process.stdout.decode("utf-8").splitlines()
@@ -603,26 +657,9 @@ def _scan_directory_for_collections(root_dir: Path) -> tuple[tuple[str, Path], .
         log.warning(f"Path does not exist: {root_dir}")
         return ()
 
-    try:
-        completed_process = subprocess.run(
-            [
-                "find",
-                root_dir.as_posix(),
-                "-iname",
-                f"{IDENTIFIER_PREFIX}{IDENTIFIER_SEPARATOR}*",
-                "-not",
-                "-path",
-                "*/.git/*",
-            ],
-            capture_output=True,
-            text=True,
-            check=True,  # Raise exception if the command fails
-        )
-    except subprocess.CalledProcessError as e:
-        log.error(f"Error scanning path {root_dir}: {e}")
-        return ()
-
-    found_indicator_files = completed_process.stdout.splitlines()
+    found_indicator_files = _find_posix(
+        f"{IDENTIFIER_PREFIX}{IDENTIFIER_SEPARATOR}*", root_dir.as_posix()
+    )
 
     if not found_indicator_files:
         log.info(f"No collections found in {root_dir}")
