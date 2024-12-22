@@ -2,7 +2,6 @@ from __future__ import annotations
 
 import json
 from datetime import datetime
-from pathlib import Path
 from typing import (
     TYPE_CHECKING,
     Any,
@@ -13,7 +12,6 @@ from typing import (
     Sequence,
     Tuple,
     TypeVar,
-    Union,
 )
 
 from sqlalchemy import (
@@ -37,7 +35,7 @@ from typing_extensions import NotRequired, ParamSpec, TypedDict
 from bamboost import BAMBOOST_LOGGER
 
 if TYPE_CHECKING:
-    from typing_extensions import TypeAlias
+    pass
 
 
 log = BAMBOOST_LOGGER.getChild(__name__)
@@ -46,14 +44,6 @@ _Base = declarative_base()
 create_all = _Base.metadata.create_all
 
 
-class _SimulationMetadataT(TypedDict):
-    created_at: datetime
-    modified_at: datetime
-    description: str
-    status: str
-
-
-_SimulationParameterT = Dict[str, Any]
 _APIMethod = TypeVar("_APIMethod", bound=Callable[..., Any])
 _T = TypeVar("_T")
 _U = TypeVar("_U")
@@ -104,16 +94,11 @@ class CollectionORM(_Base):
         "SimulationORM", back_populates="collection", cascade="all, delete-orphan"
     )
 
-    def __init__(self, uid: str, path: str) -> None:
-        self.uid = uid
-        self.path = path
-
     def __repr__(self) -> str:
-        return f"<Collection {self.uid} {self.path}>"
+        return f"Collection {self.uid} {self.path}"
 
-    def as_tuple(self) -> tuple[str, str]:
-        """Return the collection as a tuple of (uid, path)."""
-        return self.uid, self.path
+    def _repr_html_(self) -> str:
+        return f"Collection <b>{self.uid}</b><br/>Location: <a href={self.path}><i>{self.path}</i></a>"
 
     @classmethod
     def upsert(cls, data: Sequence[Dict[str, str]] | Dict[str, str]) -> Insert:
@@ -158,7 +143,7 @@ class SimulationORM(_Base):
     )
 
     def __repr__(self) -> str:
-        return f"<Simulation {self.collection_uid}+{self.name}>"
+        return f"Simulation {self.collection_uid}+{self.name} [id: {self.id}]"
 
     @classmethod
     def upsert(cls, data: Sequence[_dataT] | _dataT) -> ReturningInsert[Tuple[int]]:
@@ -191,7 +176,7 @@ class ParameterORM(_Base):
     )
 
     def __repr__(self) -> str:
-        return f"<Parameter {self.key} = {self.value}>"
+        return f"Parameter {self.key} = {self.value} [id: {self.id}]"
 
     @classmethod
     def upsert(cls, data: Sequence[_dataT] | _dataT) -> Insert:

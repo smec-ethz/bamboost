@@ -6,16 +6,20 @@ information about collections and simulations.
 Usage:
     Create an instance of the `Index` class and use its methods to interact
     with the index.
+
     >>> from bamboost.index import Index
     >>> index = Index()
 
     Scan for collections in known paths:
+
     >>> index.scan_for_collections()
 
     Resolve the path of a collection:
+
     >>> index.resolve_path(<collection-uid>)
 
     Get a simulation from its collection and simulation name:
+
     >>> index.get_simulation(<collection-uid>, <simulation-name>)
 
 Classes:
@@ -34,30 +38,29 @@ from typing import (
     TYPE_CHECKING,
     Any,
     Callable,
+    Dict,
     Generator,
     Optional,
     Sequence,
     Set,
     Tuple,
+    TypedDict,
     TypeVar,
     Union,
-    cast,
 )
 
-from sqlalchemy import Engine, create_engine, delete, select
-from sqlalchemy.dialects.sqlite import insert
-from sqlalchemy.exc import NoResultFound, SQLAlchemyError
+from sqlalchemy import Engine, create_engine, select
+from sqlalchemy.exc import SQLAlchemyError
 from sqlalchemy.orm import Session, joinedload, sessionmaker
 from typing_extensions import Concatenate, ParamSpec, TypeAlias
 
 from bamboost import BAMBOOST_LOGGER, config
-from bamboost.core.mpi import MPI, MPISafeMeta, bcast, on_root
+from bamboost.core.mpi import MPI
+from bamboost.core.mpi.utilities import MPISafeMeta, bcast, on_root
 from bamboost.index.cache import (
     CollectionORM,
     ParameterORM,
     SimulationORM,
-    _SimulationMetadataT,
-    _SimulationParameterT,
     create_all,
     json_deserializer,
     json_serializer,
@@ -72,13 +75,19 @@ log = BAMBOOST_LOGGER.getChild("Database")
 IDENTIFIER_PREFIX = ".BAMBOOST"
 IDENTIFIER_SEPARATOR = "-"
 
-__all__ = [
-    "Index",
-    "simulation_metadata_from_h5",
-    "on_root",
-]
-
+# Type declarations
 StrPath: TypeAlias = Union[str, Path]
+_SimulationMetadataT = TypedDict(
+    "_SimulationMetadataT",
+    {
+        "created_at": datetime,
+        "modified_at": datetime,
+        "description": str,
+        "status": str,
+    },
+)
+_SimulationParameterT: TypeAlias = Dict[str, Any]
+
 _T = TypeVar("_T")
 _P = ParamSpec("_P")
 
