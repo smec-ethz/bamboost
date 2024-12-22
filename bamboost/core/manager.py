@@ -12,51 +12,45 @@ import numbers
 import os
 import pkgutil
 import shutil
+import time
 import uuid
 from ctypes import ArgumentError
-from functools import cached_property, wraps
+from functools import cache
 from pathlib import Path
 from typing import (
     TYPE_CHECKING,
     Any,
-    Callable,
-    Generator,
     Iterable,
     Optional,
-    TypeVar,
-    Union,
-    cast,
 )
 
 import h5py
 import numpy as np
-import pandas as pd
-from sqlalchemy.exc import SQLAlchemyError
-from typing_extensions import ParamSpec, TypeAlias
 
-from bamboost import BAMBOOST_LOGGER, index
+from bamboost import BAMBOOST_LOGGER, config
 from bamboost.core.hdf5.file_handler import open_h5file
-from bamboost.core.mpi import MPI, on_root
 
 # from bamboost.core.simulation.base import Simulation
 # from bamboost.core.simulation.writer import SimulationWriter
 from bamboost.core.utilities import flatten_dict
-from bamboost.index import CollectionUID, Index, StrPath
+from bamboost.index import CollectionUID, Index, StrPath, create_identifier_file
+from bamboost.index.sqlmodel import SimulationORM
+from bamboost.mpi import MPI
 
 if TYPE_CHECKING:
-    from mpi4py.MPI import Comm as _MPIComm
+    import pandas as pd
 
-    from bamboost.core.mpi.mock import Comm as _MockComm
-    from bamboost.core.simulation.base import Simulation
+    from bamboost.mpi import Comm
 
-    Comm: TypeAlias = Union[_MPIComm, _MockComm]
-
-
-__all__ = [
-    "Collection",
-]
 
 log = BAMBOOST_LOGGER.getChild("Collection")
+
+
+class NotACollectionError(NotADirectoryError):
+    """Raised when a path is not a valid collection."""
+
+    def __init__(self, path: Path):
+        super().__init__(f"{path} is not a valid collection.")
 
 
 class Collection:
@@ -76,7 +70,7 @@ class Collection:
         >>> db.df # DataFrame of the database
     """
 
-    LIVE = False
+    FROZEN = True
     uid: CollectionUID
     path: Path
 
@@ -87,48 +81,33 @@ class Collection:
         uid: Optional[str] = None,
         create_if_not_exist: bool = True,
         comm: Optional[Comm] = None,
+        index_instance: Optional[Index] = None,
     ):
         assert path or uid, "Either path or uid must be provided."
         assert not (path and uid), "Only one of path or uid must be provided."
 
         self.comm = comm or MPI.COMM_WORLD
-        self.path = Path(
-            path if path else on_root(self._index.resolve_path, self.comm)(uid.upper())
-        )
-        self.uid = CollectionUID(
-            uid or on_root(self._index.resolve_uid, self.comm)(self.path)
-        )
+        self._index = index_instance or Index()
 
-        # check if path exists
+        # Resolve the path
+        self.path = Path(path or self._index.resolve_path(uid.upper()))
         if not self.path.is_dir():
             if not create_if_not_exist:
-                raise NotADirectoryError("Specified path is not a valid path.")
-            uid = self._make_new(path)
-            log.info(f"Created new database ({path})")
+                raise NotADirectoryError("Specified path does not exist.")
 
-        # Update the SQL table for the database
-        try:
-            self._index.update_collection(self.uid, self.path)
-            self._index.sync_collection(self.uid, self.path)
-        except SQLAlchemyError as e:
-            log.warning(f"index error: {e}")
+            self.path.mkdir(parents=True, exist_ok=False)  # create the directory
+            log.info(f"Initialized directory for collection at {path}")
 
-    @cached_property
-    def _index(self) -> Index:
-        return Index()
+        # Resolve or get an UID for the collection
+        self.uid = CollectionUID(uid or self._index.resolve_uid(self.path))
 
-    def __getitem__(self, key: Union[str, int]) -> Simulation:
-        """Returns the simulation in the specified row of the dataframe.
+        # Sync the SQL table with the filesystem
+        # Making sure the collection is up to date in the index
+        self._index.sync_collection(self.uid, self.path)
 
-        Args:
-            key: The simulation identifier (`str`) or the row index (`int`).
-        Returns:
-            The selected simulation object.
-        """
-        if isinstance(key, str):
-            return self.sim(key)
-        else:
-            return self.sim(self.df.loc[key, "id"])
+    @property
+    def _orm(self):
+        return self._index.collection(self.uid)
 
     def _repr_html_(self) -> str:
         """HTML repr for ipython/notebooks. Uses string replacement to fill the
@@ -138,74 +117,29 @@ class Collection:
         icon = pkgutil.get_data("bamboost", "_repr/icon.txt").decode()
         return (
             html_string.replace("$ICON", icon)
-            .replace("$db_path", self.path)
+            .replace("$db_path", f"<a href={self.path.as_posix()}>{self.path}</a>")
             .replace("$db_uid", self.uid)
             .replace("$db_size", str(len(self)))
         )
 
     def __len__(self) -> int:
-        return len(self.all_simulation_names)
+        return len(self._orm.simulations)
 
-    def __iter__(self) -> Generator[Simulation, None, None]:
-        for sim in self.sims():
-            yield sim
-
+    @cache
     def _ipython_key_completions_(self):
-        return self.all_simulation_names
+        return tuple(s.name for s in self._orm.simulations)
 
-    def _retrieve_uid(self) -> str | None:
-        """Get the UID of this database from the file tree."""
-        return index._find_uid_from_path(self.path)
+    def __getitem__(self, uid: str) -> SimulationORM:
+        return self._index.simulation(self.uid, uid)
 
-    def _make_new(self, path) -> CollectionUID:
-        """Initialize a new collection.
-
-        Returns:
-            UID of the new collection
-        """
-        from datetime import datetime
-
-        # Create directory for collection
-        os.makedirs(path, exist_ok=True)
-
-        # Assign a unique id to the collection
-        uid = CollectionUID()
+    def _initialize_directory(self, uid: CollectionUID, path: Path) -> None:
+        """Initialize the file system for a new collection."""
+        # Create the directory for collection
 
         # Create the identifier file with the uid
-        identifier_file = os.path.join(path, f".BAMBOOST-{uid}")
-        with open(identifier_file, "a") as f:
-            f.write(uid + "\n")
-            f.write(f'Date of creation: {datetime.now().strftime("%d/%m/%Y %H:%M:%S")}')
-        os.chmod(identifier_file, 0o444)  # read only for uid file
+        create_identifier_file(path, uid)
 
-        self._index.update_collection(path, uid)
-        log.info(f"Cached new collection [uid = {uid}]")
-        return uid
-
-    @property
-    def all_simulation_names(self) -> list:
-        if not self.LIVE:
-            try:
-                return self._all_uids
-            except AttributeError:
-                self._all_uids = self._get_simulation_names()
-                return self._all_uids
-
-        # if LIVE, get the simulation names from the filesystem
-        self._all_uids = self._get_simulation_names_from_fs()
-        return self._all_uids
-
-    def _get_simulation_names(self) -> list[str]:
-        """Get all simulation names in the collection."""
-        return [i.name for i in self._index._get_collection(self.uid).simulations]
-
-    def _get_simulation_names_from_fs(self) -> list[str]:
-        """Get all simulation names in the collection from the filesystem."""
-        return [
-            i.name
-            for i in self.path.iterdir()
-            if (i.is_dir() and i.joinpath(f"{i.name}.h5").exists())
-        ]
+        self._index.cache_collection(uid, path)
 
     @property
     def df(self) -> pd.DataFrame:
@@ -214,38 +148,23 @@ class Collection:
         Returns:
             A dataframe of the collection
         """
-        if not hasattr(self, "_dataframe"):
-            return self.get_view()
-        if self.FIX_DF and self._dataframe is not None:
-            return self._dataframe
-        return self.get_view()
+        import pandas as pd
 
-    def _get_parameters_for_uid(
-        self, uid: str, include_linked_sims: bool = False
-    ) -> dict:
-        """Get the parameters for a given uid.
+        df = pd.DataFrame.from_records(
+            [sim.as_dict(standalone=False) for sim in self._orm.simulations]
+        )
+        # Try to sort the dataframe with the user specified key
+        try:
+            df.sort_values(
+                config.options.sortTableKey,
+                inplace=True,
+                ascending=config.options.sortTableOrder == "asc",
+                ignore_index=True,
+            )
+        except KeyError:
+            pass
 
-        Args:
-            uid (`str`): uid of the simulation
-            include_linked_sims (`bool`): if True, include the parameters of linked sims
-        """
-        h5file_for_uid = os.path.join(self.path, uid, f"{uid}.h5")
-        tmp_dict = dict()
-
-        with open_h5file(h5file_for_uid, "r") as f:
-            if "parameters" in f.keys():
-                tmp_dict.update(f["parameters"].attrs)
-            if "additionals" in f.keys():
-                tmp_dict.update({"additionals": dict(f["additionals"].attrs)})
-            tmp_dict.update(f.attrs)
-
-        if include_linked_sims:
-            for linked, full_uid in self.sim(uid).links.attrs.items():
-                sim = Simulation.fromUID(full_uid)
-                tmp_dict.update(
-                    {f"{linked}.{key}": val for key, val in sim.parameters.items()}
-                )
-        return tmp_dict
+        return df
 
     def get_view(self, include_linked_sims: bool = False) -> pd.DataFrame:
         """View of the database and its parametric space. Read from the sql
