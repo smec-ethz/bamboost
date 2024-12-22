@@ -197,7 +197,7 @@ class Collection:
 
     def _get_simulation_names(self) -> list[str]:
         """Get all simulation names in the collection."""
-        return [i.name for i in self._index.get_collection(self.uid).simulations]
+        return [i.name for i in self._index._get_collection(self.uid).simulations]
 
     def _get_simulation_names_from_fs(self) -> list[str]:
         """Get all simulation names in the collection from the filesystem."""
@@ -262,7 +262,7 @@ class Collection:
         if include_linked_sims:
             return self.get_view_from_hdf_files(include_linked_sims=include_linked_sims)
 
-        simulations = self._index.get_collection(self.uid).simulations
+        simulations = self._index._get_collection(self.uid).simulations
         df = pd.DataFrame.from_records(
             {
                 "name": sim.name,

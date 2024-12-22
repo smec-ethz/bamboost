@@ -15,9 +15,10 @@ from collections.abc import MutableMapping
 from dataclasses import dataclass, field, fields
 from itertools import chain
 from pathlib import Path
-from typing import TYPE_CHECKING, Any, Generator, get_type_hints
+from typing import TYPE_CHECKING, Any, Generator, Set, get_type_hints
 
 from bamboost import BAMBOOST_LOGGER as log
+from bamboost.utilities import PathSet
 
 if TYPE_CHECKING:
     pass
@@ -246,11 +247,6 @@ class _Options(_Base):
     sortTableOrder: str = field(default="desc")
 
 
-class _PathSet(set[Path]):
-    def add(self, element: str | Path, /) -> None:
-        return super().add(Path(element).expanduser())
-
-
 @dataclass(repr=False)
 class _IndexOptions(_Base):
     """Index options for bamboost.
@@ -272,8 +268,8 @@ class _IndexOptions(_Base):
         "paths": "searchPaths",
     }
 
-    searchPaths: _PathSet = field(
-        default_factory=lambda: _PathSet([Path("~").expanduser()])
+    searchPaths: PathSet = field(
+        default_factory=lambda: PathSet([Path("~").expanduser()])
     )
     syncTables: bool = field(default=True)
     convertArrays: bool = True
@@ -283,7 +279,7 @@ class _IndexOptions(_Base):
 
     def __post_init__(self) -> None:
         # Parse search paths to Path objects
-        self.searchPaths = _PathSet(
+        self.searchPaths = PathSet(
             Path(p).expanduser() if isinstance(p, str) else p for p in self.searchPaths
         )
 
@@ -291,7 +287,7 @@ class _IndexOptions(_Base):
         if self.isolated:
             ROOT_DIR.joinpath(".bamboost_cache").mkdir(parents=True, exist_ok=True)
             self.databaseFile = ROOT_DIR.joinpath(".bamboost_cache", "bamboost.sqlite")
-            self.searchPaths = _PathSet([ROOT_DIR])
+            self.searchPaths = PathSet([ROOT_DIR])
         else:
             self.databaseFile = LOCAL_DIR.joinpath(self.databaseFileName)
 
