@@ -30,7 +30,7 @@ from sqlalchemy.orm import (
     relationship,
 )
 from sqlalchemy.sql.dml import ReturningInsert
-from typing_extensions import Concatenate, NotRequired, ParamSpec, TypedDict
+from typing_extensions import NotRequired, ParamSpec, TypedDict
 
 from bamboost import BAMBOOST_LOGGER
 

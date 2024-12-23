@@ -49,7 +49,7 @@ from typing import (
     Union,
 )
 
-from sqlalchemy import Engine, create_engine, select
+from sqlalchemy import Engine, create_engine, delete, select
 from sqlalchemy.exc import SQLAlchemyError
 from sqlalchemy.orm import Session, joinedload, sessionmaker
 from typing_extensions import Concatenate, ParamSpec, TypeAlias
@@ -65,7 +65,7 @@ from bamboost.index.sqlmodel import (
 )
 from bamboost.mpi import MPI
 from bamboost.mpi.utilities import MPISafeMeta, bcast, on_root
-from bamboost.utilities import PathSet, compose_while_not_none
+from bamboost.utilities import PathSet
 
 if TYPE_CHECKING:
     from bamboost.mpi import Comm
@@ -267,11 +267,7 @@ class Index(metaclass=MPISafeMeta):
         Raises:
             FileNotFoundError: If the collection is not found in the search paths
         """
-        stored_path = compose_while_not_none(
-            self._s.get,
-            lambda coll: coll.path,
-            Path,
-        )(CollectionORM, uid)
+        stored_path = self._get_collection_path(uid)
 
         if stored_path and _validate_path(stored_path, uid):
             return stored_path
@@ -452,7 +448,7 @@ class Index(metaclass=MPISafeMeta):
         Args:
             uid: UID of the collection
         """
-        compose_while_not_none(self._s.get, self._s.delete)(CollectionORM, uid)
+        self._s.execute(delete(CollectionORM).where(CollectionORM.uid == uid))
 
     @_sql_transaction
     def _drop_simulation(self, collection_uid: str, simulation_name: str) -> None:
@@ -462,14 +458,11 @@ class Index(metaclass=MPISafeMeta):
             collection_uid: UID of the collection
             simulation_name: Name of the simulation
         """
-        compose_while_not_none(
-            self._s.execute, lambda res: res.scalar(), self._s.delete
-        )(
-            select(SimulationORM).where(
-                SimulationORM.collection_uid == collection_uid,
-                SimulationORM.name == simulation_name,
-            )
+        stmt = delete(SimulationORM).where(
+            SimulationORM.collection_uid == collection_uid,
+            SimulationORM.name == simulation_name,
         )
+        self._s.execute(stmt)
 
     @_sql_transaction
     def cache_collection(self, uid: str, path: Path) -> None:
@@ -519,12 +512,14 @@ class Index(metaclass=MPISafeMeta):
 
     @bcast
     @_sql_transaction
-    def _get_collection(
+    def _get_collection_path(
         self,
         uid: str,
-    ) -> CollectionORM | None:
-        self.resolve_path(uid)
-        return self._s.get(CollectionORM, uid)
+    ) -> Optional[Path]:
+        res = self._s.execute(
+            select(CollectionORM.path).where(CollectionORM.uid == uid)
+        ).scalar()
+        return Path(res) if res else None
 
     @bcast
     @_sql_transaction
