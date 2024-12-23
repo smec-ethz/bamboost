@@ -8,186 +8,132 @@
 # There is no warranty for this code
 from __future__ import annotations
 
-import os
 import time
-from functools import wraps
-from typing import Any, Literal, Union
+from enum import Enum
+from functools import total_ordering, wraps
+from typing import (
+    TYPE_CHECKING,
+    Literal,
+    Optional,
+    Protocol,
+    Union,
+)
 
 import h5py
 
 from bamboost import BAMBOOST_LOGGER
-from bamboost import mpi
+from bamboost.mpi import MPI, MPI_ON
 
-log = BAMBOOST_LOGGER.getChild(__name__.split(".")[-1])
+if TYPE_CHECKING:
+    from bamboost.mpi import Comm
 
-__all__ = [
-    "open_h5file",
-    "FileHandler",
-    "with_file_open",
-    "capture_key_error",
-    "HAS_MPIO",
-    "MPI_ACTIVE",
-    "FILE_MODE_HIRARCHY",
-]
+log = BAMBOOST_LOGGER.getChild("hdf5")
 
-HAS_MPIO = "mpio" in h5py.registered_drivers()
-if HAS_MPIO and mpi.MPI_ON:
-    MPI_ACTIVE = h5py.h5.get_config().mpi
-else:
-    MPI_ACTIVE = False
-
-FILE_MODE_HIRARCHY = {
-    "r": 1,
-    "r+": 2,
-    "a": 2,
-    "w": 3,
-}
+MPI_ACTIVE = "mpio" in h5py.registered_drivers() and h5py.get_config().mpi and MPI_ON
 
 
-def open_h5file(
-    file: str,
-    mode: Literal["r", "r+", "w", "w-", "x", "a"] = "r",
-    driver: Literal["mpio"] | None = None,
-    comm=None,
+@total_ordering
+class FileMode(Enum):
+    READ = "r"
+    READ_WRITE = "r+"
+    APPEND = "a"
+    WRITE = "w"
+    WRITE_FAIL = "w-"
+    WRITE_CREATE = "x"
+
+    __hirarchy__ = {"r": 0, "r+": 1, "a": 1, "w": 2, "w-": 3, "x": 3}
+
+    def __lt__(self, other) -> bool:
+        return self.__hirarchy__[self.value] < self.__hirarchy__[other.value]
+
+    def __eq__(self, other) -> bool:
+        return self.__hirarchy__[self.value] == self.__hirarchy__[other.value]
+
+
+class HasFileAttribute(Protocol):
+    _file: HDF5File
+
+
+def with_file_open(
+    mode: FileMode = FileMode.READ,
+    driver: Optional[Literal["mpio"]] = None,
 ):
-    """Open h5 file. Waiting if file is not available.
-
-    Args:
-        file (str): File to open
-        mode (str): One of
-            - `r`: Readonly, file must exist (default)
-            - `r+`: Read/write, file must exist
-            - `w`: Create file, truncate if exists
-            - `w-` or `x`: Create file, fail if exists
-            - `a`: Read/write if exists, create otherwise
-        driver (str): driver for h5.File
-        comm: MPI communicator
-    """
-    while True:
-        try:
-            if driver == "mpio" and MPI_ACTIVE and mpi.MPI_ON:
-                return h5py.File(file, mode, driver=driver, comm=comm)
-            else:
-                return h5py.File(file, mode)
-
-        except BlockingIOError:
-            log.warning(f"file locked --> {file}")
-            time.sleep(0.2)
-
-
-def with_file_open(mode: str = "r", driver=None, comm=None):
-    """Open the file (`self._file`) before function
-    Close the file after the function call
-
-    Works on classes containing the member `_file` of type :class:`~bamboost.common.file_handler.FileHandler`
+    """Decorator for context manager to open and close the file for a method of
+    a class with a file attribute (self._file)
     """
 
     def decorator(method):
         @wraps(method)
-        def wrapper(self, *args, **kwargs):
-            with self._file(mode, driver, comm):
+        def inner(self: HasFileAttribute, *args, **kwargs):
+            with self._file.open(mode, driver):
                 return method(self, *args, **kwargs)
 
-        return wrapper
+        return inner
 
     return decorator
 
 
-def capture_key_error(method):
-    @wraps(method)
-    def inner(self, *args, **kwargs):
-        try:
-            return method(self, *args, **kwargs)
-        except KeyError as e:
-            e.add_note(f"[file: {self.file_name}]")
-            raise e
+class HDF5File(h5py.File):
+    """Wrapper for h5py.File to add some functionality"""
 
-    return inner
-
-
-class FileHandler:
-    """File handler for an hdf5 file with the purpose of handling opening and closing
-    of the file. We use the concept of composition to include an object of this type
-    in classes which need access to an hdf5 file (such as the hdf5pointer and Simulation.)
-
-    Args:
-        file_name: the path to the file
-
-    Attributes:
-        file_object: the h5py file object (accessible if open)
-        _lock: lock is kind of a stack. `open` increases the stack. `close` decreases
-            the stack. file_object is only closed if the stack is at 0. Ensures consecutive
-            method calls works. Would be a problem if the file is closed after each
-            sub-operation.
-        _mode: file mode
-        _driver: file driver
-        _comm: MPI communicator
-    """
+    _filename: str
+    _comm: Comm
+    _context_stack: int = 0
 
     def __init__(
-        self, file_name: str, _comm: mpi.MPI.Comm = mpi.MPI.COMM_WORLD
-    ) -> None:
-        self.file_object: h5py.File = None
-        self.file_name = file_name
-        self.simulation_uid = os.path.basename(file_name)
-        self._lock = 0
-        self._mode = "r"
-        self._driver = None
-        self._comm = _comm
+        self,
+        file: str,
+        comm: Optional[Comm] = None,
+    ):
+        self._filename = file
+        self._comm = comm or MPI.COMM_WORLD
 
-    def __call__(self, mode: str = "r", driver=None, comm=None) -> FileHandler:
-        """Used to set the options for file opening.
-        Example: `with sim._file('a', driver='mpio') as file:`
-        """
-        self._mode = mode
-        self._driver = driver
-        self._comm = comm if comm is not None else self._comm
-        return self
+    def __repr__(self) -> str:
+        mode_info = self.mode if hasattr(self, "id") and self.id.valid else "proxy"
+        status = "open" if hasattr(self, "id") and self.id.valid else "closed"
+        return f'<HDF5 file "{self._filename}" (mode {mode_info}, {status})>'
 
-    @capture_key_error
-    def __getitem__(self, key) -> Union[h5py.Group, h5py.Dataset, h5py.Datatype]:
-        return self.file_object[key]
+    def open(
+        self,
+        mode: Union[FileMode, Literal["r", "r+", "w", "w-", "x", "a"]] = "r",
+        driver: Optional[Literal["mpio"]] = None,
+    ) -> HDF5File:
+        mode = FileMode(mode)
+        self._context_stack += 1
+        log.debug(f"context stack increased to {self._context_stack}")
 
-    @capture_key_error
-    def __delitem__(self, key) -> None:
-        del self.file_object[key]
+        if hasattr(self, "id") and self.id.valid:
+            if mode > FileMode(self.mode):
+                # if the new operation requires a higher mode, we close the file
+                # to reopen it with the new mode
+                super().close()
+            else:
+                # if the file is already open with the same or higher mode, we
+                # just increase the context stack and return
+                return self
 
-    @capture_key_error
-    def __getattr__(self, __name: str) -> Any:
-        try:
-            return self.file_object.__getattribute__(__name)
-        except AttributeError:
-            return self.__getattribute__(__name)
-
-    def __enter__(self):
-        self.open(self._mode, self._driver, self._comm)
-        return self
-
-    def __exit__(self, *args):
-        self.close()
-
-    def open(self, mode: str = "r", driver=None, comm=None):
-        if self._lock <= 0:
-            log.debug(f"[{id(self)}] Open {self.file_name}")
-            self.file_object = open_h5file(self.file_name, mode, driver, comm)
-
-        if FILE_MODE_HIRARCHY[self.file_object.mode] < FILE_MODE_HIRARCHY[mode]:
-            self.change_file_mode(mode, driver, comm)
-
-        log.debug(f"[{id(self)}] Lock stack {self._lock}")
-        self._lock += 1
-        return self.file_object
+        # try to open the file until it is available
+        while True:
+            try:
+                if driver == "mpio" and MPI_ACTIVE:
+                    super().__init__(
+                        self._filename, mode.value, driver=driver, comm=self._comm
+                    )
+                else:
+                    super().__init__(self._filename, mode.value)
+                return self
+            except BlockingIOError:
+                # If the file is locked, we wait and try again
+                log.warning(f"file locked (waiting) --> {self._filename}")
+                time.sleep(0.1)
 
     def close(self):
-        self._lock -= 1
-        if self._lock == 0:
-            log.debug(f"[{id(self)}] Close {self.file_name}")
-            self.file_object.close()
-        log.debug(f"[{id(self)}] Lock stack {self._lock}")
+        self._context_stack -= 1
+        if self._context_stack <= 0:
+            log.debug(f"closing file {self._filename}")
+            super().close()
+        log.debug(f"context stack decreased to {self._context_stack}")
 
-    def change_file_mode(self, mode: str, driver=None, comm=None):
-        log.info(
-            f"Forced closing and reopening to change file mode [{self.file_name}]."
-        )
-        self.file_object.close()
-        self.file_object = open_h5file(self.file_name, mode, driver, comm)
+    def force_close(self):
+        super().close()
+        self._context_stack = 0

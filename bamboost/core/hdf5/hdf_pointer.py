@@ -43,7 +43,7 @@ class BasePointer:
     def new_pointer(cls, file_handler: FileHandler, path_to_data: str) -> BasePointer:
         """Returns a new pointer object."""
         with file_handler("r") as f:
-            obj = f.file_object[path_to_data]
+            obj = f._h5py_file[path_to_data]
             if isinstance(obj, h5py.Group):
                 if issubclass(cls, Group):
                     return cls(file_handler, path_to_data)
@@ -187,7 +187,7 @@ class MutableGroup(Group):
         super().__init__(file_handler, path_to_data)
         # Create group if it doesn't exist
         with self._file("a", driver="mpio"):
-            self._file.file_object.require_group(path_to_data)
+            self._file._h5py_file.require_group(path_to_data)
 
     def _ipython_key_completions_(self):
         return self.keys().union(set(self.attrs.keys()))
@@ -268,7 +268,7 @@ class MutableGroup(Group):
             for key, item in attrs.items():
                 dataset.attrs[key] = item
 
-        log.info(f"Written {name} as userdata to {self._file.file_name}...")
+        log.info(f"Written {name} as userdata to {self._file.file}...")
 
     def require_group(self, name: str) -> MutableGroup:
         """Add a new group to the current group. If exists, return existing.
