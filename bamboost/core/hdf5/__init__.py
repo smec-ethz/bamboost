@@ -1,1 +1,1 @@
-from .file_handler import *
+from .file import *
