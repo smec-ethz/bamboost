@@ -11,7 +11,7 @@ from __future__ import annotations
 
 import pandas as pd
 
-from bamboost.core.hdf5.file_handler import FileHandler
+from bamboost.core.hdf5.file import FileHandler
 from bamboost.core.hdf5.hdf_pointer import Group
 
 __all__ = ["GlobalGroup"]

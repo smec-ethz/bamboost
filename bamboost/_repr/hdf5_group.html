@@ -106,7 +106,6 @@
         font-style: italic;
         background-color: var(--bb-bg50);
       }
-
     </style>
   </head>
 
@@ -114,12 +113,12 @@
     <div class="info_container">
       <div class="name-logo">
         <div class="first-col-header">
-          <div id="title" style="opacity: 0.3">$UID</div>
-          <div id="title">$NAME</div>
+          <div id="title" style="opacity: 0.3">{{ uid }}</div>
+          <div id="title">{{ name }}</div>
         </div>
         <div class="logobox">
-          <img class="logo" src="data:image/png;base64,$ICON" alt="Icon" />
-          <div>bamboost $version</div>
+          <img class="logo" src="data:image/png;base64,{{ icon }}" alt="Icon" />
+          <div>bamboost {{ version }}</div>
         </div>
       </div>
       <table class="content-table">
@@ -129,7 +128,12 @@
             <th>Attribute</th>
             <th>Value</th>
           </tr>
-          $attrs
+          {% for key, val in attrs.items() %}
+          <tr>
+            <td>{{ key }}</td>
+            <td>{{ val }}</td>
+          </tr>
+          {% endfor %}
         </tbody>
       </table>
       <table class="content-table">
@@ -139,7 +143,12 @@
             <th>Name</th>
             <th>Members</th>
           </tr>
-          $groups
+          {% for key, length in groups.items() %}
+          <tr>
+            <td>{{ key }}</td>
+            <td>{{ length }}</td>
+          </tr>
+          {% endfor %}
         </tbody>
       </table>
       <table class="content-table">
@@ -150,7 +159,13 @@
             <th>dtype</th>
             <th>shape</th>
           </tr>
-          $datasets
+          {% for key, (dtype, shape) in datasets.items() %}
+          <tr>
+            <td>{{ key }}</td>
+            <td>{{ dtype }}</td>
+            <td>{{ shape }}</td>
+          </tr>
+          {% endfor %}
         </tbody>
       </table>
     </div>

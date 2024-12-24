@@ -17,7 +17,7 @@ import h5py
 import numpy as np
 
 import bamboost
-from bamboost.core.hdf5.file_handler import FileHandler, with_file_open
+from bamboost import BAMBOOST_LOGGER
 
 __all__ = [
     "BasePointer",
@@ -26,7 +26,7 @@ __all__ = [
     "Dataset",
 ]
 
-log = bamboost.BAMBOOST_LOGGER.getChild(__name__.split(".")[-1])
+log = BAMBOOST_LOGGER.getChild("Pointer")
 
 
 class BasePointer:

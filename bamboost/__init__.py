@@ -8,7 +8,7 @@ __license__ = "MIT"
 __version__ = version("bamboost")
 
 
-def add_stream_handler(logger: logging.Logger) -> None:
+def _add_stream_handler(logger: logging.Logger) -> None:
     stream_handler = logging.StreamHandler()
     formatter = logging.Formatter(
         "[%(asctime)s] %(name)s: %(levelname)s - %(message)s",
@@ -20,7 +20,7 @@ def add_stream_handler(logger: logging.Logger) -> None:
 
 
 BAMBOOST_LOGGER = logging.getLogger("bamboost")
-add_stream_handler(BAMBOOST_LOGGER)
+_add_stream_handler(BAMBOOST_LOGGER)
 
 
 def set_log_level(

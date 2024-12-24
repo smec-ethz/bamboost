@@ -552,9 +552,9 @@ def simulation_metadata_from_h5(
     Args:
         file: Path to the HDF5 file.
     """
-    from bamboost.core.hdf5.file_handler import open_h5file
+    from bamboost.core.hdf5.file import HDF5File
 
-    with open_h5file(file.as_posix(), "r") as f:
+    with HDF5File(file.as_posix()).open("r") as f:
         meta: _SimulationMetadataT = {
             "created_at": datetime.fromisoformat(f.attrs.get("time_stamp", 0)),
             "modified_at": datetime.fromtimestamp(file.stat().st_mtime),
