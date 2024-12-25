@@ -10,7 +10,6 @@ from __future__ import annotations
 
 import pkgutil
 import time
-from collections import defaultdict
 from enum import Enum
 from functools import cache, cached_property, total_ordering, wraps
 from pathlib import Path, PurePosixPath
@@ -63,6 +62,28 @@ class FileMode(Enum):
         return self.__hirarchy__[self.value] == self.__hirarchy__[other.value]
 
 
+class HDF5Path(str):
+    def __new__(cls, path: str, absolute: bool = True):
+        if isinstance(path, HDF5Path):
+            return path
+        prefix = "/" if absolute else ""
+        return super().__new__(cls, prefix + "/".join(filter(None, path.split("/"))))
+
+    def __truediv__(self, other: str) -> HDF5Path:
+        return HDF5Path(f"{self}/{other}")
+
+    def relative_to(self, other: HDF5Path) -> HDF5Path:
+        return HDF5Path(self[len(other) :], absolute=False)
+
+    @property
+    def parent(self) -> str:
+        return self.rsplit("/", 1)[0] or "/"
+
+    @property
+    def path(self) -> PurePosixPath:
+        return PurePosixPath(self)
+
+
 class HasFileAttribute(Protocol):
     _file: HDF5File
 
@@ -92,16 +113,21 @@ class HDF5File(h5py.File):
     _filename: str
     _comm: Comm
     _context_stack: int = 0
-    _object_mapping: set[tuple[PurePosixPath, Type[h5py.Group | h5py.Dataset]]]
+    _object_map: dict[HDF5Path, Type[h5py.Group | h5py.Dataset]]
+    _readonly: bool = True
+    _mapped: bool = False
 
     def __init__(
         self,
         file: str,
         comm: Optional[Comm] = None,
+        *,
+        readonly: bool = True,
     ):
         self._filename = file
         self._comm = comm or MPI.COMM_WORLD
-        self._object_mapping = set()
+        self._object_map = dict()
+        self._readonly = readonly
 
     def __repr__(self) -> str:
         mode_info = self.mode if self.is_open else "proxy"
@@ -131,6 +157,12 @@ class HDF5File(h5py.File):
             BlockingIOError: If the file is locked (handled internally with retries).
         """
         mode = FileMode(mode)
+        if self._readonly and mode > FileMode.READ:
+            log.error(
+                f"File is read-only, cannot open in mode {mode.value} (open in read-only mode)"
+            )
+            mode = FileMode.READ
+
         self._context_stack += 1
         log.debug(f"[{id(self)}] context stack + ({self._context_stack})")
 
@@ -156,29 +188,41 @@ class HDF5File(h5py.File):
                 log.debug(
                     f"[{id(self)}] opened file (mode {mode.value}) {self._filename}"
                 )
+
                 # cache object names
-                self._cache_object_names()
+                if not self._mapped:
+                    self._map_objects()
+                    self._mapped = True
+
                 return self
             except BlockingIOError:
                 # If the file is locked, we wait and try again
                 log.warning(f"file locked (waiting) --> {self._filename}")
                 time.sleep(0.1)
 
-    def _cache_object_names(self) -> None:
+    def map_objects(self) -> HDF5File:
+        with self.open(FileMode.READ):
+            self._map_objects()
+        return self
+
+    def _map_objects(self) -> None:
+        objects = dict()
+
         # visit all groups and datasets to cache them
         def cache_items(name, _obj):
-            path = PurePosixPath(f"/{name}")
-            self._object_mapping.add((path, type(_obj)))
+            objects[HDF5Path(name)] = type(_obj)
 
         self.visititems(cache_items)
+        self._object_map = objects
 
     def close(self):
-        self._context_stack -= 1
+        self._context_stack = max(0, self._context_stack - 1)
+        log.debug(f"[{id(self)}] context stack - ({self._context_stack})")
+
+        # if the context stack is 0, we close the file
         if self._context_stack <= 0:
             log.debug(f"[{id(self)}] closed file {self._filename}")
-            self._context_stack = 0
             super().close()
-        log.debug(f"[{id(self)}] context stack - ({self._context_stack})")
 
     def force_close(self):
         super().close()
@@ -204,8 +248,7 @@ class H5Reference(Generic[_T]):
 
     def __init__(self, name: str, file: HDF5File):
         self._file = file
-        self._name = name.replace("//", "/")
-        self._path = PurePosixPath(self._name)
+        self._name = HDF5Path(name)
 
         # if the file is open, we check if the object exists
         if file.is_open:
@@ -230,14 +273,16 @@ class H5Reference(Generic[_T]):
     @overload
     def __getitem__(self, value: str) -> Union[Group, Dataset]: ...
     @overload
+    def __getitem__(self, value: tuple | slice): ...
+    @overload
     def __getitem__(self, value: tuple[str, Type[_R]]) -> _R: ...
     @with_file_open(FileMode.READ)
-    def __getitem__(self, value: Union[str, tuple[str, Type[_R]]]) -> _R:
+    def __getitem__(self, value: Union[str, tuple[str, Type[_R]], tuple | slice]) -> _R:
         if isinstance(value, tuple):
             name, _type = value
         else:
-            name, _type = value, None
-        return self.new(f"{self._name}/{name}", self._file, _type)
+            name, _type = cast(str, value), None
+        return self.new(self._name / name, self._file, _type)
 
     def open(
         self,
@@ -279,12 +324,7 @@ class Group(H5Reference[h5py.Group]):
         super().__init__(name, file)
 
     def _ipython_key_completions_(self):
-        return {
-            path.relative_to(self._path).as_posix()
-            for path, t in self._file._object_mapping
-            if path.parent == self._path
-            or (self._path in path.parents and t == h5py.Group)
-        }
+        return self.keys(all=True)
 
     @property
     def _obj(self) -> h5py.Group:
@@ -297,32 +337,41 @@ class Group(H5Reference[h5py.Group]):
         for key in self.keys():
             yield self.__getitem__(key)
 
-    @cache
-    def keys(self) -> set[str]:
-        with self.open(FileMode.READ):
-            return {
-                path.relative_to(self._path).as_posix()
-                for path, _ in self._file._object_mapping
-                if self._path == path.parent
-            }
+    @cached_property
+    def _object_map(self) -> dict[HDF5Path, Type[h5py.Group | h5py.Dataset]]:
+        _ = self._file._mapped or self._file.map_objects()
+        return {
+            k: v
+            for k, v in self._file._object_map.items()
+            if k.startswith(self._name) and k != self._name
+        }
+
+    @property
+    def _children_map(self) -> dict[HDF5Path, Type[h5py.Group | h5py.Dataset]]:
+        return {k: v for k, v in self._object_map.items() if k.parent == self._name}
 
     @cache
-    def groups(self) -> set[str]:
-        with self.open(FileMode.READ):
-            return {
-                path.relative_to(self._path).as_posix()
-                for path, t in self._file._object_mapping
-                if path.parent == self._path and t == h5py.Group and path != self._path
-            }
+    def keys(self, all: bool = False) -> list[HDF5Path]:
+        object_map = self._object_map if all else self._children_map
+        return [path.relative_to(self._name) for path in object_map.keys()]
 
     @cache
-    def datasets(self) -> set[str]:
-        with self.open(FileMode.READ):
-            return {
-                path.relative_to(self._path).as_posix()
-                for path, t in self._file._object_mapping
-                if path.parent == self._path and t == h5py.Dataset
-            }
+    def groups(self, all: bool = False) -> list[HDF5Path]:
+        object_map = self._object_map if all else self._children_map
+        return [
+            name.relative_to(self._name)
+            for name, t in object_map.items()
+            if t == h5py.Group
+        ]
+
+    @cache
+    def datasets(self, all: bool = False) -> list[str]:
+        object_map = self._object_map if all else self._children_map
+        return [
+            name.relative_to(self._name)
+            for name, t in object_map.items()
+            if t == h5py.Dataset
+        ]
 
     @with_file_open(FileMode.READ)
     def _repr_html_(self):
@@ -337,8 +386,11 @@ class Group(H5Reference[h5py.Group]):
         from jinja2 import Template
 
         attrs = dict(_obj.attrs)
-        groups = {key: len(_obj[key]) for key in self.groups()}  # type: ignore
-        datasets = {key: (_obj[key].dtype, _obj[key].shape) for key in self.datasets()}  # type: ignore
+        groups = {key: len(_obj[self._name / key]) for key in self.groups()}  # type: ignore
+        datasets = {
+            key: (_obj[self._name / key].dtype, _obj[self._name / key].shape)  # type: ignore
+            for key in self.datasets()
+        }
 
         path = self._name
         path = path if path[0] == "/" else "/" + path
@@ -361,6 +413,12 @@ class Group(H5Reference[h5py.Group]):
 
 
 class MutableGroup(Group):
+    def __init__(self, name: str, file: HDF5File):
+        if file._readonly:
+            raise ValueError("Cannot modify read-only file")
+
+        super().__init__(name, file)
+
     @with_file_open(FileMode.READ)
     def __getitem__(self, key: str) -> Group | Dataset:
         """Used to access datasets (:class:`~bamboost.common.hdf_pointer.Dataset`)
@@ -399,6 +457,12 @@ class MutableGroup(Group):
             attrs: the dictionary to write as attributes
         """
         self._obj.attrs.update(attrs)
+
+    @with_file_open(FileMode.APPEND)
+    def require_group(self, name: str) -> MutableGroup:
+        """Create a group if it doesn't exist yet."""
+        self._obj.require_group(name)
+        return self.new(name, self._file)
 
     def add_dataset(
         self,
@@ -447,6 +511,17 @@ class Dataset(H5Reference[h5py.Dataset]):
     def __getitem__(self, key: tuple | slice) -> np.ndarray:
         return h5py.Dataset.__getitem__(self._obj, key)
 
+    @property
+    @with_file_open(FileMode.READ)
+    def shape(self):
+        return self._obj.shape
 
+    @property
+    @with_file_open(FileMode.READ)
+    def dtype(self):
+        return self._obj.dtype
+
+
+# Aliases for Group and Dataset
 _g = Group
 _d = Dataset
