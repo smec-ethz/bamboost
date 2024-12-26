@@ -31,7 +31,6 @@ from bamboost import BAMBOOST_LOGGER, config
 from bamboost.core.simulation.base import Simulation
 from bamboost.core.utilities import flatten_dict
 from bamboost.index import CollectionUID, Index, StrPath
-from bamboost.index.sqlmodel import SimulationORM
 from bamboost.mpi import MPI
 
 if TYPE_CHECKING:

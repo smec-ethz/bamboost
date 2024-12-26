@@ -11,13 +11,23 @@ from __future__ import annotations
 
 import inspect
 import os
-import pkgutil
 import subprocess
 import uuid
+from collections.abc import Mapping, MutableMapping
 from contextlib import contextmanager
 from functools import cached_property, wraps
 from pathlib import Path
-from typing import TYPE_CHECKING, Any, Dict, Iterable, Optional, Tuple, cast
+from typing import (
+    TYPE_CHECKING,
+    Any,
+    Dict,
+    Generic,
+    Optional,
+    Tuple,
+    Type,
+    TypeVar,
+    cast,
+)
 
 import h5py
 import numpy as np
@@ -28,7 +38,14 @@ from typing_extensions import deprecated
 import bamboost.core.simulation._repr as reprs
 from bamboost import BAMBOOST_LOGGER, config
 from bamboost.core import utilities
-from bamboost.core.hdf5.file import FileMode, H5Reference, HDF5File, with_file_open
+from bamboost.core.hdf5.file import (
+    FileMode,
+    Group,
+    H5Reference,
+    HDF5File,
+    MutableGroup,
+    with_file_open,
+)
 from bamboost.core.simulation.xdmf import XDMFWriter
 from bamboost.index import (
     CollectionUID,
@@ -47,6 +64,83 @@ if TYPE_CHECKING:
 log = BAMBOOST_LOGGER.getChild("simulation")
 
 UID_SEPARATOR = ":"
+
+_GT = TypeVar("_GT", bound=H5Reference)
+
+
+class _Parameters(Generic[_GT]):
+    _gt: Type[_GT] = Group  # type: ignore
+
+    def __init__(self, simulation: Simulation):
+        self._simulation = simulation
+        self._file = simulation._file
+        self._dict: _SimulationParameterT = self.read()
+        self._group = self._gt("/parameters", simulation._file)
+
+    @with_file_open(FileMode.READ)
+    def read(self) -> dict:
+        tmp_dict = dict()
+
+        # return if parameter group is not in the file
+        if "parameters" not in self._file.keys():
+            return {}
+        grp_parameters = cast(h5py.Group, self._file["parameters"])
+        tmp_dict.update(grp_parameters.attrs)
+        for key, value in grp_parameters.items():
+            if not isinstance(value, h5py.Dataset):
+                continue
+            tmp_dict.update({key: value[()]})
+
+        return utilities.unflatten_dict(tmp_dict)
+
+    def __getitem__(self, key: str) -> Any:
+        return self._dict[key]
+
+    def __iter__(self):
+        return iter(self._dict)
+
+    def __len__(self):
+        return len(self._dict)
+
+    def __repr__(self) -> str:
+        return repr(self._dict)
+
+    def _ipython_key_completions_(self):
+        return tuple(self._dict.keys())
+
+
+class _MutableParameters(_Parameters[MutableGroup]):
+    _gt: Type[MutableGroup] = MutableGroup
+
+    def __setitem__(self, key: str, value: Any) -> None:
+        self._dict[key] = value
+        self._group.update_attrs({key: value})
+
+    def update(self, update_dict: dict) -> None:
+        """Update the parameters dictionary. This method pushes the update to
+        the HDF5 file, and the SQL database.
+
+        Args:
+            update_dict: new parameters
+        """
+        # update dictionary in memory
+        self._dict.update(update_dict)
+
+        # try update the sql database
+        self._simulation._send_to_sql(parameters=update_dict)
+
+        # Filter out numpy arrays
+        arrays = {}
+        for k, v in update_dict.items():
+            if isinstance(v, np.ndarray):
+                arrays[k] = update_dict.pop(k)
+
+        # write arrays as datasets
+        for k, v in arrays.items():
+            self._group.add_dataset(k, v)
+
+        # write the rest
+        self._group.update_attrs(update_dict)
 
 
 # class Links(hdf_pointer.MutableGroup):
@@ -203,6 +297,10 @@ class Simulation:
         collection_path = index.resolve_path(collection_uid)
         return cls(name, collection_path, index=index, **kwargs)
 
+    def edit(self) -> SimulationWriter:
+        """Return an object with writing rights to edit the simulation."""
+        return SimulationWriter(self.name, self.path.parent, self._comm, self._index)
+
     @property
     def root(self) -> H5Reference:
         """Access to HDF5 file root group.
@@ -212,23 +310,33 @@ class Simulation:
         """
         return self._file.root
 
-    @cached_property
     @_on_root
-    def parameters(self) -> Dict[str, Any]:
-        tmp_dict = dict()
+    def _send_to_sql(
+        self,
+        *,
+        metadata: Optional[_SimulationMetadataT] = None,
+        parameters: Optional[_SimulationParameterT] = None,
+    ) -> None:
+        """Push update to sqlite database.
 
-        with self._file.open(FileMode.READ) as file:
-            # return if parameter group is not in the file
-            if "parameters" not in file.keys():
-                return {}
-            grp_parameters = cast(h5py.Group, file["parameters"])
-            tmp_dict.update(grp_parameters.attrs)
-            for key, value in grp_parameters.items():
-                if not isinstance(value, h5py.Dataset):
-                    continue
-                tmp_dict.update({key: value[()]})
+        Args:
+            - update_dict (dict): key value pair to push
+        """
+        if not config.options.sync_tables:
+            return
 
-        return utilities.unflatten_dict(tmp_dict)
+        if metadata:
+            self._index.update_simulation_metadata(
+                self.collection_uid, self.name, metadata
+            )
+        if parameters:
+            self._index.update_simulation_parameters(
+                self.collection_uid, self.name, parameters
+            )
+
+    @cached_property
+    def parameters(self) -> _Parameters:
+        return _Parameters(self)
 
     @property
     def metadata(self) -> dict:
@@ -551,32 +659,9 @@ class SimulationWriter(Simulation):
         # Set the file to editable
         self._file._readonly = False
 
-    @_on_root
-    def _send_to_sql(
-        self,
-        *,
-        metadata: Optional[_SimulationMetadataT] = None,
-        parameters: Optional[_SimulationParameterT] = None,
-    ) -> None:
-        """Push update to sqlite database.
-
-        Args:
-            - update_dict (dict): key value pair to push
-        """
-        if not config.options.sync_tables:
-            return
-        try:
-            with self._index.sql_transaction():
-                if metadata:
-                    self._index.update_simulation_metadata(
-                        self.collection_uid, self.name, metadata
-                    )
-                if parameters:
-                    self._index.update_simulation_parameters(
-                        self.collection_uid, self.name, parameters
-                    )
-        except SQLAlchemyError as e:
-            on_root(log.error, self._comm)(f"Could not update sqlite database: {e}")
+    @cached_property
+    def parameters(self) -> _MutableParameters:
+        return _MutableParameters(self)
 
     @_on_root
     @with_file_open(FileMode.APPEND)
