@@ -35,6 +35,7 @@ import numpy as np
 import bamboost
 from bamboost import BAMBOOST_LOGGER
 from bamboost.mpi import MPI, MPI_ON
+from bamboost.utilities import StrPath
 
 if TYPE_CHECKING:
     from bamboost.mpi import Comm
@@ -119,12 +120,12 @@ class HDF5File(h5py.File):
 
     def __init__(
         self,
-        file: str,
+        file: StrPath,
         comm: Optional[Comm] = None,
         *,
         readonly: bool = True,
     ):
-        self._filename = file
+        self._filename = file.as_posix() if isinstance(file, Path) else file
         self._comm = comm or MPI.COMM_WORLD
         self._object_map = dict()
         self._readonly = readonly
