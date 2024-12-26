@@ -8,6 +8,8 @@
         --bb-grey: #4e4e4e;
         --bb-bg: #939ab7ff;
         --bb-bg50: #939ab77f;
+        --head-height: 2rem;
+        --head-padding: 10px;
       }
 
       tr:hover {
@@ -41,13 +43,10 @@
         flex-direction: column;
         justify-content: flex-end;
         align-items: flex-start;
-        padding: 1em;
         font-weight: bold;
         font-size: larger;
-        /* border: solid 1px var(--bb-bg50); */
-        border-bottom: none;
-        /* height: calc(2rem - 1px); */
-        height: 2rem;
+        opacity: 0.3;
+        padding: var(--head-padding);
       }
 
       .second-col .logo,
@@ -68,7 +67,6 @@
         justify-content: space-between;
         gap: 1em;
         flex: 1;
-        border-top: solid 1px var(--bb-bg50);
         background-color: var(--bb-bg50);
         border-bottom-right-radius: 10px;
       }
@@ -100,6 +98,20 @@
         padding: 0.5rem;
       }
 
+      .tree-col {
+        flex-shrink: 0;
+        line-height: 1.8;
+        opacity: 0.7;
+      }
+
+      .tree-col .head {
+        opacity: 0.3;
+        font-weight: bold;
+        font-size: larger;
+        line-height: 1;
+        padding: var(--head-padding);
+      }
+
       .second-col {
         position: relative;
         display: flex;
@@ -110,13 +122,16 @@
         display: flex;
         flex-direction: column;
         justify-content: flex-end;
-        padding: 1em;
-        padding-left: 3rem;
-        margin-left: -3rem;
         font-weight: bold;
         font-size: larger;
-        border-bottom: solid 1px var(--bb-bg50);
-        height: 2rem;
+        padding: var(--head-padding);
+        opacity: 0.3;
+      }
+
+      table.parameter-table th {
+        font-weight: normal;
+        font-style: italic;
+        background-color: var(--bb-bg50);
       }
     </style>
   </head>
@@ -124,22 +139,37 @@
   <body>
     <div class="container">
       <div class="first-col">
-        <div class="uid">$UID</div>
+        <div class="uid">{{ uid }}</div>
         <div class="bottombox">
           <div class="logo">
-            <img src="data:image/png;base64,$ICON" alt="icon" />
+            <img src="data:image/png;base64,{{ icon }}" alt="icon" />
           </div>
           <div class="infoboxes">
-            $STATUS $SUBMITTED
-            <div class="timestamp">time stamp: $TIMESTAMP</div>
+            {{ status }} {{ submitted }}
+            <div class="timestamp">time stamp: {{ timestamp }}</div>
           </div>
-          <div id="text">$NOTE</div>
+          <div id="text">{{ note }}</div>
         </div>
+      </div>
+      <div class="tree-col">
+        <div class="head">Files</div>
+        {{ tree }}
       </div>
       <div class="second-col">
         <div class="head">Parameters</div>
-        <table>
-          $TABLE
+        <table class="parameter-table">
+          <thead>
+            <tr>
+              <th>Parameter</th>
+              <th>Value</th>
+            </tr>
+          </thead>
+          {% for key, value in parameters.items() %}
+          <tr>
+            <td>{{ key }}</td>
+            <td>{{ value }}</td>
+          </tr>
+          {% endfor %}
         </table>
       </div>
     </div>

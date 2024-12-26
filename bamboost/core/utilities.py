@@ -13,7 +13,7 @@ from argparse import ArgumentParser
 from collections.abc import MutableMapping
 from itertools import islice
 from pathlib import Path
-from typing import NamedTuple
+from typing import Mapping, NamedTuple, TypeVar
 
 import h5py
 import pandas as pd
@@ -32,8 +32,10 @@ branch = "│   "
 tee = "├── "
 last = "└── "
 
+_DT = TypeVar("_DT", bound=dict)
 
-def flatten_dict(dictionary, parent_key="", seperator="."):
+
+def flatten_dict(dictionary: Mapping, parent_key="", seperator=".")-> dict:
     items = []
     for key, value in dictionary.items():
         new_key = parent_key + seperator + key if parent_key else key
@@ -44,7 +46,7 @@ def flatten_dict(dictionary, parent_key="", seperator="."):
     return dict(items)
 
 
-def unflatten_dict(dictionary, seperator="."):
+def unflatten_dict(dictionary: dict, seperator: str = ".") -> dict:
     new_dict = dict()
     for key, value in dictionary.items():
         parts = key.split(seperator)
@@ -63,7 +65,7 @@ def tree(
     level: int = -1,
     limit_to_directories: bool = False,
     length_limit: int = 1000,
-):
+) -> str:
     """Given a directory Path object print a visual tree structure"""
     dir_path = Path(dir_path)  # accept string coerceable to Path
     files = 0
@@ -108,13 +110,13 @@ def h5_tree(val, pre=""):
         items -= 1
         if items == 0:
             # the last item
-            if type(val) == h5py._hl.group.Group:
+            if isinstance(val, h5py.Group):
                 print(pre + "└── " + key)
                 h5_tree(val, pre + "    ")
             else:
                 print(pre + "└── " + key + " (%d)" % len(val))
         else:
-            if type(val) == h5py._hl.group.Group:
+            if isinstance(val, h5py.Group):
                 print(pre + "├── " + key)
                 h5_tree(val, pre + "│   ")
             else:

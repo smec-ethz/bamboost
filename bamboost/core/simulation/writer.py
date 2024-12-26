@@ -81,7 +81,7 @@ class SimulationWriter(Simulation):
             with self._file("a"):
                 data = {
                     "time_stamp": str(datetime.datetime.now().replace(microsecond=0)),
-                    "id": self.uid,
+                    "id": self.name,
                     "processors": nb_proc,
                     "notes": self._file.attrs.get("notes", ""),
                 }
@@ -154,8 +154,8 @@ class SimulationWriter(Simulation):
         connectivity = connectivity + idx_start
 
         with self._file("a", driver="mpio", comm=self._comm) as f:
-            if mesh_location in self._file.file_object:
-                del self._file.file_object[mesh_location]
+            if mesh_location in self._file._h5py_file:
+                del self._file._h5py_file[mesh_location]
             grp = f.require_group(mesh_location)
             coord = grp.require_dataset(
                 "coordinates", shape=coord_shape, dtype=coordinates.dtype

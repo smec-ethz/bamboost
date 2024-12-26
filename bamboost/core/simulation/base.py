@@ -25,6 +25,7 @@ import pandas as pd
 from sqlalchemy.exc import SQLAlchemyError
 from typing_extensions import deprecated
 
+import bamboost.core.simulation._repr as reprs
 from bamboost import BAMBOOST_LOGGER, config
 from bamboost.core import utilities
 from bamboost.core.hdf5.file import FileMode, H5Reference, HDF5File, with_file_open
@@ -142,6 +143,8 @@ class Simulation:
     _mesh_location = "Mesh/0"
     _default_mesh = "mesh"
 
+    _repr_html_ = reprs.simulation_html_repr
+
     def __init__(
         self,
         name: str,
@@ -208,61 +211,6 @@ class Simulation:
             A reference to the root HDF5 object.
         """
         return self._file.root
-
-    def _repr_html_(self) -> str:
-        html_string = pkgutil.get_data("bamboost", "_repr/simulation.html").decode()
-        icon = pkgutil.get_data("bamboost", "_repr/icon.txt").decode()
-
-        table_string = ""
-        for key, value in self.parameters.items():
-            if (
-                isinstance(value, Iterable)
-                and not isinstance(value, str)
-                and len(value) > 5
-            ):
-                value = "..."
-            table_string += f"""
-            <tr>
-                <td>{key}</td>
-                <td>{value}</td>
-            </tr>
-            """
-
-        metadata = self.metadata
-
-        def get_pill_div(text: str, color: str):
-            return (
-                f'<div class="status" style="background-color:'
-                f'var(--bb-{color});">{text}</div>'
-            )
-
-        status_options = {
-            "Finished": get_pill_div("Finished", "green"),
-            "Failed": get_pill_div("Failed", "red"),
-            "Initiated": get_pill_div("Initiated", "grey"),
-        }
-        submitted_options = {
-            True: get_pill_div("Submitted", "green"),
-            False: get_pill_div("Not submitted", "grey"),
-        }
-
-        html_string = (
-            html_string.replace("$UID", self.name)
-            .replace("$ICON", icon)
-            .replace("$TREE", self.show_files().replace("\n", "<br>"))
-            .replace("$TABLE", table_string)
-            .replace("$NOTE", metadata["notes"])
-            .replace(
-                "$STATUS",
-                status_options.get(
-                    metadata["status"],
-                    f'<div class="status">{metadata["status"]}</div>',
-                ),
-            )
-            .replace("$SUBMITTED", submitted_options[metadata.get("submitted", False)])
-            .replace("$TIMESTAMP", metadata["time_stamp"])
-        )
-        return html_string
 
     @cached_property
     @_on_root
