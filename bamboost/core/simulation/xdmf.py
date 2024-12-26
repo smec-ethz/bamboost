@@ -9,8 +9,11 @@
 
 import os
 import xml.etree.ElementTree as ET
+from typing import cast
 
-from bamboost.core.hdf5.file_handler import FileHandler
+import h5py
+
+from bamboost.core.hdf5.file import HDF5File
 
 __all__ = ["XDMFWriter"]
 
@@ -36,10 +39,10 @@ class XDMFWriter:
         filename (str): xdmf file path
         h5file (str): h5 file path"""
 
-    def __init__(self, filename: str, _file: FileHandler):
+    def __init__(self, filename: str, _file: HDF5File):
         self.filename = filename
         self._file = _file
-        self.h5file = os.path.basename(_file.file_name)
+        self.h5file = _file._filename
         self.xdmf_file = ET.Element("Xdmf", Version="3.0")
         self.domain = ET.SubElement(self.xdmf_file, "Domain")
         ET.register_namespace("xi", "https://www.w3.org/2001/XInclude/")
@@ -81,9 +84,8 @@ class XDMFWriter:
     def _points(self, grid: ET.Element, points_location: str):
         geometry_type = "XY"
 
-        with self._file("r") as _f:
-            f = _f.file_object
-            points = f[points_location]
+        with self._file.open("r") as f:
+            points = cast(h5py.Dataset, f[points_location])
             geo = ET.SubElement(grid, "Geometry", GeometryType=geometry_type)
             dt, prec = numpy_to_xdmf_dtype[points.dtype.name]
             dim = "{} {}".format(*points.shape)
@@ -98,9 +100,8 @@ class XDMFWriter:
             data_item.text = f"{self.h5file}:/{points_location}"
 
     def _cells(self, grid: ET.Element, cells_location: str):
-        with self._file("r") as _f:
-            f = _f.file_object
-            cells = f[cells_location]
+        with self._file.open("r") as f:
+            cells = cast(h5py.Dataset, f[cells_location])
             nb_cells = cells.shape[0]
             topo = ET.SubElement(
                 grid,
@@ -140,8 +141,7 @@ class XDMFWriter:
             data_location (str): String to data in h5 file
             name (str): Name for the field in the Xdmf file
         """
-        with self._file("r") as _f:
-            f = _f.file_object
+        with self._file.open("r") as f:
             grid = ET.SubElement(collection, "Grid")
             ptr = f'xpointer(//Grid[@Name="{self.mesh_name}"]/*[self::Topology or self::Geometry])'
 
@@ -159,9 +159,8 @@ class XDMFWriter:
         self, grid: ET.Element, field_name: str, name: str, step: int
     ) -> None:
         """Write an attribute/field."""
-        with self._file("r") as _f:
-            f = _f.file_object
-            data = f[f"data/{field_name}/{step}"]
+        with self._file.open("r") as f:
+            data = cast(h5py.Dataset, f[f"data/{field_name}/{step}"])
 
             if data.ndim == 1 or data.shape[1] <= 1:
                 att_type = "Scalar"

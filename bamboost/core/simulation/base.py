@@ -9,91 +9,134 @@
 
 from __future__ import annotations
 
+import inspect
 import os
 import pkgutil
 import subprocess
+import uuid
 from contextlib import contextmanager
-from functools import cached_property
-from typing import TYPE_CHECKING, Any, Dict, Iterable, Tuple
+from functools import cached_property, wraps
+from pathlib import Path
+from typing import TYPE_CHECKING, Any, Dict, Iterable, Optional, Tuple, cast
 
+import h5py
 import numpy as np
 import pandas as pd
-from typing_extensions import Self, deprecated
+from sqlalchemy.exc import SQLAlchemyError
+from typing_extensions import deprecated
 
 from bamboost import BAMBOOST_LOGGER, config
 from bamboost.core import utilities
-from bamboost.core.hdf5 import hdf_pointer
-from bamboost.core.hdf5.accessors.fielddata import DataGroup
-from bamboost.core.hdf5.accessors.globals import GlobalGroup
-from bamboost.core.hdf5.accessors.meshes import Mesh, MeshGroup
-from bamboost.core.hdf5.file_handler import FileHandler, with_file_open
-from bamboost.caching import base
-from bamboost.mpi import MPI
+from bamboost.core.hdf5.file import FileMode, H5Reference, HDF5File, with_file_open
 from bamboost.core.simulation.xdmf import XDMFWriter
+from bamboost.index import (
+    CollectionUID,
+    Index,
+    _SimulationMetadataT,
+    _SimulationParameterT,
+)
+from bamboost.mpi import MPI
+from bamboost.mpi.utilities import on_root
+from bamboost.utilities import StrPath
 
 if TYPE_CHECKING:
-    from mpi4py.MPI import Comm
+    from bamboost.mpi import Comm
 
 
-__all__ = [
-    "Simulation",
-    "Links",
-]
+log = BAMBOOST_LOGGER.getChild("simulation")
 
-log = BAMBOOST_LOGGER.getChild(__name__.split(".")[-1])
+UID_SEPARATOR = ":"
 
 
-class Links(hdf_pointer.MutableGroup):
-    """Link group. Used to create and access links.
+# class Links(hdf_pointer.MutableGroup):
+#     """Link group. Used to create and access links.
+#
+#     I don't know how to distribute this to its own file in the accessors
+#     directory, due to circular imports.
+#     """
+#
+#     def __init__(self, file_handler: HDF5File) -> None:
+#         super().__init__(file_handler, path_to_data="links")
+#
+#     def _ipython_key_completions_(self):
+#         return tuple(self.all_links().keys())
+#
+#     @with_file_open("r", driver="mpio")
+#     def __getitem__(self, key) -> Simulation:
+#         """Returns the linked simulation object."""
+#         return Simulation.fromUID(self.obj.attrs[key])
+#
+#     def __setitem__(self, key, newvalue):
+#         """Creates the link."""
+#         return self.update_attrs({key: newvalue})
+#
+#     def __delitem__(self, key):
+#         """Delete a link."""
+#         with self._file("a"):
+#             del self.obj.attrs[key]
+#
+#     @with_file_open("r")
+#     def __repr__(self) -> str:
+#         return repr(
+#             pd.DataFrame.from_dict(self.all_links(), orient="index", columns=["UID"])
+#         )
+#
+#     @with_file_open("r")
+#     def _repr_html_(self) -> str:
+#         return pd.DataFrame.from_dict(
+#             self.all_links(), orient="index", columns=["UID"]
+#         )._repr_html_()
+#
+#     @with_file_open("r")
+#     def all_links(self) -> dict:
+#         return dict(self.obj.attrs)
 
-    I don't know how to distribute this to its own file in the accessors
-    directory, due to circular imports.
-    """
 
-    def __init__(self, file_handler: FileHandler) -> None:
-        super().__init__(file_handler, path_to_data="links")
+class SimulationName(str):
+    """Name of a simulation."""
 
-    def _ipython_key_completions_(self):
-        return tuple(self.all_links().keys())
+    def __new__(cls, name: Optional[str] = None, length: int = 10):
+        name = name or cls.generate_name(length)
+        return super().__new__(cls, name)
 
-    @with_file_open("r", driver="mpio")
-    def __getitem__(self, key) -> Simulation:
-        """Returns the linked simulation object."""
-        return Simulation.fromUID(self.obj.attrs[key])
+    @staticmethod
+    def generate_name(length: int) -> str:
+        return uuid.uuid4().hex[:length]
 
-    def __setitem__(self, key, newvalue):
-        """Creates the link."""
-        return self.update_attrs({key: newvalue})
 
-    def __delitem__(self, key):
-        """Delete a link."""
-        with self._file("a"):
-            del self.obj.attrs[key]
+def _on_root(func):
+    """Decorator to run a function only on the root process."""
 
-    @with_file_open("r")
-    def __repr__(self) -> str:
-        return repr(
-            pd.DataFrame.from_dict(self.all_links(), orient="index", columns=["UID"])
-        )
+    @wraps(func)
+    def wrapper_with_bcast(self: Simulation, *args, **kwargs):
+        res = None
+        if self._comm.rank == 0:
+            res = func(self, *args, **kwargs)
+        return self._comm.bcast(res, root=0)
 
-    @with_file_open("r")
-    def _repr_html_(self) -> str:
-        return pd.DataFrame.from_dict(
-            self.all_links(), orient="index", columns=["UID"]
-        )._repr_html_()
+    @wraps(func)
+    def wrapper(self: Simulation, *args, **kwargs):
+        if self._comm.rank == 0:
+            return func(self, *args, **kwargs)
 
-    @with_file_open("r")
-    def all_links(self) -> dict:
-        return dict(self.obj.attrs)
+    # check if return annotation is not None
+    if inspect.signature(func).return_annotation is not None:
+        return wrapper_with_bcast
+    else:
+        return wrapper
 
 
 class Simulation:
-    """A single dataset/simulation. Used to write to it, read from it or append.
+    """Simulation accessor.
 
     Args:
-        uid (str): unique identifier
-        path (str): path to parent/database folder
-        comm (MPI.Comm): MPI communicator (default=MPI.COMM_WORLD)
+        name: Unique identifier for the simulation.
+        path: Path to parent/database folder.
+        comm: MPI communicator. Defaults to MPI.COMM_WORLD.
+        create_if_not_exists: Create the simulation if it doesn't exist. Defaults to False.
+
+    Raises:
+        FileNotFoundError: If the simulation doesn't exist and create_if_not_exists is False.
     """
 
     _mesh_location = "Mesh/0"
@@ -101,68 +144,70 @@ class Simulation:
 
     def __init__(
         self,
-        uid: str,
-        path: str,
-        comm: Comm = None,
-        create_if_not_exists: bool = False,
-        *,
-        _db_id: str = None,
+        name: str,
+        parent: StrPath,
+        comm: Optional[Comm] = None,
+        index: Optional[Index] = None,
+        **kwargs,
     ):
-        # MPI information
-        self._comm: Comm = comm or MPI.COMM_WORLD
-        self._psize = self._comm.size
-        self._prank = self._comm.rank
-        self._ranks = np.array([i for i in range(self._psize)])
-
-        self.uid: str = uid
-        path = self._comm.bcast(path, root=0)
-        self.path_database: str = os.path.abspath(path)
-        self.database_id = _db_id or base.get_uid_from_path(self.path_database)
-        self.path: str = os.path.abspath(os.path.join(path, uid))
-        self.h5file: str = os.path.join(self.path, f"{self.uid}.h5")
-        self.xdmffile: str = os.path.join(self.path, f"{self.uid}.xdmf")
-
-        if not os.path.exists(self.h5file) and not create_if_not_exists:
+        self.name: str = name
+        self.path: Path = Path(parent).joinpath(name)
+        self._index: Index = index or Index()
+        if not self.path.is_dir():
             raise FileNotFoundError(
-                f"Simulation {self.uid} does not exist in {self.path}."
+                f"Simulation {self.name} does not exist in {self.path}."
             )
 
-        os.makedirs(self.path, exist_ok=True)
+        # MPI information
+        self._comm: Comm = comm or MPI.COMM_WORLD
+        self._psize: int = self._comm.size
+        self._prank: int = self._comm.rank
+        self._ranks = np.array([i for i in range(self._psize)])
 
-        self._file = FileHandler(self.h5file)
+        self.collection_uid: CollectionUID = kwargs.pop(
+            "collection_uid", None
+        ) or self._index.resolve_uid(self.path.parent)
+
+        self._data_file: Path = self.path.joinpath(f"{self.name}.h5")
+        self._xdmf_file: Path = self.path.joinpath(f"{self.name}.xdmf")
+
+        self._file = HDF5File(self._data_file, comm=self._comm, readonly=True)
 
         # Initialize groups to meshes, data and userdata. Create groups.
-        self.meshes: MeshGroup = MeshGroup(self._file)
-        self.data: DataGroup = DataGroup(self._file, self.meshes)
-        self.globals: GlobalGroup = GlobalGroup(self._file, "/globals")
-        self.userdata: hdf_pointer.MutableGroup = hdf_pointer.MutableGroup(
-            self._file, "/userdata"
-        )
-        self.links: Links = Links(self._file)
+        # self.meshes: MeshGroup = MeshGroup(self._file)
+        # self.data: DataGroup = DataGroup(self._file, self.meshes)
+        # self.globals: GlobalGroup = GlobalGroup(self._file, "/globals")
+        # self.userdata: hdf_pointer.MutableGroup = hdf_pointer.MutableGroup(
+        #     self._file, "/userdata"
+        # )
+        # self.links: Links = Links(self._file)
+
+    @property
+    def uid(self) -> str:
+        """The full uid of the simulation (collection_uid:simulation_name)."""
+        return f"{self.collection_uid}{UID_SEPARATOR}{self.name}"
 
     @classmethod
-    def fromUID(
-        cls, full_uid: str, *, index_database: base.CollectionsTable = None, **kwargs
-    ) -> Self:
+    def from_uid(cls, uid: str, **kwargs) -> Simulation:
         """Return the `Simulation` with given UID.
 
         Args:
-            full_uid: the full id (Database uid : simulation uid)
+            uid: the full id (Collection uid : simulation name)
+            **kwargs: additional arguments to pass to the constructor
         """
-        if index_database is None:
-            index_database = base.CollectionsTable()
-        db_uid, sim_uid = full_uid.split(":")
-        db_path = index_database.get_path(db_uid)
-        return cls(sim_uid, db_path, create_if_not_exists=False, **kwargs)
+        collection_uid, name = uid.split(UID_SEPARATOR)
+        index = kwargs.pop("index", None) or Index()
+        collection_path = index.resolve_path(collection_uid)
+        return cls(name, collection_path, index=index, **kwargs)
 
-    @with_file_open()
-    def __getitem__(self, key) -> hdf_pointer.BasePointer:
-        """Direct access to HDF5 file.
+    @property
+    def root(self) -> H5Reference:
+        """Access to HDF5 file root group.
 
         Returns:
-            :class:`~bamboost.common.file_handler.BasePointer`
+            A reference to the root HDF5 object.
         """
-        return hdf_pointer.BasePointer.new_pointer(self._file, key)
+        return self._file.root
 
     def _repr_html_(self) -> str:
         html_string = pkgutil.get_data("bamboost", "_repr/simulation.html").decode()
@@ -202,9 +247,9 @@ class Simulation:
         }
 
         html_string = (
-            html_string.replace("$UID", self.uid)
+            html_string.replace("$UID", self.name)
             .replace("$ICON", icon)
-            .replace("$TREE", self.show_files(printit=False).replace("\n", "<br>"))
+            .replace("$TREE", self.show_files().replace("\n", "<br>"))
             .replace("$TABLE", table_string)
             .replace("$NOTE", metadata["notes"])
             .replace(
@@ -219,57 +264,41 @@ class Simulation:
         )
         return html_string
 
-    def _push_update_to_sqlite(self, update_dict: dict) -> None:
-        """Push update to sqlite database.
-
-        Args:
-            - update_dict (dict): key value pair to push
-        """
-        if not config.options.sync_tables:
-            return
-        try:
-            base.CollectionTable(self.database_id).update_entry(self.uid, update_dict)
-        except base.Error as e:
-            log.warning(f"Could not update sqlite database: {e}")
-
     @cached_property
+    @_on_root
     def parameters(self) -> Dict[str, Any]:
         tmp_dict = dict()
-        if self._prank == 0:
-            with self._file("r"):
-                # return if parameters is not in the file
-                if "parameters" not in self._file.keys():
-                    return {}
-                tmp_dict.update(self._file["parameters"].attrs)
-                for key in self._file["parameters"].keys():
-                    tmp_dict.update({key: self._file[f"parameters/{key}"][()]})
 
-        tmp_dict = utilities.unflatten_dict(tmp_dict)
+        with self._file.open(FileMode.READ) as file:
+            # return if parameter group is not in the file
+            if "parameters" not in file.keys():
+                return {}
+            grp_parameters = cast(h5py.Group, file["parameters"])
+            tmp_dict.update(grp_parameters.attrs)
+            for key, value in grp_parameters.items():
+                if not isinstance(value, h5py.Dataset):
+                    continue
+                tmp_dict.update({key: value[()]})
 
-        tmp_dict = self._comm.bcast(tmp_dict, root=0)
-        return tmp_dict
+        return utilities.unflatten_dict(tmp_dict)
 
     @property
     def metadata(self) -> dict:
-        tmp_dict = dict()
-        if self._prank == 0:
-            with self._file("r") as file:
-                tmp_dict.update(file.attrs)
+        return self._file.root.attrs
 
-        tmp_dict = utilities.unflatten_dict(tmp_dict)
-        tmp_dict = self._comm.bcast(tmp_dict, root=0)
-        return tmp_dict
-
-    def files(self, filename: str) -> str:
+    def files(self, filename: str) -> Path:
         """Get the path to the file.
 
         Args:
             filename: name of the file
         """
-        return os.path.join(self.path, filename)
+        return self.path.joinpath(filename)
 
     def show_files(
-        self, level=-1, limit_to_directories=False, length_limit=1000, printit=True
+        self,
+        level: int = -1,
+        limit_to_directories: bool = False,
+        length_limit: int = 1000,
     ) -> str:
         """Show the file tree of the simulation directory.
 
@@ -278,68 +307,11 @@ class Simulation:
             limit_to_directories: only print directories
             length_limit: cutoff
         """
-        tree_string = utilities.tree(
-            self.path, level, limit_to_directories, length_limit
-        )
-        if printit:
-            print(tree_string)
-        else:
-            return tree_string
-
-    def open_in_file_explorer(self) -> None:
-        """Open the simulation directory. Uses `xdg-open` on linux systems."""
-        if os.name == "nt":  # should work on Windows
-            os.startfile(self.path)
-        else:
-            subprocess.run(["xdg-open", self.path])
+        return utilities.tree(self.path, level, limit_to_directories, length_limit)
 
     def open_in_paraview(self) -> None:
         """Open the xdmf file in paraview."""
-        subprocess.Popen(["paraview", self.xdmffile])
-
-    def get_full_uid(self) -> str:
-        """Returns the full uid of the simulation (including the one of the database)"""
-        database_uid = base.get_uid_from_path(self.path_database)
-        return f"{database_uid}:{self.uid}"
-
-    def change_status(self, status: str) -> None:
-        """Change status of simulation.
-
-        Args:
-            status (str): new status
-        """
-        if self._prank == 0:
-            self._file.open("a")
-            self._file.attrs["status"] = status
-            self._file.close()
-
-        self._push_update_to_sqlite({"status": status})
-
-    def update_metadata(self, update_dict: dict) -> None:
-        """Update the metadata attributes.
-
-        Args:
-            update_dict: dictionary to push
-        """
-        if self._prank == 0:
-            update_dict = utilities.flatten_dict(update_dict)
-            with self._file("a") as file:
-                file.attrs.update(update_dict)
-
-            self._push_update_to_sqlite(update_dict)
-
-    def update_parameters(self, update_dict: dict) -> None:
-        """Update the parameters dictionary.
-
-        Args:
-            update_dict: dictionary to push
-        """
-        if self._prank == 0:
-            update_dict = utilities.flatten_dict(update_dict)
-            with self._file("a") as file:
-                file["parameters"].attrs.update(update_dict)
-
-            self._push_update_to_sqlite(update_dict)
+        subprocess.call(["paraview", self._xdmf_file])
 
     def create_xdmf_file(self, fields: list = None, nb_steps: int = None) -> None:
         """Create the xdmf file to read in paraview.
@@ -352,7 +324,7 @@ class Simulation:
 
         if self._prank == 0:
             with self._file("r"):
-                f = self._file.file_object
+                f = self._file._h5py_file
                 if "data" not in f.keys():
                     fields, nb_steps = [], 0
                 if fields is None:
@@ -380,7 +352,7 @@ class Simulation:
                 )
 
             with self._file("r"):
-                xdmf_writer = XDMFWriter(self.xdmffile, self._file)
+                xdmf_writer = XDMFWriter(self._xdmf_file, self._file)
                 xdmf_writer.write_points_cells(
                     f"{self._mesh_location}/{self._default_mesh}/{coords_name}",
                     f"{self._mesh_location}/{self._default_mesh}/topology",
@@ -425,8 +397,8 @@ class Simulation:
         def _set_environment_variables():
             return (
                 f"""DATABASE_DIR=$(sqlite3 {config.paths.databaseFile} "SELECT path FROM dbindex WHERE id='{self.database_id}'")\n"""
-                f"SIMULATION_DIR=$DATABASE_DIR/{self.uid}\n"
-                f"SIMULATION_ID={self.database_id}:{self.uid}\n\n"
+                f"SIMULATION_DIR=$DATABASE_DIR/{self.name}\n"
+                f"SIMULATION_ID={self.database_id}:{self.name}\n\n"
             )
 
         script = "#!/bin/bash\n\n"
@@ -436,7 +408,7 @@ class Simulation:
             if sbatch_kwargs is None:
                 sbatch_kwargs = {}
 
-            sbatch_kwargs.setdefault("--output", f"{self.path}/{self.uid}.out")
+            sbatch_kwargs.setdefault("--output", f"{self.path}/{self.name}.out")
             sbatch_kwargs.setdefault("--job-name", self.get_full_uid())
 
             for key, value in sbatch_kwargs.items():
@@ -446,7 +418,7 @@ class Simulation:
             script += _set_environment_variables()
             script += "\n".join(commands)
 
-            with open(self.files(f"sbatch_{self.uid}.sh"), "w") as file:
+            with open(self.files(f"sbatch_{self.name}.sh"), "w") as file:
                 file.write(script)
         else:
             # Write local bash script
@@ -454,7 +426,7 @@ class Simulation:
             script += _set_environment_variables()
             script += "\n".join(commands)
 
-            with open(self.files(f"{self.uid}.sh"), "w") as file:
+            with open(self.files(f"{self.name}.sh"), "w") as file:
                 file.write(script)
 
         with self._file("a") as file:
@@ -467,24 +439,24 @@ class Simulation:
 
     def submit(self) -> None:
         """Submit the job for this simulation."""
-        if f"sbatch_{self.uid}.sh" in os.listdir(self.path):
+        if f"sbatch_{self.name}.sh" in os.listdir(self.path):
             batch_script = os.path.abspath(
-                os.path.join(self.path, f"sbatch_{self.uid}.sh")
+                os.path.join(self.path, f"sbatch_{self.name}.sh")
             )
             env = os.environ.copy()
             _ = env.pop("BAMBOOST_MPI", None)
             subprocess.run(["sbatch", f"{batch_script}"], env=env)
-        elif f"{self.uid}.sh" in os.listdir(self.path):
-            bash_script = os.path.abspath(os.path.join(self.path, f"{self.uid}.sh"))
+        elif f"{self.name}.sh" in os.listdir(self.path):
+            bash_script = os.path.abspath(os.path.join(self.path, f"{self.name}.sh"))
             env = os.environ.copy()
             _ = env.pop("BAMBOOST_MPI", None)
             subprocess.run(["bash", f"{bash_script}"], env=env)
         else:
             raise FileNotFoundError(
-                f"Could not find a batch script for simulation {self.uid}."
+                f"Could not find a batch script for simulation {self.name}."
             )
 
-        log.info(f"Simulation {self.uid} submitted!")
+        log.info(f"Simulation {self.name} submitted!")
 
         with self._file("a") as file:
             file.attrs.update({"submitted": True})
@@ -500,7 +472,7 @@ class Simulation:
     # Ex-Simulation reader methods
     # ----------------------------
 
-    def open(self, mode: str = "r", driver=None, comm=None) -> FileHandler:
+    def open(self, mode: str = "r", driver=None, comm=None) -> HDF5File:
         """Use this as a context manager in a `with` statement.
         Purpose: keeping the file open to directly access/edit something in the
         HDF5 file of this simulation.
@@ -598,8 +570,8 @@ class Simulation:
     def show_h5tree(self) -> None:
         """Print the tree inside the h5 file."""
         # print('\U00002B57 ' + os.path.basename(self.h5file))
-        print("\U0001f43c " + os.path.basename(self.h5file))
-        utilities.h5_tree(self._file.file_object)
+        print("\U0001f43c " + os.path.basename(self._data_file))
+        utilities.h5_tree(self._file._h5py_file)
 
     @contextmanager
     def enter_path(self):
@@ -615,3 +587,79 @@ class Simulation:
             yield
         finally:
             os.chdir(current_dir)
+
+
+class SimulationWriter(Simulation):
+    def __init__(
+        self,
+        name: str,
+        parent: StrPath,
+        comm: Optional[Comm] = None,
+        index: Optional[Index] = None,
+        **kwargs,
+    ):
+        super().__init__(name, parent, comm, index, **kwargs)
+
+        # Set the file to editable
+        self._file._readonly = False
+
+    @_on_root
+    def _send_to_sql(
+        self,
+        *,
+        metadata: Optional[_SimulationMetadataT] = None,
+        parameters: Optional[_SimulationParameterT] = None,
+    ) -> None:
+        """Push update to sqlite database.
+
+        Args:
+            - update_dict (dict): key value pair to push
+        """
+        if not config.options.sync_tables:
+            return
+        try:
+            with self._index.sql_transaction():
+                if metadata:
+                    self._index.update_simulation_metadata(
+                        self.collection_uid, self.name, metadata
+                    )
+                if parameters:
+                    self._index.update_simulation_parameters(
+                        self.collection_uid, self.name, parameters
+                    )
+        except SQLAlchemyError as e:
+            on_root(log.error, self._comm)(f"Could not update sqlite database: {e}")
+
+    @_on_root
+    @with_file_open(FileMode.APPEND)
+    def change_status(self, status: str) -> None:
+        """Change status of simulation.
+
+        Args:
+            status (str): new status
+        """
+        self._file.attrs["status"] = status
+        self._send_to_sql(metadata={"status": status})
+
+    @_on_root
+    @with_file_open(FileMode.APPEND)
+    def update_metadata(self, update_dict: _SimulationMetadataT) -> None:
+        """Update the metadata attributes.
+
+        Args:
+            update_dict: dictionary to push
+        """
+        self._file.attrs.update(update_dict)
+        self._send_to_sql(metadata=update_dict)
+
+    @_on_root
+    @with_file_open(FileMode.APPEND)
+    def update_parameters(self, update_dict: _SimulationParameterT) -> None:
+        """Update the parameters dictionary.
+
+        Args:
+            update_dict: dictionary to push
+        """
+        update_dict = utilities.flatten_dict(update_dict)
+        self._file["parameters"].attrs.update(update_dict)
+        self._send_to_sql(parameters=update_dict)
