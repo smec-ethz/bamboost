@@ -34,7 +34,7 @@ class MeshGroup(Group):
 
     @with_file_open(FileMode.READ)
     def __getitem__(self, key) -> Mesh:
-        return Mesh(self._file, f"{self._name}/{key}")
+        return Mesh(self._file, f"{self._path}/{key}")
 
 
 class Mesh(Group):

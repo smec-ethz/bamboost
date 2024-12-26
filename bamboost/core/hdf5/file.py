@@ -247,17 +247,17 @@ class H5Reference(Generic[_T]):
     _type: str = "object"
     _valid: bool | None = None
 
-    def __init__(self, name: str, file: HDF5File):
+    def __init__(self, path: str, file: HDF5File):
         self._file = file
-        self._name = HDF5Path(name)
+        self._path = HDF5Path(path)
 
         # if the file is open, we check if the object exists
         if file.is_open:
-            self._valid = self._name in file
+            self._valid = self._path in file
 
     @property
     def _obj(self) -> _T:
-        _obj = cast(_T, self._file[self._name])
+        _obj = cast(_T, self._file[self._path])
         self._valid = True
         return _obj
 
@@ -269,7 +269,7 @@ class H5Reference(Generic[_T]):
             if self._valid
             else "invalid"
         )
-        return f'<HDF5 {self._type} "{self._name}" ({valid_str}, file {self._file._filename})>'
+        return f'<HDF5 {self._type} "{self._path}" ({valid_str}, file {self._file._filename})>'
 
     @overload
     def __getitem__(self, value: str) -> Union[Group, Dataset]: ...
@@ -283,7 +283,7 @@ class H5Reference(Generic[_T]):
             name, _type = value
         else:
             name, _type = cast(str, value), None
-        return self.new(self._name / name, self._file, _type)
+        return self.new(self._path / name, self._file, _type)
 
     def open(
         self,
@@ -321,8 +321,8 @@ class H5Reference(Generic[_T]):
 class Group(H5Reference[h5py.Group]):
     _type: str = "group"
 
-    def __init__(self, name: str, file: HDF5File):
-        super().__init__(name, file)
+    def __init__(self, path: str, file: HDF5File):
+        super().__init__(path, file)
 
     def _ipython_key_completions_(self):
         return self.keys(all=True)
@@ -331,7 +331,7 @@ class Group(H5Reference[h5py.Group]):
     def _obj(self) -> h5py.Group:
         _obj = super()._obj
         if not isinstance(_obj, h5py.Group):
-            raise ValueError(f"Object {self._name} is not a group")
+            raise ValueError(f"Object {self._path} is not a group")
         return _obj
 
     def __iter__(self):
@@ -344,23 +344,23 @@ class Group(H5Reference[h5py.Group]):
         return {
             k: v
             for k, v in self._file._object_map.items()
-            if k.startswith(self._name) and k != self._name
+            if k.startswith(self._path) and k != self._path
         }
 
     @property
     def _children_map(self) -> dict[HDF5Path, Type[h5py.Group | h5py.Dataset]]:
-        return {k: v for k, v in self._object_map.items() if k.parent == self._name}
+        return {k: v for k, v in self._object_map.items() if k.parent == self._path}
 
     @cache
     def keys(self, all: bool = False) -> list[HDF5Path]:
         object_map = self._object_map if all else self._children_map
-        return [path.relative_to(self._name) for path in object_map.keys()]
+        return [path.relative_to(self._path) for path in object_map.keys()]
 
     @cache
     def groups(self, all: bool = False) -> list[HDF5Path]:
         object_map = self._object_map if all else self._children_map
         return [
-            name.relative_to(self._name)
+            name.relative_to(self._path)
             for name, t in object_map.items()
             if t == h5py.Group
         ]
@@ -369,7 +369,7 @@ class Group(H5Reference[h5py.Group]):
     def datasets(self, all: bool = False) -> list[str]:
         object_map = self._object_map if all else self._children_map
         return [
-            name.relative_to(self._name)
+            name.relative_to(self._path)
             for name, t in object_map.items()
             if t == h5py.Dataset
         ]
@@ -382,18 +382,18 @@ class Group(H5Reference[h5py.Group]):
             _obj = self._obj
         except ValueError:
             self._valid = False
-            return f"Invalid HDF5 object: <b>{self._name}</b> is not a group"
+            return f"Invalid HDF5 object: <b>{self._path}</b> is not a group"
 
         from jinja2 import Template
 
         attrs = dict(_obj.attrs)
-        groups = {key: len(_obj[self._name / key]) for key in self.groups()}  # type: ignore
+        groups = {key: len(_obj[self._path / key]) for key in self.groups()}  # type: ignore
         datasets = {
-            key: (_obj[self._name / key].dtype, _obj[self._name / key].shape)  # type: ignore
+            key: (_obj[self._path / key].dtype, _obj[self._path / key].shape)  # type: ignore
             for key in self.datasets()
         }
 
-        path = self._name
+        path = self._path
         path = path if path[0] == "/" else "/" + path
 
         html_template = pkgutil.get_data(
@@ -426,7 +426,7 @@ class MutableGroup(Group):
         or groups inside this group (:class:`~bamboost.common.hdf_pointer.MutableGroup`)
         """
         if key in self.keys():
-            return self.new(f"{self._name}/{key}", self._file)
+            return self.new(f"{self._path}/{key}", self._file)
 
         if key in self.attrs:
             return self.attrs[key]
@@ -502,7 +502,7 @@ class MutableGroup(Group):
             dataset[idx_start:idx_end] = vector
 
         self.update_attrs(attrs)
-        log.info(f'Written dataset to "{self._name}/{name}"')
+        log.info(f'Written dataset to "{self._path}/{name}"')
 
 
 class Dataset(H5Reference[h5py.Dataset]):
