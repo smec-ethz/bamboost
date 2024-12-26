@@ -8,10 +8,8 @@
 # There is no warranty for this code
 from __future__ import annotations
 
-import numbers
 import os
 import pkgutil
-import shutil
 import uuid
 from ctypes import ArgumentError
 from functools import cache
@@ -27,12 +25,12 @@ import h5py
 import numpy as np
 
 from bamboost import BAMBOOST_LOGGER, config
-from bamboost.core.hdf5.file_handler import open_h5file
 
 # from bamboost.core.simulation.base import Simulation
 # from bamboost.core.simulation.writer import SimulationWriter
+from bamboost.core.simulation.base import Simulation
 from bamboost.core.utilities import flatten_dict
-from bamboost.index import CollectionUID, Index, StrPath, create_identifier_file
+from bamboost.index import CollectionUID, Index, StrPath
 from bamboost.index.sqlmodel import SimulationORM
 from bamboost.mpi import MPI
 
@@ -69,7 +67,7 @@ class Collection:
         >>> db.df # DataFrame of the database
     """
 
-    FROZEN = True
+    FROZEN = False  # TODO: If true, the collection doesn't look for new simulations after initialization
     uid: CollectionUID
     path: Path
 
@@ -85,7 +83,7 @@ class Collection:
         assert path or uid, "Either path or uid must be provided."
         assert not (path and uid), "Only one of path or uid must be provided."
 
-        self.comm = comm or MPI.COMM_WORLD
+        self._comm = comm or MPI.COMM_WORLD
         self._index = index_instance or Index()
 
         # Resolve the path
@@ -111,8 +109,8 @@ class Collection:
     def __len__(self) -> int:
         return len(self._orm.simulations)
 
-    def __getitem__(self, uid: str) -> SimulationORM:
-        return self._index.simulation(self.uid, uid)
+    def __getitem__(self, name: str) -> Simulation:
+        return Simulation(name, self.path, self._comm)
 
     @cache
     def _ipython_key_completions_(self):
@@ -216,32 +214,32 @@ class Collection:
         """
         if parameters and not skip_duplicate_check:
             go_on = True
-            if self.comm.rank == 0:
+            if self._comm.rank == 0:
                 go_on, uid = self._check_duplicate(
                     parameters, uid, duplicate_action=duplicate_action
                 )
-            self.comm.bcast((go_on, uid), root=0)
+            self._comm.bcast((go_on, uid), root=0)
             if not go_on:
                 print("Aborting by user desire...")
                 return None
 
-        if self.comm.rank == 0:
+        if self._comm.rank == 0:
             if not uid:
                 uid = uuid.uuid4().hex[:8]  # Assign random unique identifier
             if isinstance(prefix, str) and prefix != "":
                 uid = "_".join([prefix, uid])
-        uid = self.comm.bcast(uid, root=0)
+        uid = self._comm.bcast(uid, root=0)
 
         try:
             # Create directory and h5 file
-            if self.comm.rank == 0:
+            if self._comm.rank == 0:
                 os.makedirs(os.path.join(self.path, uid), exist_ok=True)
                 path_to_h5_file = os.path.join(self.path, uid, f"{uid}.h5")
                 if os.path.exists(path_to_h5_file):
                     os.remove(path_to_h5_file)
                 h5py.File(path_to_h5_file, "a").close()  # create file
 
-            new_sim = SimulationWriter(uid, self.path, self.comm)
+            new_sim = SimulationWriter(uid, self.path, self._comm)
             new_sim.initialize()  # sets metadata and status
             # add the id to the (fixed) _all_uids list
             if hasattr(self, "_all_uids"):
@@ -268,7 +266,7 @@ class Collection:
 
         except Exception as e:
             # If any error occurs, remove the partially created simulation
-            if self.comm.rank == 0:
+            if self._comm.rank == 0:
                 self.remove(uid)
             raise e  # Re-raise the exception after cleanup
 
