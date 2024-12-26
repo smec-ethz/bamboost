@@ -85,6 +85,7 @@ _SimulationMetadataT = TypedDict(
         "description": str,
         "status": str,
     },
+    total=False,
 )
 _SimulationParameterT: TypeAlias = Dict[str, Any]
 
@@ -102,18 +103,6 @@ class CollectionUID(str):
     @staticmethod
     def generate_uid(length: int) -> str:
         return uuid.uuid4().hex[:length].upper()
-
-
-class SimulationName(str):
-    """Name of a simulation."""
-
-    def __new__(cls, name: Optional[str] = None, length: int = 10):
-        name = name or cls.generate_name(length)
-        return super().__new__(cls, name)
-
-    @staticmethod
-    def generate_name(length: int) -> str:
-        return uuid.uuid4().hex[:length]
 
 
 def _sql_transaction(
@@ -287,7 +276,7 @@ class Index(metaclass=MPISafeMeta):
                     )
 
                 # Store the collection in the cache
-                self.cache_collection(uid, paths_found[0])
+                self.upsert_collection(uid, paths_found[0])
                 return paths_found[0]
 
         raise FileNotFoundError(f"Database with {uid} was not found.")
@@ -351,7 +340,7 @@ class Index(metaclass=MPISafeMeta):
                     all_simulations_fs.remove(simulation.name)
 
         for name in all_simulations_fs:
-            self.cache_simulation(
+            self.upsert_simulation(
                 collection_uid=uid, simulation_name=name, collection_path=path
             )
 
@@ -465,7 +454,7 @@ class Index(metaclass=MPISafeMeta):
         self._s.execute(stmt)
 
     @_sql_transaction
-    def cache_collection(self, uid: str, path: Path) -> None:
+    def upsert_collection(self, uid: str, path: Path) -> None:
         """Cache a collection in the index.
 
         Args:
@@ -475,7 +464,7 @@ class Index(metaclass=MPISafeMeta):
         self._s.execute(CollectionORM.upsert({"uid": uid, "path": path.as_posix()}))
 
     @_sql_transaction
-    def cache_simulation(
+    def upsert_simulation(
         self,
         collection_uid: str,
         simulation_name: str,
@@ -490,8 +479,9 @@ class Index(metaclass=MPISafeMeta):
             collection_path (Optional): Path of the collection
         """
         collection_path = Path(collection_path or self.resolve_path(collection_uid))
+
         h5_file = collection_path.joinpath(simulation_name, f"{simulation_name}.h5")
-        metadata, params = simulation_metadata_from_h5(h5_file)
+        metadata, parameters = simulation_metadata_from_h5(h5_file)
 
         # Upsert the simulation table
         sim_id = self._s.execute(
@@ -505,7 +495,50 @@ class Index(metaclass=MPISafeMeta):
             ParameterORM.upsert(
                 [
                     {"simulation_id": sim_id, "key": k, "value": v}
-                    for k, v in params.items()
+                    for k, v in parameters.items()
+                ]
+            )
+        )
+
+    @_sql_transaction
+    def update_simulation_metadata(
+        self, collection_uid: str, simulation_name: str, data: _SimulationMetadataT
+    ) -> None:
+        """Update the metadata of a simulation by passing it as a dict.
+
+        Args:
+            data: Dictionary with new data
+        """
+        self._s.execute(
+            SimulationORM.upsert(
+                {"collection_uid": collection_uid, "name": simulation_name, **data}
+            )
+        )
+
+    @_sql_transaction
+    def update_simulation_parameters(
+        self,
+        collection_uid: str,
+        simulation_name: str,
+        parameters: _SimulationParameterT,
+    ) -> None:
+        """Update the parameters of a simulation by passing it as a dict.
+
+        Args:
+            parameters: Dictionary with new parameters
+        """
+        sim_id = self._s.execute(
+            select(SimulationORM.id).where(
+                SimulationORM.collection_uid == collection_uid,
+                SimulationORM.name == simulation_name,
+            )
+        ).scalar_one()
+
+        self._s.execute(
+            ParameterORM.upsert(
+                [
+                    {"simulation_id": sim_id, "key": k, "value": v}
+                    for k, v in parameters.items()
                 ]
             )
         )
@@ -529,7 +562,7 @@ class Index(metaclass=MPISafeMeta):
     @bcast
     @_sql_transaction
     def _get_simulation(
-        self, collection_uid: CollectionUID | str, simulation_name: SimulationName | str
+        self, collection_uid: CollectionUID | str, simulation_name: str
     ) -> SimulationORM | None:
         return self._s.execute(
             select(SimulationORM)
@@ -552,6 +585,9 @@ def simulation_metadata_from_h5(
     Args:
         file: Path to the HDF5 file.
     """
+    if not file.is_file():
+        raise FileNotFoundError(f"File not found: {file}")
+
     from bamboost.core.hdf5.file import HDF5File
 
     with HDF5File(file.as_posix()).open("r") as f:
