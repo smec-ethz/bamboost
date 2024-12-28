@@ -49,7 +49,7 @@ from typing import (
     Union,
 )
 
-from sqlalchemy import Engine, create_engine, delete, select
+from sqlalchemy import Engine, create_engine, delete, select, text
 from sqlalchemy.exc import SQLAlchemyError
 from sqlalchemy.orm import Session, joinedload, sessionmaker
 from typing_extensions import Concatenate, ParamSpec, TypeAlias
@@ -301,10 +301,13 @@ class Index(metaclass=MPISafeMeta):
 
         log.debug(f"No or invalid path found in cache for collection <{path}>.")
 
+        identified_uid = _find_uid_from_path(path)
         uid = CollectionUID(
-            _find_uid_from_path(path)
+            identified_uid
         )  # Note: this generates a new UID if none is found
-        self._s.execute(CollectionORM.upsert({"uid": uid, "path": path.as_posix()}))
+        self._s.execute(
+            CollectionORM.upsert({"uid": uid, "path": path.absolute().as_posix()})
+        )
         return uid
 
     @_sql_transaction

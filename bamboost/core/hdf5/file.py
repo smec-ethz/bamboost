@@ -31,6 +31,7 @@ from typing import (
 
 import h5py
 import numpy as np
+from typing_extensions import Self
 
 import bamboost
 from bamboost import BAMBOOST_LOGGER
@@ -314,8 +315,8 @@ class H5Reference(Generic[_T]):
 
     @property
     @with_file_open()
-    def parent(self) -> Group:
-        return Group(self._obj.parent.name or "", self._file)
+    def parent(self) -> Self:
+        return self.__class__(self._obj.parent.name or "", self._file)
 
 
 class Group(H5Reference[h5py.Group]):
@@ -414,11 +415,11 @@ class Group(H5Reference[h5py.Group]):
 
 
 class MutableGroup(Group):
-    def __init__(self, name: str, file: HDF5File):
+    def __new__(cls, name: str, file: HDF5File):
         if file._readonly:
-            raise ValueError("Cannot modify read-only file")
-
-        super().__init__(name, file)
+            log.warning("Cannot modify read-only file. Returning read-only group.")
+            return Group(name, file)
+        return super().__new__(cls)
 
     @with_file_open(FileMode.READ)
     def __getitem__(self, key: str) -> Group | Dataset:

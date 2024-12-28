@@ -16,6 +16,7 @@ from typing import (
 
 from sqlalchemy import (
     JSON,
+    Boolean,
     DateTime,
     ForeignKey,
     Insert,
@@ -133,6 +134,7 @@ class SimulationORM(_Base):
     )
     description: Mapped[Optional[str]] = mapped_column(String)
     status: Mapped[str] = mapped_column(String, nullable=False, default="pending")
+    submitted: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
 
     # Relationships
     collection: Mapped[CollectionORM] = relationship(

@@ -13,14 +13,13 @@ import inspect
 import os
 import subprocess
 import uuid
-from collections.abc import Mapping, MutableMapping
+from collections.abc import Mapping
 from contextlib import contextmanager
 from functools import cached_property, wraps
 from pathlib import Path
 from typing import (
     TYPE_CHECKING,
     Any,
-    Dict,
     Generic,
     Optional,
     Tuple,
@@ -32,7 +31,6 @@ from typing import (
 import h5py
 import numpy as np
 import pandas as pd
-from sqlalchemy.exc import SQLAlchemyError
 from typing_extensions import deprecated
 
 import bamboost.core.simulation._repr as reprs
@@ -53,8 +51,7 @@ from bamboost.index import (
     _SimulationMetadataT,
     _SimulationParameterT,
 )
-from bamboost.mpi import MPI
-from bamboost.mpi.utilities import on_root
+from bamboost.mpi import MPI, MPI_ON
 from bamboost.utilities import StrPath
 
 if TYPE_CHECKING:
@@ -68,25 +65,53 @@ UID_SEPARATOR = ":"
 _GT = TypeVar("_GT", bound=H5Reference)
 
 
-class _Parameters(Generic[_GT]):
-    _gt: Type[_GT] = Group  # type: ignore
+def _mutable_only(func):
+    """Decorator to raise an error if the object is not mutable."""
 
-    def __init__(self, simulation: Simulation):
+    @wraps(func)
+    def wrapper(self: _GroupDict, *args, **kwargs):
+        if self._file._readonly:
+            raise PermissionError("Simulation is read-only.")
+        return func(self, *args, **kwargs)
+
+    return wrapper
+
+
+class _GroupDict(Mapping):
+    """A dictionary-like object for the attributes of a group in the HDF5
+    file.
+
+    This object is tied to a simulation. If the simulation is read-only, the
+    object is immutable. If mutable, changes are pushed to the HDF5 file
+    immediately.
+
+    Args:
+        simulation: the simulation object
+        path: path to the group in the HDF5 file
+    """
+
+    mutable: bool = False
+
+    def __init__(self, simulation: Simulation, path: str) -> None:
         self._simulation = simulation
+        self._path = path
         self._file = simulation._file
-        self._dict: _SimulationParameterT = self.read()
-        self._group = self._gt("/parameters", simulation._file)
+        self._dict = self.read()
+        self.mutable = not self._file._readonly
 
     @with_file_open(FileMode.READ)
     def read(self) -> dict:
         tmp_dict = dict()
 
-        # return if parameter group is not in the file
-        if "parameters" not in self._file.keys():
-            return {}
-        grp_parameters = cast(h5py.Group, self._file["parameters"])
-        tmp_dict.update(grp_parameters.attrs)
-        for key, value in grp_parameters.items():
+        try:
+            grp = cast(h5py.Group, self._file[self._path])
+        except KeyError:
+            raise KeyError(
+                f"Group {self._path} not found in file {self._simulation._file._filename}."
+            )
+
+        tmp_dict.update(grp.attrs)
+        for key, value in grp.items():
             if not isinstance(value, h5py.Dataset):
                 continue
             tmp_dict.update({key: value[()]})
@@ -103,18 +128,48 @@ class _Parameters(Generic[_GT]):
         return len(self._dict)
 
     def __repr__(self) -> str:
-        return repr(self._dict)
+        return self._dict.__repr__()
+
+    def _repr_pretty_(self, p, cycle):
+        cls_name = type(self).__name__
+        if cycle:
+            p.text(f"{cls_name}(...)")
+        else:
+            with p.group(8, f"{cls_name}(", ")"):
+                p.pretty(self._dict)
 
     def _ipython_key_completions_(self):
         return tuple(self._dict.keys())
 
+    @property
+    def _obj(self) -> h5py.Group:
+        obj = self._file[self._path]
+        assert isinstance(obj, h5py.Group), f"Object at {self._path} is not a group."
+        return obj
 
-class _MutableParameters(_Parameters[MutableGroup]):
-    _gt: Type[MutableGroup] = MutableGroup
-
+    # Methods for mutable objects only
+    @_mutable_only
     def __setitem__(self, key: str, value: Any) -> None:
         self._dict[key] = value
-        self._group.update_attrs({key: value})
+        with self._file.open(FileMode.APPEND):
+            self._obj.attrs[key] = value
+
+    @_mutable_only
+    def __delitem__(self, key: str) -> None:
+        with self._file.open(FileMode.APPEND):
+            del self._obj.attrs[key]
+
+
+class _Parameters(_GroupDict):
+    def __init__(self, simulation: Simulation) -> None:
+        super().__init__(simulation, "/parameters")
+
+
+class _MutableParameters(_Parameters):
+    def __setitem__(self, key: str, value: Any) -> None:
+        super().__setitem__(key, value)
+        # also send the updated parameter to the SQL database
+        self._simulation._send_to_sql(parameters={key: value})
 
     def update(self, update_dict: dict) -> None:
         """Update the parameters dictionary. This method pushes the update to
@@ -135,56 +190,34 @@ class _MutableParameters(_Parameters[MutableGroup]):
             if isinstance(v, np.ndarray):
                 arrays[k] = update_dict.pop(k)
 
-        # write arrays as datasets
-        for k, v in arrays.items():
-            self._group.add_dataset(k, v)
+        with self._file.open(FileMode.APPEND):
+            # write arrays as datasets
+            for k, v in arrays.items():
+                if k in self._obj:
+                    del self._obj[k]
+                self._obj.create_dataset(k, data=v)
 
-        # write the rest
-        self._group.update_attrs(update_dict)
+            # write the rest
+            self._obj.attrs.update(update_dict)
 
 
-# class Links(hdf_pointer.MutableGroup):
-#     """Link group. Used to create and access links.
-#
-#     I don't know how to distribute this to its own file in the accessors
-#     directory, due to circular imports.
-#     """
-#
-#     def __init__(self, file_handler: HDF5File) -> None:
-#         super().__init__(file_handler, path_to_data="links")
-#
-#     def _ipython_key_completions_(self):
-#         return tuple(self.all_links().keys())
-#
-#     @with_file_open("r", driver="mpio")
-#     def __getitem__(self, key) -> Simulation:
-#         """Returns the linked simulation object."""
-#         return Simulation.fromUID(self.obj.attrs[key])
-#
-#     def __setitem__(self, key, newvalue):
-#         """Creates the link."""
-#         return self.update_attrs({key: newvalue})
-#
-#     def __delitem__(self, key):
-#         """Delete a link."""
-#         with self._file("a"):
-#             del self.obj.attrs[key]
-#
-#     @with_file_open("r")
-#     def __repr__(self) -> str:
-#         return repr(
-#             pd.DataFrame.from_dict(self.all_links(), orient="index", columns=["UID"])
-#         )
-#
-#     @with_file_open("r")
-#     def _repr_html_(self) -> str:
-#         return pd.DataFrame.from_dict(
-#             self.all_links(), orient="index", columns=["UID"]
-#         )._repr_html_()
-#
-#     @with_file_open("r")
-#     def all_links(self) -> dict:
-#         return dict(self.obj.attrs)
+class _Links(_GroupDict):
+    def __init__(self, simulation: Simulation) -> None:
+        super().__init__(simulation, "/links")
+
+
+class _Metadata(_GroupDict):
+    def __init__(self, simulation: Simulation) -> None:
+        super().__init__(simulation, "/")
+
+    @_mutable_only
+    def __setitem__(self, key: str, value: Any) -> None:
+        assert (
+            key in self._dict
+        ), f'Can only set existing metadata keys. "{key}" not found.'
+        super().__setitem__(key, value)
+        # also send the updated parameter to the SQL database
+        self._simulation._send_to_sql(metadata={key: value})  # type: ignore
 
 
 class SimulationName(str):
@@ -248,7 +281,7 @@ class Simulation:
         **kwargs,
     ):
         self.name: str = name
-        self.path: Path = Path(parent).joinpath(name)
+        self.path: Path = Path(parent).joinpath(name).absolute()
         self._index: Index = index or Index()
         if not self.path.is_dir():
             raise FileNotFoundError(
@@ -277,12 +310,6 @@ class Simulation:
         # self.userdata: hdf_pointer.MutableGroup = hdf_pointer.MutableGroup(
         #     self._file, "/userdata"
         # )
-        # self.links: Links = Links(self._file)
-
-    @property
-    def uid(self) -> str:
-        """The full uid of the simulation (collection_uid:simulation_name)."""
-        return f"{self.collection_uid}{UID_SEPARATOR}{self.name}"
 
     @classmethod
     def from_uid(cls, uid: str, **kwargs) -> Simulation:
@@ -296,6 +323,11 @@ class Simulation:
         index = kwargs.pop("index", None) or Index()
         collection_path = index.resolve_path(collection_uid)
         return cls(name, collection_path, index=index, **kwargs)
+
+    @property
+    def uid(self) -> str:
+        """The full uid of the simulation (collection_uid:simulation_name)."""
+        return f"{self.collection_uid}{UID_SEPARATOR}{self.name}"
 
     def edit(self) -> SimulationWriter:
         """Return an object with writing rights to edit the simulation."""
@@ -322,7 +354,7 @@ class Simulation:
         Args:
             - update_dict (dict): key value pair to push
         """
-        if not config.options.sync_tables:
+        if not config.index.syncTables:
             return
 
         if metadata:
@@ -338,32 +370,43 @@ class Simulation:
     def parameters(self) -> _Parameters:
         return _Parameters(self)
 
-    @property
-    def metadata(self) -> dict:
-        return self._file.root.attrs
+    @cached_property
+    def metadata(self) -> _Metadata:
+        return _Metadata(self)
 
-    def files(self, filename: str) -> Path:
-        """Get the path to the file.
+    @cached_property
+    def links(self) -> _Links:
+        return _Links(self)
 
-        Args:
-            filename: name of the file
-        """
-        return self.path.joinpath(filename)
+    @cached_property
+    def files(self):
+        class FilePicker:
+            def __init__(self, path: Path):
+                self.path = path
+                self._dict = self._build_file_dict(path)
 
-    def show_files(
-        self,
-        level: int = -1,
-        limit_to_directories: bool = False,
-        length_limit: int = 1000,
-    ) -> str:
-        """Show the file tree of the simulation directory.
+            def _build_file_dict(self, path: Path) -> dict:
+                file_dict = {}
+                for f in path.iterdir():
+                    if f.is_dir():
+                        subdir_dict = self._build_file_dict(f)
+                        file_dict.update(
+                            {f"{f.name}/{k}": v for k, v in subdir_dict.items()}
+                        )
+                    else:
+                        file_dict[f.name] = f.absolute()
+                return file_dict
 
-        Args:
-            level: how deep to print the tree
-            limit_to_directories: only print directories
-            length_limit: cutoff
-        """
-        return utilities.tree(self.path, level, limit_to_directories, length_limit)
+            def __getitem__(self, key):
+                return self._dict[key]
+
+            def _ipython_key_completions_(self):
+                return tuple(self._dict.keys())
+
+            def __repr__(self):
+                return utilities.tree(self.path)
+
+        return FilePicker(self.path)
 
     def open_in_paraview(self) -> None:
         """Open the xdmf file in paraview."""
@@ -377,6 +420,7 @@ class Simulation:
                 if not specified, all fields in data are written.
             nb_steps (int): number of steps the simulation has
         """
+        # TODO: implement this method
 
         if self._prank == 0:
             with self._file("r"):
@@ -420,125 +464,18 @@ class Simulation:
 
         self._comm.barrier()
 
-    def create_run_script(
-        self,
-        commands: list[str],
-        euler: bool = True,
-        sbatch_kwargs: dict[str, Any] = None,
-    ) -> None:
-        """Create a batch job and put it into the folder.
-
-        Args:
-            commands: A list of strings being the user defined commands to run
-            euler: If false, a local bash script will be written
-            sbatch_kwargs: Additional sbatch arguments.
-                This parameter allows you to provide additional arguments to the `sbatch` command
-                when submitting jobs to a Slurm workload manager. The arguments should be provided
-                in the format of a dict of sbatch option name and values.
-
-                Use this parameter to specify various job submission options such as the number of
-                tasks, CPU cores, memory requirements, email notifications, and other sbatch options
-                that are not covered by default settings.
-                By default, the following sbatch options are set:
-                - `--output`: The output file is set to `<uid>.out`.
-                - `--job-name`: The job name is set to `<full_uid>`.
-
-                The following arguments should bring you far:
-                - `--ntasks`: The number of tasks to run. This is the number of MPI processes to start.
-                - `--mem-per-cpu`: The memory required per CPU core.
-                - `--time`: The maximum time the job is allowed to run.
-                - `--tmp`: Temporary scratch space to use for the job.
-        """
-
-        def _set_environment_variables():
-            return (
-                f"""DATABASE_DIR=$(sqlite3 {config.paths.databaseFile} "SELECT path FROM dbindex WHERE id='{self.database_id}'")\n"""
-                f"SIMULATION_DIR=$DATABASE_DIR/{self.name}\n"
-                f"SIMULATION_ID={self.database_id}:{self.name}\n\n"
-            )
-
-        script = "#!/bin/bash\n\n"
-        if euler:
-            # Write sbatch submission script for EULER
-            # filename: sbatch_{self.uid}.sh
-            if sbatch_kwargs is None:
-                sbatch_kwargs = {}
-
-            sbatch_kwargs.setdefault("--output", f"{self.path}/{self.name}.out")
-            sbatch_kwargs.setdefault("--job-name", self.get_full_uid())
-
-            for key, value in sbatch_kwargs.items():
-                script += f"#SBATCH {key}={value}\n"
-
-            script += "\n"
-            script += _set_environment_variables()
-            script += "\n".join(commands)
-
-            with open(self.files(f"sbatch_{self.name}.sh"), "w") as file:
-                file.write(script)
-        else:
-            # Write local bash script
-            # filename: {self.uid}.sh
-            script += _set_environment_variables()
-            script += "\n".join(commands)
-
-            with open(self.files(f"{self.name}.sh"), "w") as file:
-                file.write(script)
-
-        with self._file("a") as file:
-            file.attrs.update({"submitted": False})
-        self._push_update_to_sqlite({"submitted": False})
-
-    @deprecated("use `create_run_script` instead")
-    def create_batch_script(self, *args, **kwargs):
-        return self.create_run_script(*args, **kwargs)
-
-    def submit(self) -> None:
-        """Submit the job for this simulation."""
-        if f"sbatch_{self.name}.sh" in os.listdir(self.path):
-            batch_script = os.path.abspath(
-                os.path.join(self.path, f"sbatch_{self.name}.sh")
-            )
-            env = os.environ.copy()
-            _ = env.pop("BAMBOOST_MPI", None)
-            subprocess.run(["sbatch", f"{batch_script}"], env=env)
-        elif f"{self.name}.sh" in os.listdir(self.path):
-            bash_script = os.path.abspath(os.path.join(self.path, f"{self.name}.sh"))
-            env = os.environ.copy()
-            _ = env.pop("BAMBOOST_MPI", None)
-            subprocess.run(["bash", f"{bash_script}"], env=env)
-        else:
-            raise FileNotFoundError(
-                f"Could not find a batch script for simulation {self.name}."
-            )
-
-        log.info(f"Simulation {self.name} submitted!")
-
-        with self._file("a") as file:
-            file.attrs.update({"submitted": True})
-
-        self._push_update_to_sqlite({"submitted": True})
-
-    @with_file_open("a")
-    def change_note(self, note) -> None:
-        if self._prank == 0:
-            self._file.attrs["notes"] = note
-            self._push_update_to_sqlite({"notes": note})
-
-    # Ex-Simulation reader methods
-    # ----------------------------
-
-    def open(self, mode: str = "r", driver=None, comm=None) -> HDF5File:
+    def open(self, mode: FileMode | str = "r", driver=None) -> h5py.File:
         """Use this as a context manager in a `with` statement.
         Purpose: keeping the file open to directly access/edit something in the
         HDF5 file of this simulation.
 
         Args:
-            mode (`str`): file mode (see h5py docs)
-            driver (`str`): file driver (see h5py docs)
-            comm (`str`): mpi communicator
+            mode: file mode (see h5py docs)
+            driver: file driver (see h5py docs)
+            comm: mpi communicator
         """
-        return self._file(mode, driver, comm)
+        mode = FileMode(mode)
+        return self._file.open(mode, driver)
 
     @property
     def mesh(self) -> Mesh:
@@ -627,7 +564,7 @@ class Simulation:
         """Print the tree inside the h5 file."""
         # print('\U00002B57 ' + os.path.basename(self.h5file))
         print("\U0001f43c " + os.path.basename(self._data_file))
-        utilities.h5_tree(self._file._h5py_file)
+        utilities.h5_tree(self._file.root._obj)
 
     @contextmanager
     def enter_path(self):
@@ -696,3 +633,73 @@ class SimulationWriter(Simulation):
         update_dict = utilities.flatten_dict(update_dict)
         self._file["parameters"].attrs.update(update_dict)
         self._send_to_sql(parameters=update_dict)
+
+    def create_run_script(
+        self,
+        commands: list[str],
+        euler: bool = True,
+        sbatch_kwargs: Optional[dict[str, Any]] = None,
+    ) -> None:
+        """Create a batch job and put it into the folder.
+
+        Args:
+            commands: A list of strings being the user defined commands to run
+            euler: If false, a local bash script will be written
+            sbatch_kwargs: Additional sbatch arguments.
+                This parameter allows you to provide additional arguments to the `sbatch` command
+                when submitting jobs to a Slurm workload manager. The arguments should be provided
+                in the format of a dict of sbatch option name and values.
+
+                Use this parameter to specify various job submission options such as the number of
+                tasks, CPU cores, memory requirements, email notifications, and other sbatch options
+                that are not covered by default settings.
+                By default, the following sbatch options are set:
+                - `--output`: The output file is set to `<uid>.out`.
+                - `--job-name`: The job name is set to `<full_uid>`.
+
+                The following arguments should bring you far:
+                - `--ntasks`: The number of tasks to run. This is the number of MPI processes to start.
+                - `--mem-per-cpu`: The memory required per CPU core.
+                - `--time`: The maximum time the job is allowed to run.
+                - `--tmp`: Temporary scratch space to use for the job.
+        """
+        script = "#!/bin/bash\n\n"
+
+        # Add sbatch options
+        if euler:
+            if sbatch_kwargs is None:
+                sbatch_kwargs = {}
+
+            sbatch_kwargs.setdefault(
+                "--output", f"{self.path.joinpath(self.name + '.out')}"
+            )
+            sbatch_kwargs.setdefault("--job-name", self.uid)
+
+            for key, value in sbatch_kwargs.items():
+                script += f"#SBATCH {key}={value}\n"
+
+        # Add environment variables
+        script += "\n"
+        script += (
+            f"""COLLECTION_DIR=$(sqlite3 {config.index.databaseFile} "SELECT path FROM collections WHERE uid='{self.collection_uid}'")\n"""
+            f"SIMULATION_DIR={self.path.as_posix()}\n"
+            f"SIMULATION_ID={self.uid}\n\n"
+        )
+        script += "\n".join(commands)
+
+        with self.path.joinpath(f"{self.name}.sh").open("w") as file:
+            file.write(script)
+
+        self.metadata["submitted"] = False
+
+    def sbatch_submit(self) -> None:
+        assert not MPI_ON, "This method is not available in MPI execution."
+
+        run_script = self.path.joinpath(f"{self.name}.sh")
+        assert run_script.exists(), "No script found."
+
+        env = os.environ.copy()
+        _ = env.pop("BAMBOOST_MPI", None)  # remove bamboost MPI environment variable
+        subprocess.run(["bash", f"{run_script}"], env=env)
+        log.info(f'Simulation "{self.name}" submitted.')
+        self.metadata["submitted"] = True

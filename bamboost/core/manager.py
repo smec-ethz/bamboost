@@ -30,7 +30,13 @@ from bamboost import BAMBOOST_LOGGER, config
 # from bamboost.core.simulation.writer import SimulationWriter
 from bamboost.core.simulation.base import Simulation
 from bamboost.core.utilities import flatten_dict
-from bamboost.index import CollectionUID, Index, StrPath
+from bamboost.index import (
+    CollectionUID,
+    Index,
+    StrPath,
+    _identifier_filename,
+    create_identifier_file,
+)
 from bamboost.mpi import MPI
 
 if TYPE_CHECKING:
@@ -96,6 +102,10 @@ class Collection:
 
         # Resolve or get an UID for the collection
         self.uid = CollectionUID(uid or self._index.resolve_uid(self.path))
+
+        # Check if identifier file exists
+        if not self.path.joinpath(_identifier_filename(uid=self.uid)).exists():
+            create_identifier_file(self.path, self.uid)
 
         # Sync the SQL table with the filesystem
         # Making sure the collection is up to date in the index

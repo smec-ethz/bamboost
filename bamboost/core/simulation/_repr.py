@@ -39,7 +39,7 @@ def simulation_html_repr(simulation: "Simulation") -> str:
     return template.render(
         uid=simulation.name,
         icon=icon,
-        tree=simulation.show_files().replace("\n", "</br>"),
+        tree=repr(simulation.files).replace("\n", "</br>").replace(" ", "&nbsp;"),
         parameters=parameters_filtered,
         note=metadata["notes"],
         status=status_options.get(
