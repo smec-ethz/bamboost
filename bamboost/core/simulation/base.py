@@ -21,9 +21,9 @@ from typing import (
     TYPE_CHECKING,
     Any,
     Generic,
+    Literal,
     Optional,
     Tuple,
-    Type,
     TypeVar,
     cast,
 )
@@ -31,19 +31,20 @@ from typing import (
 import h5py
 import numpy as np
 import pandas as pd
-from typing_extensions import deprecated
+from typing_extensions import Self, deprecated
 
 import bamboost.core.simulation._repr as reprs
 from bamboost import BAMBOOST_LOGGER, config
 from bamboost.core import utilities
+from bamboost.core.hdf5.dict import GroupDict, _mutable_only
 from bamboost.core.hdf5.file import (
     FileMode,
-    Group,
-    H5Reference,
     HDF5File,
-    MutableGroup,
+    Immutable,
+    Mutable,
     with_file_open,
 )
+from bamboost.core.hdf5.ref import Dataset, Group, H5Reference, MutableGroup
 from bamboost.core.simulation.xdmf import XDMFWriter
 from bamboost.index import (
     CollectionUID,
@@ -65,104 +66,12 @@ UID_SEPARATOR = ":"
 _GT = TypeVar("_GT", bound=H5Reference)
 
 
-def _mutable_only(func):
-    """Decorator to raise an error if the object is not mutable."""
+class _Parameters(GroupDict):
+    _simulation: Simulation
 
-    @wraps(func)
-    def wrapper(self: _GroupDict, *args, **kwargs):
-        if self._file._readonly:
-            raise PermissionError("Simulation is read-only.")
-        return func(self, *args, **kwargs)
-
-    return wrapper
-
-
-class _GroupDict(Mapping):
-    """A dictionary-like object for the attributes of a group in the HDF5
-    file.
-
-    This object is tied to a simulation. If the simulation is read-only, the
-    object is immutable. If mutable, changes are pushed to the HDF5 file
-    immediately.
-
-    Args:
-        simulation: the simulation object
-        path: path to the group in the HDF5 file
-    """
-
-    mutable: bool = False
-
-    def __init__(self, simulation: Simulation, path: str) -> None:
-        self._simulation = simulation
-        self._path = path
-        self._file = simulation._file
-        self._dict = self.read()
-        self.mutable = not self._file._readonly
-
-    @with_file_open(FileMode.READ)
-    def read(self) -> dict:
-        tmp_dict = dict()
-
-        try:
-            grp = cast(h5py.Group, self._file[self._path])
-        except KeyError:
-            raise KeyError(
-                f"Group {self._path} not found in file {self._simulation._file._filename}."
-            )
-
-        tmp_dict.update(grp.attrs)
-        for key, value in grp.items():
-            if not isinstance(value, h5py.Dataset):
-                continue
-            tmp_dict.update({key: value[()]})
-
-        return utilities.unflatten_dict(tmp_dict)
-
-    def __getitem__(self, key: str) -> Any:
-        return self._dict[key]
-
-    def __iter__(self):
-        return iter(self._dict)
-
-    def __len__(self):
-        return len(self._dict)
-
-    def __repr__(self) -> str:
-        return self._dict.__repr__()
-
-    def _repr_pretty_(self, p, cycle):
-        cls_name = type(self).__name__
-        if cycle:
-            p.text(f"{cls_name}(...)")
-        else:
-            with p.group(8, f"{cls_name}(", ")"):
-                p.pretty(self._dict)
-
-    def _ipython_key_completions_(self):
-        return tuple(self._dict.keys())
-
-    @property
-    def _obj(self) -> h5py.Group:
-        obj = self._file[self._path]
-        assert isinstance(obj, h5py.Group), f"Object at {self._path} is not a group."
-        return obj
-
-    # Methods for mutable objects only
-    @_mutable_only
-    def __setitem__(self, key: str, value: Any) -> None:
-        self._dict[key] = value
-        with self._file.open(FileMode.APPEND):
-            self._obj.attrs[key] = value
-
-    @_mutable_only
-    def __delitem__(self, key: str) -> None:
-        with self._file.open(FileMode.APPEND):
-            del self._obj.attrs[key]
-
-
-class _Parameters(_GroupDict):
     def __init__(self, simulation: Simulation) -> None:
-        super().__init__(simulation, "/parameters")
+        super().__init__(simulation._file, "/parameters")
+        self._simulation = simulation
 
 
 class _MutableParameters(_Parameters):
@@ -201,14 +110,17 @@ class _MutableParameters(_Parameters):
             self._obj.attrs.update(update_dict)
 
 
-class _Links(_GroupDict):
+class _Links(GroupDict):
     def __init__(self, simulation: Simulation) -> None:
-        super().__init__(simulation, "/links")
+        super().__init__(simulation._file, "/links")
 
 
-class _Metadata(_GroupDict):
+class _Metadata(GroupDict):
+    _simulation: Simulation
+
     def __init__(self, simulation: Simulation) -> None:
-        super().__init__(simulation, "/")
+        super().__init__(simulation._file, "/")
+        self._simulation = simulation
 
     @_mutable_only
     def __setitem__(self, key: str, value: Any) -> None:
@@ -216,6 +128,7 @@ class _Metadata(_GroupDict):
             key in self._dict
         ), f'Can only set existing metadata keys. "{key}" not found.'
         super().__setitem__(key, value)
+
         # also send the updated parameter to the SQL database
         self._simulation._send_to_sql(metadata={key: value})  # type: ignore
 
@@ -301,7 +214,9 @@ class Simulation:
         self._data_file: Path = self.path.joinpath(f"{self.name}.h5")
         self._xdmf_file: Path = self.path.joinpath(f"{self.name}.xdmf")
 
-        self._file = HDF5File(self._data_file, comm=self._comm, readonly=True)
+        self._file = HDF5File(
+            self._data_file, comm=self._comm, mutability=Immutable, **kwargs
+        )
 
         # Initialize groups to meshes, data and userdata. Create groups.
         # self.meshes: MeshGroup = MeshGroup(self._file)
@@ -312,7 +227,7 @@ class Simulation:
         # )
 
     @classmethod
-    def from_uid(cls, uid: str, **kwargs) -> Simulation:
+    def from_uid(cls, uid: str, **kwargs) -> Self:
         """Return the `Simulation` with given UID.
 
         Args:
@@ -334,7 +249,7 @@ class Simulation:
         return SimulationWriter(self.name, self.path.parent, self._comm, self._index)
 
     @property
-    def root(self) -> H5Reference:
+    def root(self) -> Group:
         """Access to HDF5 file root group.
 
         Returns:
@@ -583,6 +498,8 @@ class Simulation:
 
 
 class SimulationWriter(Simulation):
+    _file: HDF5File[Mutable]
+
     def __init__(
         self,
         name: str,
@@ -592,9 +509,11 @@ class SimulationWriter(Simulation):
         **kwargs,
     ):
         super().__init__(name, parent, comm, index, **kwargs)
+        self._file._mutable = Mutable()
 
-        # Set the file to editable
-        self._file._readonly = False
+    @property
+    def root(self) -> MutableGroup:
+        return MutableGroup("/", self._file)
 
     @cached_property
     def parameters(self) -> _MutableParameters:
