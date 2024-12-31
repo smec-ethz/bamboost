@@ -1,15 +1,13 @@
 from __future__ import annotations
 
 import pkgutil
-from functools import cache, cached_property, wraps
+from functools import cache, cached_property
 from pathlib import Path
 from typing import (
-    TYPE_CHECKING,
     Any,
     Dict,
     Generic,
     Iterable,
-    Literal,
     Optional,
     Type,
     TypeVar,
@@ -29,14 +27,10 @@ from bamboost.core.hdf5.file import (
     FileMode,
     HDF5File,
     HDF5Path,
-    Immutable,
     Mutable,
     with_file_open,
 )
 from bamboost.mpi import MPI_ON
-
-if TYPE_CHECKING:
-    pass
 
 log = BAMBOOST_LOGGER.getChild("hdf5")
 
@@ -118,10 +112,10 @@ class H5Reference(Generic[_M]):
         return self.__class__(self._obj.parent.name or "", self._file)
 
 
-class Group(H5Reference):
+class Group(H5Reference[_M]):
     _type: str = "group"
 
-    def __init__(self, path, file: HDF5File[_M]):
+    def __init__(self, path, file):
         super().__init__(path, file)
 
     def _ipython_key_completions_(self):
@@ -214,8 +208,10 @@ class Group(H5Reference):
 
 
 class MutableGroup(Group):
-    def __new__(cls, name: str, file: HDF5File[Mutable]):
-        return super().__new__(cls)
+    def __init__(self, path, file: HDF5File[Mutable]):
+        if not file._mutable:
+            raise ValueError("File needs to be mutable to use MutableGroup.")
+        super().__init__(path, file)
 
     @overload
     def __getitem__(self, key: str): ...
@@ -303,8 +299,15 @@ class MutableGroup(Group):
         log.info(f'Written dataset to "{self._path}/{name}"')
 
 
-class Dataset(H5Reference[h5py.Dataset]):
+class Dataset(H5Reference[_M]):
     _type: str = "dataset"
+
+    @property
+    def _obj(self) -> h5py.Dataset:
+        obj = super()._obj
+        if not isinstance(obj, h5py.Dataset):
+            raise ValueError(f"Object {self._path} is not a dataset")
+        return obj
 
     @with_file_open(FileMode.READ)
     def __getitem__(self, key: tuple | slice) -> np.ndarray:

@@ -31,6 +31,7 @@ from typing import (
 import h5py
 import numpy as np
 import pandas as pd
+from _pytest.cacheprovider import CACHEDIR_TAG_CONTENT
 from typing_extensions import Self, deprecated
 
 import bamboost.core.simulation._repr as reprs
@@ -214,10 +215,6 @@ class Simulation:
         self._data_file: Path = self.path.joinpath(f"{self.name}.h5")
         self._xdmf_file: Path = self.path.joinpath(f"{self.name}.xdmf")
 
-        self._file = HDF5File(
-            self._data_file, comm=self._comm, mutability=Immutable, **kwargs
-        )
-
         # Initialize groups to meshes, data and userdata. Create groups.
         # self.meshes: MeshGroup = MeshGroup(self._file)
         # self.data: DataGroup = DataGroup(self._file, self.meshes)
@@ -225,6 +222,10 @@ class Simulation:
         # self.userdata: hdf_pointer.MutableGroup = hdf_pointer.MutableGroup(
         #     self._file, "/userdata"
         # )
+
+    @cached_property
+    def _file(self) -> HDF5File[Immutable]:
+        return HDF5File(self._data_file, comm=self._comm, mutable=False)
 
     @classmethod
     def from_uid(cls, uid: str, **kwargs) -> Self:
@@ -498,8 +499,6 @@ class Simulation:
 
 
 class SimulationWriter(Simulation):
-    _file: HDF5File[Mutable]
-
     def __init__(
         self,
         name: str,
@@ -509,7 +508,10 @@ class SimulationWriter(Simulation):
         **kwargs,
     ):
         super().__init__(name, parent, comm, index, **kwargs)
-        self._file._mutable = Mutable()
+
+    @cached_property
+    def _file(self) -> HDF5File[Mutable]:
+        return HDF5File(self._data_file, comm=self._comm, mutable=True)
 
     @property
     def root(self) -> MutableGroup:

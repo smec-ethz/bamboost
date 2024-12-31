@@ -14,7 +14,7 @@ def _mutable_only(func):
 
     @wraps(func)
     def wrapper(self: GroupDict, *args, **kwargs):
-        if self._file._mutable:
+        if self._file._mutability:
             raise PermissionError("Simulation is read-only.")
         return func(self, *args, **kwargs)
 
@@ -40,7 +40,7 @@ class GroupDict(Mapping):
         self._file = file
         self._path = path
         self._dict = self.read()
-        self.mutable = not self._file._mutable
+        self.mutable = not self._file._mutability
 
     @with_file_open(FileMode.READ)
     def read(self) -> dict:

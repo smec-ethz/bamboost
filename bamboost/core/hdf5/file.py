@@ -9,6 +9,7 @@
 from __future__ import annotations
 
 import time
+from abc import ABC
 from enum import Enum
 from functools import total_ordering, wraps
 from pathlib import Path, PurePosixPath
@@ -105,12 +106,43 @@ def with_file_open(
     return decorator
 
 
-_Mutability = type("_Mutability", (), {})
-Mutable = type("Mutable", (_Mutability,), {"__bool__": lambda self: True})
-Immutable = type("Immutable", (_Mutability,), {"__bool__": lambda self: False})
+class _MutabilitySentinel(type):
+    def __new__(cls, name, bases, attrs):
+        return super().__new__(cls, name, bases, attrs)
+
+    def __bool__(self):
+        return self is Mutable
+
+    def __repr__(self):
+        return self.__name__
 
 
-_M = TypeVar("_M", bound=_Mutability, covariant=True)
+class _Mutability(metaclass=_MutabilitySentinel):
+    pass
+
+
+# Mutable = _MutabilitySentinel("Mutable", (_Mutability,), {})
+# Immutable = _MutabilitySentinel("Immutable", (_Mutability,), {})
+class Mutable(_Mutability): ...
+
+
+class Immutable(_Mutability): ...
+
+
+# class _Mutability(ABC):
+#     _instance = None
+#
+#     def __new__(cls) -> Self:
+#         if cls._instance is None:
+#             cls._instance = super().__new__(cls)
+#         return cls._instance
+#
+#
+# Mutable = type("Mutable", (_Mutability,), {"__bool__": lambda self: True})()
+# Immutable = type("Immutable", (_Mutability,), {"__bool__": lambda self: False})()
+#
+
+_M = TypeVar("_M", bound=Union[Mutable, Immutable], covariant=True)
 
 
 class HDF5File(h5py.File, Generic[_M]):
@@ -121,41 +153,62 @@ class HDF5File(h5py.File, Generic[_M]):
     _context_stack: int = 0
     _object_map: dict[HDF5Path, Type[h5py.Group | h5py.Dataset]]
     _mapped: bool = False
-    _mutable: _M
+    _mutable: bool
 
+    @overload
+    def __init__(
+        self: HDF5File[Immutable],
+        file: StrPath,
+        comm: Optional[Comm] = None,
+        mutable: Literal[False] = False,
+    ): ...
+    @overload
+    def __init__(
+        self: HDF5File[Mutable],
+        file: StrPath,
+        comm: Optional[Comm] = None,
+        mutable: Literal[True] = True,
+    ): ...
     def __init__(
         self,
         file: StrPath,
         comm: Optional[Comm] = None,
-        mutability: Type[_M] = Immutable,
+        mutable: bool = False,
     ):
         self._filename = file.as_posix() if isinstance(file, Path) else file
         self._comm = comm or MPI.COMM_WORLD
         self._object_map = dict()
-        self._mutable = mutability()
+        self._mutable = mutable
 
     def __repr__(self) -> str:
         mode_info = self.mode if self.is_open else "proxy"
         status = "open" if self.is_open else "closed"
-        return f'<HDF5 file "{self._filename}" (mode {mode_info}, {status})>'
+        mutability = Mutable if self._mutable else Immutable
+        return (
+            f'<{mutability} HDF5 file "{self._filename}" (mode {mode_info}, {status})>'
+        )
 
     @overload
     def open(
         self: "HDF5File[Immutable]",
-        mode: Literal["r"],
-        driver: Optional[Literal["mpio"]],
+        mode: Literal["r"] = "r",
+        driver: Optional[Literal["mpio"]] = None,
     ): ...
     @overload
     def open(
         self: "HDF5File[Mutable]",
-        mode: Union[FileMode, Literal["r", "r+", "w", "w-", "x", "a"]],
-        driver: Optional[Literal["mpio"]],
+        mode: Union[FileMode, Literal["r", "r+", "w", "w-", "x", "a"]] = "r",
+        driver: Optional[Literal["mpio"]] = None,
     ): ...
     @overload
-    def open(self, mode, driver): ...
+    def open(
+        self: HDF5File,
+        mode: Union[FileMode, Literal["r", "r+", "w", "w-", "x", "a"]] = "r",
+        driver: Optional[Literal["mpio"]] = None,
+    ): ...
     def open(
         self,
-        mode: Union[FileMode, Literal["r", "r+", "w", "w-", "x", "a"]] = "r",
+        mode: Union[FileMode, str] = "r",
         driver=None,
     ) -> HDF5File[_M]:
         """Context manager to opens the HDF5 file with the specified mode and
