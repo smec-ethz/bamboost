@@ -9,6 +9,7 @@ from typing import (
     Generic,
     Iterable,
     Optional,
+    Tuple,
     Type,
     TypeVar,
     Union,
@@ -23,11 +24,12 @@ from typing_extensions import Self
 import bamboost
 from bamboost import BAMBOOST_LOGGER
 from bamboost.core.hdf5.file import (
-    _M,
+    _MT,
     FileMode,
     HDF5File,
     HDF5Path,
     Mutable,
+    mutable_only,
     with_file_open,
 )
 from bamboost.mpi import MPI_ON
@@ -38,21 +40,21 @@ MPI_ACTIVE = "mpio" in h5py.registered_drivers() and h5py.get_config().mpi and M
 _R = TypeVar("_R", bound=Union["Group", "Dataset"])
 
 
-class H5Reference(Generic[_M]):
-    # _file: HDF5File[_M]
+class H5Reference(Generic[_MT]):
     _type: str = "object"
     _valid: bool | None = None
 
-    def __init__(self, path: str, file: HDF5File[_M]):
+    def __init__(self, path: str, file: HDF5File[_MT]):
         self._file = file
         self._path = HDF5Path(path)
 
         # if the file is open, we check if the object exists
+        # Otherwise, we assume it exists and check when the file is opened
         if file.is_open:
             self._valid = self._path in file
 
     @property
-    def _obj(self):
+    def _obj(self) -> Union[h5py.Group, h5py.Dataset, h5py.Datatype]:
         _obj = self._file[self._path]
         self._valid = True
         return _obj
@@ -70,27 +72,39 @@ class H5Reference(Generic[_M]):
     @overload
     def __getitem__(self, value: str) -> Union[Self, Dataset]: ...
     @overload
-    def __getitem__(self, value: slice) -> np.ndarray: ...
+    def __getitem__(self, value: Union[slice, Tuple[()]]) -> np.ndarray: ...
     @overload
-    def __getitem__(self, value: tuple[str, Type[_R]]) -> _R: ...
+    def __getitem__(self, value: tuple[str, Type[Group]]) -> Self: ...
+    @overload
+    def __getitem__(self, value: tuple[str, Type[Dataset]]) -> Dataset[_MT]: ...
     @with_file_open(FileMode.READ)
     def __getitem__(self, value):
+        obj = self._obj
+        assert not isinstance(
+            obj, h5py.Datatype
+        ), "__getitem__ not implemented for Datatype"
+
+        # If the value is a slice or empty tuple, we return the sliced dataset
+        if isinstance(value, slice) or (isinstance(value, tuple) and len(value) == 0):
+            return obj[value]
+
+        # Here we know that we are looking for a group or dataset
         if isinstance(value, tuple):
             name, _type = value
-        elif isinstance(value, slice):
-            return self._obj[value]
         else:
             name, _type = cast(str, value), None
         return self.new(self._path / name, self._file, _type)
 
-    def open(self, *args, **kwargs) -> HDF5File[_M]:
+    def open(self, *args, **kwargs) -> HDF5File[_MT]:
         """Convenience context manager to open the file of this object (see
         HDF5File.open).
         """
         return self._file.open(*args, **kwargs)
 
     @classmethod
-    def new(cls, name: str, file: HDF5File[_M], _type: Optional[Type[_R]] = None) -> _R:
+    def new(
+        cls, name: str, file: HDF5File[_MT], _type: Optional[Type[_R]] = None
+    ) -> _R:
         """Returns a new pointer object."""
         with file.open(FileMode.READ):
             _obj = file[name]
@@ -107,19 +121,42 @@ class H5Reference(Generic[_M]):
         return dict(self._obj.attrs)
 
     @property
-    @with_file_open()
+    @with_file_open(FileMode.READ)
     def parent(self) -> Self:
         return self.__class__(self._obj.parent.name or "", self._file)
 
+    @property
+    def mutable(self) -> bool:
+        return self._file._mutable
 
-class Group(H5Reference[_M]):
+
+class Group(H5Reference[_MT]):
     _type: str = "group"
 
     def __init__(self, path, file):
         super().__init__(path, file)
 
+    @mutable_only
+    def __setitem__(self: Group[Mutable], key, newvalue):
+        """Used to set an attribute.
+        Will be written as an attribute to the group.
+        """
+        if isinstance(newvalue, str) or not isinstance(newvalue, Iterable):
+            self.update_attrs({key: newvalue})
+        else:
+            self.add_dataset(key, np.array(newvalue))
+
+    @mutable_only
+    @with_file_open(FileMode.APPEND)
+    def __delitem__(self: Group[Mutable], key) -> None:
+        """Deletes an item."""
+        if key in self.attrs.keys():
+            del self._obj.attrs[key]
+        else:
+            del self._obj[key]
+
     def _ipython_key_completions_(self):
-        return self.keys(all=True)
+        return self.keys()
 
     @property
     def _obj(self) -> h5py.Group:
@@ -146,9 +183,9 @@ class Group(H5Reference[_M]):
         return {k: v for k, v in self._object_map.items() if k.parent == self._path}
 
     @cache
-    def keys(self, all: bool = False) -> list[HDF5Path]:
+    def keys(self, all: bool = False) -> tuple[HDF5Path, ...]:
         object_map = self._object_map if all else self._children_map
-        return [path.relative_to(self._path) for path in object_map.keys()]
+        return tuple(path.relative_to(self._path) for path in object_map.keys())
 
     @cache
     def groups(self, all: bool = False) -> list[HDF5Path]:
@@ -206,46 +243,9 @@ class Group(H5Reference[_M]):
             datasets=datasets,
         )
 
-
-class MutableGroup(Group):
-    def __init__(self, path, file: HDF5File[Mutable]):
-        if not file._mutable:
-            raise ValueError("File needs to be mutable to use MutableGroup.")
-        super().__init__(path, file)
-
-    @overload
-    def __getitem__(self, key: str): ...
-    @overload
-    def __getitem__(self, key: tuple[str, Type[_R]]) -> _R: ...
-    @with_file_open(FileMode.READ)
-    def __getitem__(self, key):
-        """Used to access datasets (:class:`~bamboost.common.hdf_pointer.Dataset`)
-        or groups inside this group (:class:`~bamboost.common.hdf_pointer.MutableGroup`)
-        """
-        if key in self.attrs:
-            return self.attrs[key]
-
-        return super().__getitem__(key)
-
-    def __setitem__(self, key, newvalue):
-        """Used to set an attribute.
-        Will be written as an attribute to the group.
-        """
-        if isinstance(newvalue, str) or not isinstance(newvalue, Iterable):
-            self.update_attrs({key: newvalue})
-        else:
-            self.add_dataset(key, np.array(newvalue))
-
+    @mutable_only
     @with_file_open(FileMode.APPEND)
-    def __delitem__(self, key) -> None:
-        """Deletes an item."""
-        if key in self.attrs.keys():
-            del self._obj.attrs[key]
-        else:
-            del self._obj[key]
-
-    @with_file_open(FileMode.APPEND)
-    def update_attrs(self, attrs: Dict[str, Any]) -> None:
+    def update_attrs(self: Group[Mutable], attrs: Dict[str, Any]) -> None:
         """Update the attributes of the group.
 
         Args:
@@ -253,14 +253,16 @@ class MutableGroup(Group):
         """
         self._obj.attrs.update(attrs)
 
+    @mutable_only
     @with_file_open(FileMode.APPEND)
-    def require_group(self, name: str) -> MutableGroup:
+    def require_group(self: Group[Mutable], name: str) -> MutableGroup:
         """Create a group if it doesn't exist yet."""
         self._obj.require_group(name)
         return self.new(name, self._file)
 
+    @mutable_only
     def add_dataset(
-        self,
+        self: Group[Mutable],
         name: str,
         vector: np.ndarray,
         attrs: Optional[Dict[str, Any]] = None,
@@ -299,7 +301,23 @@ class MutableGroup(Group):
         log.info(f'Written dataset to "{self._path}/{name}"')
 
 
-class Dataset(H5Reference[_M]):
+class MutableGroup(Group[Mutable]):
+    @overload
+    def __getitem__(self, key: str): ...
+    @overload
+    def __getitem__(self, key: tuple[str, Type[_R]]) -> _R: ...
+    @with_file_open(FileMode.READ)
+    def __getitem__(self, key):
+        """Used to access datasets (:class:`~bamboost.common.hdf_pointer.Dataset`)
+        or groups inside this group (:class:`~bamboost.common.hdf_pointer.MutableGroup`)
+        """
+        if key in self.attrs:
+            return self.attrs[key]
+
+        return super().__getitem__(key)
+
+
+class Dataset(H5Reference[_MT]):
     _type: str = "dataset"
 
     @property

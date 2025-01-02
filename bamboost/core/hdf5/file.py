@@ -9,7 +9,6 @@
 from __future__ import annotations
 
 import time
-from abc import ABC
 from enum import Enum
 from functools import total_ordering, wraps
 from pathlib import Path, PurePosixPath
@@ -26,7 +25,6 @@ from typing import (
 )
 
 import h5py
-from numpy import true_divide
 from typing_extensions import Self
 
 from bamboost import BAMBOOST_LOGGER
@@ -36,7 +34,7 @@ from bamboost.utilities import StrPath
 if TYPE_CHECKING:
     from bamboost.mpi import Comm
 
-    from .ref import Group, MutableGroup
+    from .ref import Group
 
 log = BAMBOOST_LOGGER.getChild("hdf5")
 
@@ -69,6 +67,9 @@ class HDF5Path(str):
         return super().__new__(cls, prefix + "/".join(filter(None, path.split("/"))))
 
     def __truediv__(self, other: str) -> HDF5Path:
+        return self.joinpath(other)
+
+    def joinpath(self, other: str) -> HDF5Path:
         return HDF5Path(f"{self}/{other}")
 
     def relative_to(self, other: HDF5Path) -> HDF5Path:
@@ -85,6 +86,19 @@ class HDF5Path(str):
 
 class HasFileAttribute(Protocol):
     _file: HDF5File
+
+
+def mutable_only(func):
+    """Decorator to raise an error if the file is not mutable."""
+
+    @wraps(func)
+    def wrapper(self: HasFileAttribute, *args, **kwargs):
+        if not self._file._mutable:
+            raise PermissionError("Simulation file is read-only.")
+        return func(self, *args, **kwargs)
+
+    wrapper._mutable_only = True  # type: ignore
+    return wrapper
 
 
 def with_file_open(
@@ -107,13 +121,41 @@ def with_file_open(
 
 
 class _MutabilitySentinel(type):
+    """A metaclass for creating mutability sentinel types.
+
+    This metaclass is used to create special types that represent mutability
+    states (Mutable and Immutable). It provides custom boolean evaluation and
+    string representation for the created types.
+    """
+
     def __new__(cls, name, bases, attrs):
+        """Create a new class using this metaclass.
+
+        Args:
+            name (str): The name of the class being created.
+            bases (tuple): The base classes of the class being created.
+            attrs (dict): The attributes of the class being created.
+
+        Returns:
+            type: The newly created class.
+        """
         return super().__new__(cls, name, bases, attrs)
 
     def __bool__(self):
+        """Determine the boolean value of the class.
+
+        Returns:
+            bool: True if the class is Mutable, False otherwise.
+        """
         return self is Mutable
 
     def __repr__(self):
+        """
+        Get the string representation of the class.
+
+        Returns:
+            str: The name of the class.
+        """
         return self.__name__
 
 
@@ -121,31 +163,14 @@ class _Mutability(metaclass=_MutabilitySentinel):
     pass
 
 
-# Mutable = _MutabilitySentinel("Mutable", (_Mutability,), {})
-# Immutable = _MutabilitySentinel("Immutable", (_Mutability,), {})
-class Mutable(_Mutability): ...
+Mutable = type("Mutable", (_Mutability,), {})
+Immutable = type("Immutable", (_Mutability,), {})
 
 
-class Immutable(_Mutability): ...
+_MT = TypeVar("_MT", bound=_Mutability)
 
 
-# class _Mutability(ABC):
-#     _instance = None
-#
-#     def __new__(cls) -> Self:
-#         if cls._instance is None:
-#             cls._instance = super().__new__(cls)
-#         return cls._instance
-#
-#
-# Mutable = type("Mutable", (_Mutability,), {"__bool__": lambda self: True})()
-# Immutable = type("Immutable", (_Mutability,), {"__bool__": lambda self: False})()
-#
-
-_M = TypeVar("_M", bound=Union[Mutable, Immutable], covariant=True)
-
-
-class HDF5File(h5py.File, Generic[_M]):
+class HDF5File(h5py.File, Generic[_MT]):
     """Wrapper for h5py.File to add some functionality"""
 
     _filename: str
@@ -154,6 +179,7 @@ class HDF5File(h5py.File, Generic[_M]):
     _object_map: dict[HDF5Path, Type[h5py.Group | h5py.Dataset]]
     _mapped: bool = False
     _mutable: bool
+    _current_root_only_flag: bool = False
 
     @overload
     def __init__(
@@ -190,27 +216,35 @@ class HDF5File(h5py.File, Generic[_M]):
 
     @overload
     def open(
-        self: "HDF5File[Immutable]",
-        mode: Literal["r"] = "r",
+        self: HDF5File[Immutable],
+        mode: Literal[FileMode.READ, "r"] = "r",
         driver: Optional[Literal["mpio"]] = None,
-    ): ...
+        *,
+        root_only: bool = False,
+    ) -> HDF5File[Immutable]: ...
     @overload
     def open(
-        self: "HDF5File[Mutable]",
+        self: HDF5File[Mutable],
         mode: Union[FileMode, Literal["r", "r+", "w", "w-", "x", "a"]] = "r",
         driver: Optional[Literal["mpio"]] = None,
-    ): ...
+        *,
+        root_only: bool = False,
+    ) -> HDF5File[Mutable]: ...
     @overload
     def open(
         self: HDF5File,
-        mode: Union[FileMode, Literal["r", "r+", "w", "w-", "x", "a"]] = "r",
+        mode: Union[FileMode, str] = "r",
         driver: Optional[Literal["mpio"]] = None,
-    ): ...
+        *,
+        root_only: bool = False,
+    ) -> HDF5File: ...
     def open(
         self,
         mode: Union[FileMode, str] = "r",
         driver=None,
-    ) -> HDF5File[_M]:
+        *,
+        root_only=False,
+    ) -> HDF5File:
         """Context manager to opens the HDF5 file with the specified mode and
         driver.
 
@@ -229,14 +263,16 @@ class HDF5File(h5py.File, Generic[_M]):
             BlockingIOError: If the file is locked (handled internally with retries).
         """
         mode = FileMode(mode)
+
+        assert not (
+            root_only and driver == "mpio"
+        ), "Cannot use driver 'mpio' and root_only together."
+
         if not self._mutable and mode > FileMode.READ:
             log.error(
                 f"File is read-only, cannot open in mode {mode.value} (open in read-only mode)"
             )
             mode = FileMode.READ
-
-        self._context_stack += 1
-        log.debug(f"[{id(self)}] context stack + ({self._context_stack})")
 
         if self.is_open:
             if mode > FileMode(self.mode):
@@ -247,8 +283,28 @@ class HDF5File(h5py.File, Generic[_M]):
                 # if the file is already open with the same or higher mode, we
                 # just increase the context stack and return
                 return self
+        else:
+            # Used by the context manager of this class
+            # the root_only flag is ignored if the file is already open
+            self._current_root_only_flag = root_only
+
+        self._context_stack += 1
+        log.debug(f"[{id(self)}] context stack + ({self._context_stack})")
+
+        if self._current_root_only_flag and self._comm.rank != 0:  # do not open
+            return self
 
         return self._try_open_repeat(mode, driver)
+
+    def __enter__(self):
+        if self._current_root_only_flag and self._comm.rank != 0:
+            raise StopIteration()
+        return super().__enter__()
+
+    def __exit__(self, exc_type, exc_value, traceback):
+        if exc_type is StopIteration and self._comm.rank != 0:
+            return
+        return super().__exit__(exc_type, exc_value, traceback)
 
     def _try_open_repeat(
         self, mode: FileMode, driver: Optional[Literal["mpio"]] = None
@@ -310,7 +366,7 @@ class HDF5File(h5py.File, Generic[_M]):
         return bool(hasattr(self, "id") and self.id.valid)
 
     @property
-    def root(self) -> Group:
+    def root(self) -> Group[_MT]:
         from .ref import Group
 
         return Group("/", self)

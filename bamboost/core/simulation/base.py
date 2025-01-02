@@ -13,7 +13,7 @@ import inspect
 import os
 import subprocess
 import uuid
-from collections.abc import Mapping
+from abc import ABC, abstractmethod
 from contextlib import contextmanager
 from functools import cached_property, wraps
 from pathlib import Path
@@ -21,31 +21,29 @@ from typing import (
     TYPE_CHECKING,
     Any,
     Generic,
-    Literal,
     Optional,
     Tuple,
     TypeVar,
-    cast,
 )
 
 import h5py
 import numpy as np
 import pandas as pd
-from _pytest.cacheprovider import CACHEDIR_TAG_CONTENT
 from typing_extensions import Self, deprecated
 
 import bamboost.core.simulation._repr as reprs
 from bamboost import BAMBOOST_LOGGER, config
 from bamboost.core import utilities
-from bamboost.core.hdf5.dict import GroupDict, _mutable_only
 from bamboost.core.hdf5.file import (
+    _MT,
     FileMode,
     HDF5File,
     Immutable,
     Mutable,
     with_file_open,
 )
-from bamboost.core.hdf5.ref import Dataset, Group, H5Reference, MutableGroup
+from bamboost.core.hdf5.ref import Group, H5Reference
+from bamboost.core.simulation.dict import Links, Metadata, Parameters
 from bamboost.core.simulation.xdmf import XDMFWriter
 from bamboost.index import (
     CollectionUID,
@@ -65,73 +63,7 @@ log = BAMBOOST_LOGGER.getChild("simulation")
 UID_SEPARATOR = ":"
 
 _GT = TypeVar("_GT", bound=H5Reference)
-
-
-class _Parameters(GroupDict):
-    _simulation: Simulation
-
-    def __init__(self, simulation: Simulation) -> None:
-        super().__init__(simulation._file, "/parameters")
-        self._simulation = simulation
-
-
-class _MutableParameters(_Parameters):
-    def __setitem__(self, key: str, value: Any) -> None:
-        super().__setitem__(key, value)
-        # also send the updated parameter to the SQL database
-        self._simulation._send_to_sql(parameters={key: value})
-
-    def update(self, update_dict: dict) -> None:
-        """Update the parameters dictionary. This method pushes the update to
-        the HDF5 file, and the SQL database.
-
-        Args:
-            update_dict: new parameters
-        """
-        # update dictionary in memory
-        self._dict.update(update_dict)
-
-        # try update the sql database
-        self._simulation._send_to_sql(parameters=update_dict)
-
-        # Filter out numpy arrays
-        arrays = {}
-        for k, v in update_dict.items():
-            if isinstance(v, np.ndarray):
-                arrays[k] = update_dict.pop(k)
-
-        with self._file.open(FileMode.APPEND):
-            # write arrays as datasets
-            for k, v in arrays.items():
-                if k in self._obj:
-                    del self._obj[k]
-                self._obj.create_dataset(k, data=v)
-
-            # write the rest
-            self._obj.attrs.update(update_dict)
-
-
-class _Links(GroupDict):
-    def __init__(self, simulation: Simulation) -> None:
-        super().__init__(simulation._file, "/links")
-
-
-class _Metadata(GroupDict):
-    _simulation: Simulation
-
-    def __init__(self, simulation: Simulation) -> None:
-        super().__init__(simulation._file, "/")
-        self._simulation = simulation
-
-    @_mutable_only
-    def __setitem__(self, key: str, value: Any) -> None:
-        assert (
-            key in self._dict
-        ), f'Can only set existing metadata keys. "{key}" not found.'
-        super().__setitem__(key, value)
-
-        # also send the updated parameter to the SQL database
-        self._simulation._send_to_sql(metadata={key: value})  # type: ignore
+_SimT = TypeVar("_SimT", bound="Simulation")
 
 
 class SimulationName(str):
@@ -168,7 +100,7 @@ def _on_root(func):
         return wrapper
 
 
-class Simulation:
+class _Simulation(ABC, Generic[_MT]):
     """Simulation accessor.
 
     Args:
@@ -215,6 +147,10 @@ class Simulation:
         self._data_file: Path = self.path.joinpath(f"{self.name}.h5")
         self._xdmf_file: Path = self.path.joinpath(f"{self.name}.xdmf")
 
+        # Alias attributes
+        self.root: Group[_MT] = self._file.root
+        """Access to HDF5 file root group."""
+
         # Initialize groups to meshes, data and userdata. Create groups.
         # self.meshes: MeshGroup = MeshGroup(self._file)
         # self.data: DataGroup = DataGroup(self._file, self.meshes)
@@ -223,9 +159,9 @@ class Simulation:
         #     self._file, "/userdata"
         # )
 
-    @cached_property
-    def _file(self) -> HDF5File[Immutable]:
-        return HDF5File(self._data_file, comm=self._comm, mutable=False)
+    @property
+    @abstractmethod
+    def _file(self) -> HDF5File[_MT]: ...
 
     @classmethod
     def from_uid(cls, uid: str, **kwargs) -> Self:
@@ -249,17 +185,8 @@ class Simulation:
         """Return an object with writing rights to edit the simulation."""
         return SimulationWriter(self.name, self.path.parent, self._comm, self._index)
 
-    @property
-    def root(self) -> Group:
-        """Access to HDF5 file root group.
-
-        Returns:
-            A reference to the root HDF5 object.
-        """
-        return self._file.root
-
     @_on_root
-    def _send_to_sql(
+    def send_to_sql(
         self,
         *,
         metadata: Optional[_SimulationMetadataT] = None,
@@ -283,16 +210,16 @@ class Simulation:
             )
 
     @cached_property
-    def parameters(self) -> _Parameters:
-        return _Parameters(self)
+    def parameters(self) -> Parameters[_MT]:
+        return Parameters(self)
 
     @cached_property
-    def metadata(self) -> _Metadata:
-        return _Metadata(self)
+    def metadata(self) -> Metadata[_MT]:
+        return Metadata(self)
 
     @cached_property
-    def links(self) -> _Links:
-        return _Links(self)
+    def links(self) -> Links[_MT]:
+        return Links(self)
 
     @cached_property
     def files(self):
@@ -460,21 +387,6 @@ class Simulation:
             tmp_dict[repo] = grp[repo][()].decode("utf8")
         return tmp_dict
 
-    def get_data_interpolator(self, field: str, step: int):
-        """Get Linear interpolator for data field at step. Uses the linked mesh.
-
-        Args:
-            name (`str`): name of the data field
-            step (`int`): step
-        Returns:
-            :class:`scipy.interpolate.LinearNDInterpolator`
-        """
-        from scipy.interpolate import LinearNDInterpolator
-
-        return LinearNDInterpolator(
-            self.data[field].mesh.coordinates, self.data[field].at_step(step)
-        )
-
     @with_file_open()
     def show_h5tree(self) -> None:
         """Print the tree inside the h5 file."""
@@ -498,7 +410,13 @@ class Simulation:
             os.chdir(current_dir)
 
 
-class SimulationWriter(Simulation):
+class Simulation(_Simulation[Immutable]):
+    @cached_property
+    def _file(self) -> HDF5File[Immutable]:
+        return HDF5File(self._data_file, comm=self._comm, mutable=False)
+
+
+class SimulationWriter(_Simulation[Mutable]):
     def __init__(
         self,
         name: str,
@@ -513,47 +431,13 @@ class SimulationWriter(Simulation):
     def _file(self) -> HDF5File[Mutable]:
         return HDF5File(self._data_file, comm=self._comm, mutable=True)
 
-    @property
-    def root(self) -> MutableGroup:
-        return MutableGroup("/", self._file)
-
-    @cached_property
-    def parameters(self) -> _MutableParameters:
-        return _MutableParameters(self)
-
-    @_on_root
-    @with_file_open(FileMode.APPEND)
     def change_status(self, status: str) -> None:
         """Change status of simulation.
 
         Args:
             status (str): new status
         """
-        self._file.attrs["status"] = status
-        self._send_to_sql(metadata={"status": status})
-
-    @_on_root
-    @with_file_open(FileMode.APPEND)
-    def update_metadata(self, update_dict: _SimulationMetadataT) -> None:
-        """Update the metadata attributes.
-
-        Args:
-            update_dict: dictionary to push
-        """
-        self._file.attrs.update(update_dict)
-        self._send_to_sql(metadata=update_dict)
-
-    @_on_root
-    @with_file_open(FileMode.APPEND)
-    def update_parameters(self, update_dict: _SimulationParameterT) -> None:
-        """Update the parameters dictionary.
-
-        Args:
-            update_dict: dictionary to push
-        """
-        update_dict = utilities.flatten_dict(update_dict)
-        self._file["parameters"].attrs.update(update_dict)
-        self._send_to_sql(parameters=update_dict)
+        self.metadata["status"] = status
 
     def create_run_script(
         self,

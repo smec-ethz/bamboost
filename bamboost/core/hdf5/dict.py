@@ -1,27 +1,23 @@
 from __future__ import annotations
 
 from functools import wraps
-from typing import Any, Mapping, cast
+from typing import Any, Generic, Mapping, TypeVar, Union, cast
 
 import h5py
 
 from bamboost.core import utilities
-from bamboost.core.hdf5.file import FileMode, HDF5File, with_file_open
+from bamboost.core.hdf5.file import (
+    _MT,
+    FileMode,
+    HDF5File,
+    Immutable,
+    Mutable,
+    mutable_only,
+    with_file_open,
+)
 
 
-def _mutable_only(func):
-    """Decorator to raise an error if the object is not mutable."""
-
-    @wraps(func)
-    def wrapper(self: GroupDict, *args, **kwargs):
-        if self._file._mutability:
-            raise PermissionError("Simulation is read-only.")
-        return func(self, *args, **kwargs)
-
-    return wrapper
-
-
-class GroupDict(Mapping):
+class GroupDict(Mapping, Generic[_MT]):
     """A dictionary-like object for the attributes of a group in the HDF5
     file.
 
@@ -36,11 +32,11 @@ class GroupDict(Mapping):
 
     mutable: bool = False
 
-    def __init__(self, file: HDF5File, path: str) -> None:
+    def __init__(self, file: HDF5File[_MT], path: str) -> None:
         self._file = file
         self._path = path
         self._dict = self.read()
-        self.mutable = not self._file._mutability
+        self.mutable = self._file._mutable
 
     @with_file_open(FileMode.READ)
     def read(self) -> dict:
@@ -53,16 +49,22 @@ class GroupDict(Mapping):
                 f"Group {self._path} not found in file {self._file._filename}."
             )
 
+        # Read in attributes
         tmp_dict.update(grp.attrs)
+
+        # Read in datasets
         for key, value in grp.items():
             if not isinstance(value, h5py.Dataset):
                 continue
             tmp_dict.update({key: value[()]})
 
-        return utilities.unflatten_dict(tmp_dict)
+        return tmp_dict
 
     def __getitem__(self, key: str) -> Any:
         return self._dict[key]
+
+    def _ipython_key_completions_(self):
+        return tuple(self._dict.keys())
 
     def __iter__(self):
         return iter(self._dict)
@@ -81,23 +83,33 @@ class GroupDict(Mapping):
             with p.group(8, f"{cls_name}(", ")"):
                 p.pretty(self._dict)
 
-    def _ipython_key_completions_(self):
-        return tuple(self._dict.keys())
-
     @property
     def _obj(self) -> h5py.Group:
         obj = self._file[self._path]
         assert isinstance(obj, h5py.Group), f"Object at {self._path} is not a group."
         return obj
 
-    # Methods for mutable objects only
-    @_mutable_only
-    def __setitem__(self, key: str, value: Any) -> None:
+    @mutable_only
+    def __setitem__(self: GroupDict[Mutable], key: str, value: Any) -> None:
         self._dict[key] = value
-        with self._file.open(FileMode.APPEND):
+
+        with self._file.open(FileMode.APPEND, root_only=True):
             self._obj.attrs[key] = value
 
-    @_mutable_only
-    def __delitem__(self, key: str) -> None:
-        with self._file.open(FileMode.APPEND):
+    @mutable_only
+    def __delitem__(self: GroupDict[Mutable], key: str) -> None:
+        with self._file.open(FileMode.APPEND, root_only=True):
             del self._obj.attrs[key]
+
+    @mutable_only
+    def update(self: GroupDict[Mutable], update_dict: dict) -> None:
+        """Update the dictionary. This method pushes the update to the HDF5
+        file.
+
+        Args:
+            update_dict: new dictionary
+        """
+        self._dict.update(update_dict)
+
+        with self._file.open(FileMode.APPEND, root_only=True):
+            self._obj.attrs.update(update_dict)
