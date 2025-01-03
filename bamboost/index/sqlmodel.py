@@ -189,7 +189,11 @@ class ParameterORM(_Base):
     __table_args__ = (
         UniqueConstraint("simulation_id", "key", name="uix_simulation_key"),
     )
-    _dataT = TypedDict("_dataT", simulation_id=int, key=str, value=Any)
+
+    class _dataT(TypedDict):
+        simulation_id: int
+        key: str
+        value: Any
 
     id: Mapped[int] = mapped_column(primary_key=True, autoincrement=True)
     simulation_id: Mapped[int] = mapped_column(
