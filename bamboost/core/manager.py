@@ -18,15 +18,10 @@ from typing import (
     TYPE_CHECKING,
     Any,
     Iterable,
-    Literal,
     Optional,
 )
 
-import h5py
-import numpy as np
-
 from bamboost import BAMBOOST_LOGGER, config
-from bamboost.core.hdf5.ref import Group, MutableGroup
 
 # from bamboost.core.simulation.base import Simulation
 # from bamboost.core.simulation.writer import SimulationWriter
@@ -46,6 +41,10 @@ if TYPE_CHECKING:
 
     from bamboost.mpi import Comm
 
+__all__ = [
+    "Collection",
+    "NotACollectionError",
+]
 
 log = BAMBOOST_LOGGER.getChild("Collection")
 

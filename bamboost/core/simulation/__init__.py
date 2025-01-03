@@ -1,2 +1,2 @@
-from .base import Simulation
-from .writer import SimulationWriter
+from .base import Simulation as Simulation
+from .writer import SimulationWriter as SimulationWriter
