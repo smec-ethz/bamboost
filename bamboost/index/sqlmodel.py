@@ -147,9 +147,12 @@ class SimulationORM(_Base):
     @classmethod
     def upsert(cls, data: Sequence[_dataT] | _dataT) -> ReturningInsert[Tuple[int]]:
         stmt = insert(cls).values(data)
+        # Get keys to update. Do not touch keys that are not in the data.
+        # Assumes: for the sequence case, all dictionaries have the same keys
+        keys_to_update = data.keys() if isinstance(data, dict) else data[0].keys()
         stmt = stmt.on_conflict_do_update(
             ["collection_uid", "name"],
-            set_={k: v for k, v in stmt.excluded.items() if k != "id"},
+            set_={k: v for k, v in stmt.excluded.items() if k in keys_to_update},
         )
         stmt = stmt.returning(cls.id)
         return stmt

@@ -17,16 +17,14 @@ from pathlib import Path
 from typing import (
     TYPE_CHECKING,
     Any,
+    Dict,
     Iterable,
     Optional,
 )
 
 from bamboost import BAMBOOST_LOGGER, config
 from bamboost._typing import StrPath
-
-# from bamboost.core.simulation.base import Simulation
-# from bamboost.core.simulation.writer import SimulationWriter
-from bamboost.core.simulation.base import Simulation
+from bamboost.core.simulation.base import Simulation, SimulationName, SimulationWriter
 from bamboost.core.utilities import flatten_dict
 from bamboost.index import (
     CollectionUID,
@@ -169,29 +167,21 @@ class Collection:
 
     def create_simulation(
         self,
-    ) -> Simulation:
-        pass
-
-    def create_simulation_old(
-        self,
-        uid: str = None,
-        parameters: dict = None,
-        skip_duplicate_check: bool = False,
+        name: Optional[str] = None,
+        parameters: Optional[Dict[str, Any]] = None,
         *,
-        prefix: str = None,
-        duplicate_action: str = "prompt",
-        note: str = None,
-        files: list[str] = None,
-        links: dict[str, str] = None,
+        description: Optional[str] = None,
+        files: Optional[Iterable[str]] = None,
+        links: Optional[Dict[str, str]] = None,
     ) -> SimulationWriter:
         """Get a writer object for a new simulation. This is written for paralell use
         as it is likely that this may be used in an executable, creating multiple runs
         for a parametric space, which may be run in paralell.
 
         Args:
-            uid (`str`): The name/uid for the simulation. If not specified, a random id
+            uid: The name/uid for the simulation. If not specified, a random id
                 will be assigned.
-            parameters (`dict`): Parameter dictionary. If provided, the parameters will be
+            parameters: Parameter dictionary. If provided, the parameters will be
                 checked against the existing sims for duplication. Otherwise, they may be
                 specified later with `bamboost.simulation_writer.SimulationWriter.add_parameters`.
                 Note:
@@ -199,15 +189,15 @@ class Collection:
                     - If the value is a dict, it is flattened using
                       `bamboost.common.utilities.flatten_dict`.
                     - If the value is a list/array, it is stored as a dataset.
-            skip_duplicate_check (`bool`): if True, the duplicate check is skipped.
-            prefix (`str`): Prefix for the uid. If not specified, no prefix is used.
-            duplicate_action (`str`): how to deal with duplicates. Replace
+            skip_duplicate_check: if True, the duplicate check is skipped.
+            prefix: Prefix for the uid. If not specified, no prefix is used.
+            duplicate_action: how to deal with duplicates. Replace
                 first duplicate ('r'), Create with altered uid (`c`), Create new
                 with new id (`n`), Abort (`a`) default "prompt" for each
                 duplicate on a case by case basis.
-            note (`str`): Note for the simulation.
-            files (`list`): List of files to copy to the simulation directory.
-            links (`dict`): Dictionary of links to other simulations.
+            note: Note for the simulation.
+            files: List of files to copy to the simulation directory.
+            links: Dictionary of links to other simulations.
 
         Note:
             The files and links are copied to the simulation directory. The files are
@@ -222,6 +212,49 @@ class Collection:
         Returns:
             A simulation writer object.
         """
+        name = SimulationName(name)  # Generates a unique id as name if not provided
+        directory = self.path.joinpath(name)
+
+        # Check if name is already in use, otherwise create a new directory
+        import shutil
+
+        if directory.exists():
+            shutil.rmtree(directory)
+        directory.mkdir(exist_ok=False)
+
+        # Create the simulation instance
+        sim = SimulationWriter(
+            name, self.path, self._comm, self._index, collection_uid=self.uid
+        )
+        with self._index.sql_transaction():
+            sim.initialize()  # set metadata and status
+            sim.metadata["description"] = description or ""
+            sim.parameters.update(parameters or {})
+            sim.links.update(links or {})
+            sim.copy_files(files or [])
+
+        # update the SQL database
+        self._index.upsert_simulation(
+            self.uid,
+            name,
+            sim.parameters._dict,
+            collection_path=self.path,
+        )
+
+        return sim
+
+    def create_simulation_old(
+        self,
+        uid: str = None,
+        parameters: dict = None,
+        skip_duplicate_check: bool = False,
+        *,
+        prefix: str = None,
+        duplicate_action: str = "prompt",
+        note: str = None,
+        files: list[str] = None,
+        links: dict[str, str] = None,
+    ) -> SimulationWriter:
         if parameters and not skip_duplicate_check:
             go_on = True
             if self._comm.rank == 0:

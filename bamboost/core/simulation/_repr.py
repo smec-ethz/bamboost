@@ -41,11 +41,11 @@ def simulation_html_repr(simulation: "Simulation") -> str:
         icon=icon,
         tree=repr(simulation.files).replace("\n", "</br>").replace(" ", "&nbsp;"),
         parameters=parameters_filtered,
-        note=metadata["notes"],
+        note=metadata.get("description"),
         status=status_options.get(
-            metadata["status"],
+            metadata.get("status", "Initiated"),
             f'<div class="status">{metadata["status"]}</div>',
         ),
         submitted=submitted_options[metadata.get("submitted", False)],
-        timestamp=metadata["time_stamp"],
+        timestamp=metadata.get('created_at', 'N/A'),
     )

@@ -321,7 +321,7 @@ class Index(metaclass=MPISafeMeta):
 
                 # if the HDF5 file has not been modified since the last sync,
                 # remove the simulation from the active update set
-                h5_file = path.joinpath(simulation.name, f"{simulation.name}.h5")
+                h5_file = path.joinpath(simulation.name, f"data.h5")
                 if (  # type: ignore
                     datetime.fromtimestamp(h5_file.stat().st_mtime)
                     <= simulation.modified_at
@@ -457,6 +457,8 @@ class Index(metaclass=MPISafeMeta):
         self,
         collection_uid: str,
         simulation_name: str,
+        parameters: Optional[_SimulationParameterT] = None,
+        metadata: Optional[_SimulationMetadataT] = None,
         *,
         collection_path: Optional[StrPath] = None,
     ) -> None:
@@ -469,25 +471,32 @@ class Index(metaclass=MPISafeMeta):
         """
         collection_path = Path(collection_path or self.resolve_path(collection_uid))
 
-        h5_file = collection_path.joinpath(simulation_name, f"{simulation_name}.h5")
-        metadata, parameters = simulation_metadata_from_h5(h5_file)
+        h5_file = collection_path.joinpath(simulation_name, f"data.h5")
+        if metadata is None and parameters is None:
+            # if neither metadata nor parameters are provided, read them from the HDF5 file
+            metadata, parameters = simulation_metadata_from_h5(h5_file)
 
         # Upsert the simulation table
         sim_id = self._s.execute(
             SimulationORM.upsert(
-                {"collection_uid": collection_uid, "name": simulation_name, **metadata}
+                {
+                    "collection_uid": collection_uid,
+                    "name": simulation_name,
+                    **(metadata or {}),
+                }
             )
         ).scalar_one()
 
         # Upsert the parameters table
-        self._s.execute(
-            ParameterORM.upsert(
-                [
-                    {"simulation_id": sim_id, "key": k, "value": v}
-                    for k, v in parameters.items()
-                ]
+        if parameters:
+            self._s.execute(
+                ParameterORM.upsert(
+                    [
+                        {"simulation_id": sim_id, "key": k, "value": v}
+                        for k, v in parameters.items()
+                    ]
+                )
             )
-        )
 
     @_sql_transaction
     def update_simulation_metadata(
@@ -579,9 +588,9 @@ def simulation_metadata_from_h5(
 
     from bamboost.core.hdf5.file import HDF5File
 
-    with HDF5File(file.as_posix()).open("r") as f:
+    with HDF5File(file).open("r", root_only=True) as f:
         meta: _SimulationMetadataT = {
-            "created_at": datetime.fromisoformat(f.attrs.get("time_stamp", 0)),
+            "created_at": datetime.fromisoformat(f.attrs.get("created_at", 0)),
             "modified_at": datetime.fromtimestamp(file.stat().st_mtime),
             "description": f.attrs.get("notes", ""),
             "status": f.attrs.get("status", ""),

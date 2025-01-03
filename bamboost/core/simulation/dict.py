@@ -88,9 +88,12 @@ class Parameters(GroupDict[_MT]):
 
         # Filter out numpy arrays
         arrays = {}
+        attributes = {}
         for k, v in update_dict.items():
             if isinstance(v, np.ndarray):
-                arrays[k] = update_dict.pop(k)
+                arrays[k] = update_dict.get(k)
+            else:
+                attributes[k] = update_dict.get(k)
 
         with self._file.open(FileMode.APPEND):
             # write arrays as datasets
@@ -100,7 +103,7 @@ class Parameters(GroupDict[_MT]):
                 self._obj.create_dataset(k, data=v)
 
             # write the rest
-            self._obj.attrs.update(update_dict)
+            self._obj.attrs.update(attributes)
 
 
 class Links(GroupDict[_MT]):
@@ -117,9 +120,13 @@ class Metadata(GroupDict[_MT]):
 
     @mutable_only
     def __setitem__(self: Metadata[Mutable], key: str, value: Any) -> None:
-        assert (
-            key in self._dict
-        ), f'Can only set existing metadata keys. "{key}" not found.'
+        from datetime import datetime
+
+        # assert (
+        #     key in self._dict
+        # ), f'Can only set existing metadata keys. "{key}" not found.'
+        if isinstance(value, datetime):
+            value = value.isoformat()
         GroupDict.__setitem__(self, key, value)
 
         # also send the updated parameter to the SQL database
@@ -133,8 +140,14 @@ class Metadata(GroupDict[_MT]):
         Args:
             update_dict: new metadata
         """
+        from datetime import datetime
+
         # update dictionary in memory and hdf5 file
-        GroupDict.update(self, update_dict)  # type: ignore
+        dict_stringified = {
+            k: v.isoformat() if isinstance(v, datetime) else v
+            for k, v in update_dict.items()
+        }
+        GroupDict.update(self, dict_stringified)  # type: ignore
 
         # try update the sql database
         self._simulation.send_to_sql(metadata=update_dict)

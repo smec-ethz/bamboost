@@ -15,12 +15,14 @@ import subprocess
 import uuid
 from abc import ABC, abstractmethod
 from contextlib import contextmanager
+from datetime import datetime
 from functools import cached_property, wraps
 from pathlib import Path
 from typing import (
     TYPE_CHECKING,
     Any,
     Generic,
+    Iterable,
     Optional,
     Tuple,
     TypeVar,
@@ -412,6 +414,26 @@ class SimulationWriter(_Simulation[Mutable]):
     def _file(self) -> HDF5File[Mutable]:
         return HDF5File(self._data_file, comm=self._comm, mutable=True)
 
+    def initialize(self) -> None:
+        """Initialize the simulation."""
+        # create the data file
+        with self._file.open(FileMode.WRITE, root_only=True) as f:
+            self.metadata.update(
+                {
+                    "status": "initialized",
+                    "created_at": datetime.now(),
+                }
+            )
+            # create groups
+            f.create_group("parameters")
+            f.create_group("links")
+            f.create_group("userdata")
+            data_grp = f.create_group("data")
+            data_grp.create_group("field_data")
+            data_grp.create_group("global_data")
+
+        self._comm.barrier()
+
     def change_status(self, status: str) -> None:
         """Change status of simulation.
 
@@ -419,6 +441,21 @@ class SimulationWriter(_Simulation[Mutable]):
             status (str): new status
         """
         self.metadata["status"] = status
+
+    def copy_files(self, files: Iterable[StrPath]) -> None:
+        """Copy files to the simulation folder.
+
+        Args:
+            files: list of files/directories to copy
+        """
+        import shutil
+
+        for file in files:
+            path = Path(file)
+            if path.is_file():
+                shutil.copy(path, self.path)
+            elif path.is_dir():
+                shutil.copytree(path, self.path)
 
     def create_run_script(
         self,
