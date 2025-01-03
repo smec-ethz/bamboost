@@ -307,7 +307,7 @@ class Index(metaclass=MPISafeMeta):
             uid: UID of the collection
             path (Optional): Path of the collection
         """
-        path = Path(path or self.resolve_path(uid))
+        path = Path(path or self.resolve_path(uid)).absolute()
         # Get all simulation names in the file system
         all_simulations_fs = set((i.name for i in path.iterdir() if i.is_dir()))
 
@@ -590,7 +590,9 @@ def simulation_metadata_from_h5(
 
     with HDF5File(file).open("r", root_only=True) as f:
         meta: _SimulationMetadataT = {
-            "created_at": datetime.fromisoformat(f.attrs.get("created_at", 0)),
+            "created_at": datetime.fromisoformat(f.attrs.get("created_at", 0))
+            if f.attrs.get("created_at")
+            else datetime.now(),
             "modified_at": datetime.fromtimestamp(file.stat().st_mtime),
             "description": f.attrs.get("notes", ""),
             "status": f.attrs.get("status", ""),
