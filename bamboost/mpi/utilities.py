@@ -1,14 +1,10 @@
 from functools import wraps
-from typing import TYPE_CHECKING, Callable, Protocol, TypeVar, cast
+from typing import TYPE_CHECKING, Callable, Protocol, cast
 
-from typing_extensions import ParamSpec
+from bamboost._typing import _P, _T
 
 if TYPE_CHECKING:
     from bamboost.mpi import Comm
-
-
-_T = TypeVar("_T")
-_P = ParamSpec("_P")
 
 
 def on_rank(func: Callable[_P, _T], comm: "Comm", rank: int) -> Callable[_P, _T]:

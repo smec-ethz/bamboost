@@ -38,23 +38,26 @@ from typing import (
     TYPE_CHECKING,
     Any,
     Callable,
-    Dict,
     Generator,
     Optional,
     Sequence,
     Set,
     Tuple,
-    TypedDict,
-    TypeVar,
-    Union,
 )
 
-from sqlalchemy import Engine, create_engine, delete, select, text
+from sqlalchemy import Engine, create_engine, delete, select
 from sqlalchemy.exc import SQLAlchemyError
 from sqlalchemy.orm import Session, joinedload, sessionmaker
-from typing_extensions import Concatenate, ParamSpec, TypeAlias
+from typing_extensions import Concatenate
 
 from bamboost import BAMBOOST_LOGGER, config
+from bamboost._typing import (
+    _P,
+    _T,
+    StrPath,
+    _SimulationMetadataT,
+    _SimulationParameterT,
+)
 from bamboost.index.sqlmodel import (
     CollectionORM,
     ParameterORM,
@@ -74,23 +77,6 @@ log = BAMBOOST_LOGGER.getChild("Database")
 
 IDENTIFIER_PREFIX = ".BAMBOOST"
 IDENTIFIER_SEPARATOR = "-"
-
-# Type declarations
-StrPath: TypeAlias = Union[str, Path]
-_SimulationMetadataT = TypedDict(
-    "_SimulationMetadataT",
-    {
-        "created_at": datetime,
-        "modified_at": datetime,
-        "description": str,
-        "status": str,
-    },
-    total=False,
-)
-_SimulationParameterT: TypeAlias = Dict[str, Any]
-
-_T = TypeVar("_T")
-_P = ParamSpec("_P")
 
 
 class CollectionUID(str):

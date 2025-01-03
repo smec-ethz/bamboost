@@ -13,10 +13,10 @@ from argparse import ArgumentParser
 from collections.abc import MutableMapping
 from itertools import islice
 from pathlib import Path
-from typing import Mapping, NamedTuple, TypeVar
+from typing import TYPE_CHECKING, Mapping, NamedTuple
 
-import h5py
-import pandas as pd
+if TYPE_CHECKING:
+    from pandas import DataFrame
 
 __all__ = [
     "flatten_dict",
@@ -32,10 +32,8 @@ branch = "│   "
 tee = "├── "
 last = "└── "
 
-_DT = TypeVar("_DT", bound=dict)
 
-
-def flatten_dict(dictionary: Mapping, parent_key="", seperator=".")-> dict:
+def flatten_dict(dictionary: Mapping, parent_key="", seperator=".") -> dict:
     items = []
     for key, value in dictionary.items():
         new_key = parent_key + seperator + key if parent_key else key
@@ -105,6 +103,8 @@ def tree(
 
 
 def h5_tree(val, pre=""):
+    import h5py
+
     items = len(val)
     for key, val in val.items():
         items -= 1
@@ -123,7 +123,7 @@ def h5_tree(val, pre=""):
                 print(pre + "├── " + key + " (%d)" % len(val))
 
 
-def show_differences(df: pd.DataFrame) -> pd.DataFrame:
+def show_differences(df: "DataFrame") -> "DataFrame":
     """This function takes a pandas DataFrame as input and returns a modified
     DataFrame that shows only the columns which have differences.
 

@@ -23,12 +23,11 @@ from typing_extensions import Self
 
 import bamboost
 from bamboost import BAMBOOST_LOGGER
+from bamboost._typing import _MT, Mutable
 from bamboost.core.hdf5.file import (
-    _MT,
     FileMode,
     HDF5File,
     HDF5Path,
-    Mutable,
     mutable_only,
     with_file_open,
 )
@@ -37,7 +36,8 @@ from bamboost.mpi import MPI_ON
 log = BAMBOOST_LOGGER.getChild("hdf5")
 
 MPI_ACTIVE = "mpio" in h5py.registered_drivers() and h5py.get_config().mpi and MPI_ON
-_R = TypeVar("_R", bound=Union["Group", "Dataset"])
+
+_ReturnType = TypeVar("_ReturnType", bound=Union["Group", "Dataset"])
 
 
 class H5Reference(Generic[_MT]):
@@ -103,15 +103,15 @@ class H5Reference(Generic[_MT]):
 
     @classmethod
     def new(
-        cls, name: str, file: HDF5File[_MT], _type: Optional[Type[_R]] = None
-    ) -> _R:
+        cls, name: str, file: HDF5File[_MT], _type: Optional[Type[_ReturnType]] = None
+    ) -> _ReturnType:
         """Returns a new pointer object."""
         with file.open(FileMode.READ):
             _obj = file[name]
             if isinstance(_obj, h5py.Group):
-                return cast(_R, cls(name, file))
+                return cast(_ReturnType, cls(name, file))
             elif isinstance(_obj, h5py.Dataset):
-                return cast(_R, Dataset(name, file))
+                return cast(_ReturnType, Dataset(name, file))
             else:
                 raise ValueError(f"Object {name} is not a group or dataset")
 
@@ -305,7 +305,7 @@ class MutableGroup(Group[Mutable]):
     @overload
     def __getitem__(self, key: str): ...
     @overload
-    def __getitem__(self, key: tuple[str, Type[_R]]) -> _R: ...
+    def __getitem__(self, key: tuple[str, Type[_ReturnType]]) -> _ReturnType: ...
     @with_file_open(FileMode.READ)
     def __getitem__(self, key):
         """Used to access datasets (:class:`~bamboost.common.hdf_pointer.Dataset`)

@@ -28,18 +28,15 @@ from typing import (
 
 import h5py
 import numpy as np
-import pandas as pd
 from typing_extensions import Self, deprecated
 
 import bamboost.core.simulation._repr as reprs
 from bamboost import BAMBOOST_LOGGER, config
+from bamboost._typing import _MT, Immutable, Mutable
 from bamboost.core import utilities
 from bamboost.core.hdf5.file import (
-    _MT,
     FileMode,
     HDF5File,
-    Immutable,
-    Mutable,
     with_file_open,
 )
 from bamboost.core.hdf5.ref import Group, H5Reference
@@ -55,6 +52,8 @@ from bamboost.mpi import MPI, MPI_ON
 from bamboost.utilities import StrPath
 
 if TYPE_CHECKING:
+    import pandas as pd
+
     from bamboost.mpi import Comm
 
 
@@ -359,6 +358,8 @@ class _Simulation(ABC, Generic[_MT]):
         Returns:
             :class:`pd.DataFrame`
         """
+        import pandas as pd
+
         tmp_dictionary = dict()
         for data in self.data:
             steps = len(data)

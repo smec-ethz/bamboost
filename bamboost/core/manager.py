@@ -22,6 +22,7 @@ from typing import (
 )
 
 from bamboost import BAMBOOST_LOGGER, config
+from bamboost._typing import StrPath
 
 # from bamboost.core.simulation.base import Simulation
 # from bamboost.core.simulation.writer import SimulationWriter
@@ -30,7 +31,6 @@ from bamboost.core.utilities import flatten_dict
 from bamboost.index import (
     CollectionUID,
     Index,
-    StrPath,
     _identifier_filename,
     create_identifier_file,
 )

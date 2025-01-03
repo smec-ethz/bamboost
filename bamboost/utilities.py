@@ -4,11 +4,7 @@ from typing import Any, Callable, Iterable, Optional, TypeVar, Union
 
 from typing_extensions import ParamSpec, TypeAlias
 
-_T = TypeVar("_T")
-_U = TypeVar("_U")
-_P = ParamSpec("_P")
-
-StrPath: TypeAlias = Union[str, Path]
+from bamboost._typing import _P, _T, _U, StrPath
 
 
 class PathSet(set[Path]):

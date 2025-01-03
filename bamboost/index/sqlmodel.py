@@ -31,7 +31,7 @@ from sqlalchemy.orm import (
     relationship,
 )
 from sqlalchemy.sql.dml import ReturningInsert
-from typing_extensions import NotRequired, ParamSpec, TypedDict
+from typing_extensions import NotRequired, TypedDict
 
 from bamboost import BAMBOOST_LOGGER
 
@@ -46,9 +46,6 @@ create_all = _Base.metadata.create_all
 
 
 _APIMethod = TypeVar("_APIMethod", bound=Callable[..., Any])
-_T = TypeVar("_T")
-_U = TypeVar("_U")
-_P = ParamSpec("_P")
 
 
 def json_serializer(value: Any) -> str:

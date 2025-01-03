@@ -19,7 +19,6 @@ from typing import (
     Optional,
     Protocol,
     Type,
-    TypeVar,
     Union,
     overload,
 )
@@ -28,6 +27,7 @@ import h5py
 from typing_extensions import Self
 
 from bamboost import BAMBOOST_LOGGER
+from bamboost._typing import _MT, Immutable, Mutable
 from bamboost.mpi import MPI, MPI_ON
 from bamboost.utilities import StrPath
 
@@ -118,56 +118,6 @@ def with_file_open(
         return inner
 
     return decorator
-
-
-class _MutabilitySentinel(type):
-    """A metaclass for creating mutability sentinel types.
-
-    This metaclass is used to create special types that represent mutability
-    states (Mutable and Immutable). It provides custom boolean evaluation and
-    string representation for the created types.
-    """
-
-    def __new__(cls, name, bases, attrs):
-        """Create a new class using this metaclass.
-
-        Args:
-            name (str): The name of the class being created.
-            bases (tuple): The base classes of the class being created.
-            attrs (dict): The attributes of the class being created.
-
-        Returns:
-            type: The newly created class.
-        """
-        return super().__new__(cls, name, bases, attrs)
-
-    def __bool__(self):
-        """Determine the boolean value of the class.
-
-        Returns:
-            bool: True if the class is Mutable, False otherwise.
-        """
-        return self is Mutable
-
-    def __repr__(self):
-        """
-        Get the string representation of the class.
-
-        Returns:
-            str: The name of the class.
-        """
-        return self.__name__
-
-
-class _Mutability(metaclass=_MutabilitySentinel):
-    pass
-
-
-Mutable = type("Mutable", (_Mutability,), {})
-Immutable = type("Immutable", (_Mutability,), {})
-
-
-_MT = TypeVar("_MT", bound=_Mutability)
 
 
 class HDF5File(h5py.File, Generic[_MT]):

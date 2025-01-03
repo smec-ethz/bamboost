@@ -1,17 +1,13 @@
 from __future__ import annotations
 
-from functools import wraps
-from typing import Any, Generic, Mapping, TypeVar, Union, cast
+from typing import Any, Generic, Mapping, cast
 
 import h5py
 
-from bamboost.core import utilities
+from bamboost._typing import _MT, Mutable
 from bamboost.core.hdf5.file import (
-    _MT,
     FileMode,
     HDF5File,
-    Immutable,
-    Mutable,
     mutable_only,
     with_file_open,
 )
