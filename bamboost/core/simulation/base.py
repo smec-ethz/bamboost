@@ -64,6 +64,9 @@ if TYPE_CHECKING:
 log = BAMBOOST_LOGGER.getChild("simulation")
 
 UID_SEPARATOR = ":"
+_HDFFileName = "data.h5"
+_XDMFFileName = "data.xdmf"
+_RUNFileName = "run.sh"
 
 
 class SimulationName(str):
@@ -104,17 +107,17 @@ class _Simulation(ABC, Generic[_MT]):
     """Simulation accessor.
 
     Args:
-        name: Unique identifier for the simulation.
-        path: Path to parent/database folder.
+        name: Name for the simulation.
+        parent: Path to parent/collection directory.
         comm: MPI communicator. Defaults to MPI.COMM_WORLD.
-        create_if_not_exists: Create the simulation if it doesn't exist. Defaults to False.
+        index: Index object. Defaults to the global index file.
 
     Raises:
-        FileNotFoundError: If the simulation doesn't exist and create_if_not_exists is False.
+        FileNotFoundError: If the simulation doesn't exist.
     """
 
-    _mesh_location = "Mesh/0"
-    _default_mesh = "mesh"
+    _mesh_location = "meshes"
+    _default_mesh = "default"
 
     _repr_html_ = reprs.simulation_html_repr
 
@@ -128,24 +131,26 @@ class _Simulation(ABC, Generic[_MT]):
     ):
         self.name: str = name
         self.path: Path = Path(parent).joinpath(name).absolute()
-        self._index: Index = index or Index()
         if not self.path.is_dir():
             raise FileNotFoundError(
                 f"Simulation {self.name} does not exist in {self.path}."
             )
+        self._index: Index = index or Index()
+
+        # Shortcut to collection uid if available, otherwise resolve it
+        self.collection_uid: CollectionUID = kwargs.pop(
+            "collection_uid", None
+        ) or self._index.resolve_uid(self.path.parent)
+
+        self._data_file: Path = self.path.joinpath(_HDFFileName)
+        self._xdmf_file: Path = self.path.joinpath(_XDMFFileName)
+        self._bash_file: Path = self.path.joinpath(_RUNFileName)
 
         # MPI information
         self._comm: Comm = comm or MPI.COMM_WORLD
         self._psize: int = self._comm.size
         self._prank: int = self._comm.rank
         self._ranks = np.array([i for i in range(self._psize)])
-
-        self.collection_uid: CollectionUID = kwargs.pop(
-            "collection_uid", None
-        ) or self._index.resolve_uid(self.path.parent)
-
-        self._data_file: Path = self.path.joinpath(f"{self.name}.h5")
-        self._xdmf_file: Path = self.path.joinpath(f"{self.name}.xdmf")
 
         # Alias attributes
         self.root: Group[_MT] = self._file.root
@@ -468,19 +473,24 @@ class SimulationWriter(_Simulation[Mutable]):
         )
         script += "\n".join(commands)
 
-        with self.path.joinpath(f"{self.name}.sh").open("w") as file:
+        with self._bash_file.open("w") as file:
             file.write(script)
 
         self.metadata["submitted"] = False
 
-    def sbatch_submit(self) -> None:
-        assert not MPI_ON, "This method is not available in MPI execution."
+    def run_simulation(self, executable: str = "bash") -> None:
+        assert not MPI_ON, "This method is not available during MPI execution."
 
-        run_script = self.path.joinpath(f"{self.name}.sh")
-        assert run_script.exists(), "No script found."
+        if not self._bash_file.exists():
+            raise FileNotFoundError(
+                f"Run script {self._bash_file} does not exist. Create one with `create_run_script`."
+            )
 
         env = os.environ.copy()
         _ = env.pop("BAMBOOST_MPI", None)  # remove bamboost MPI environment variable
-        subprocess.run(["bash", f"{run_script}"], env=env)
+        subprocess.run([executable, self._bash_file.as_posix()], env=env)
         log.info(f'Simulation "{self.name}" submitted.')
         self.metadata["submitted"] = True
+
+    def submit_simulation(self) -> None:
+        self.run_simulation(executable="sbatch")

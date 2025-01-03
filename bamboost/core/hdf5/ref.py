@@ -255,7 +255,7 @@ class Group(H5Reference[_MT]):
 
     @mutable_only
     @with_file_open(FileMode.APPEND)
-    def require_group(self: Group[Mutable], name: str) -> MutableGroup:
+    def require_group(self: Group[Mutable], name: str) -> Group[Mutable]:
         """Create a group if it doesn't exist yet."""
         self._obj.require_group(name)
         return self.new(name, self._file)
