@@ -9,12 +9,14 @@
 from __future__ import annotations
 
 import time
+from collections.abc import KeysView, Mapping, MutableMapping
 from enum import Enum
 from functools import total_ordering, wraps
 from pathlib import Path, PurePosixPath
 from typing import (
     TYPE_CHECKING,
     Generic,
+    Iterator,
     Literal,
     Optional,
     Protocol,
@@ -28,6 +30,7 @@ from typing_extensions import Self
 
 from bamboost import BAMBOOST_LOGGER
 from bamboost._typing import _MT, Immutable, Mutable
+from bamboost.core.hdf5 import _VT_filemap
 from bamboost.mpi import MPI, MPI_ON
 from bamboost.utilities import StrPath
 
@@ -50,7 +53,7 @@ class FileMode(Enum):
     WRITE_FAIL = "w-"
     WRITE_CREATE = "x"
 
-    __hirarchy__ = {"r": 0, "r+": 1, "a": 1, "w": 2, "w-": 3, "x": 3}
+    __hirarchy__ = {"r": 0, "r+": 1, "a": 1, "w": 1, "w-": 1, "x": 1}
 
     def __lt__(self, other) -> bool:
         return self.__hirarchy__[self.value] < self.__hirarchy__[other.value]
@@ -96,7 +99,7 @@ def mutable_only(func):
 
     @wraps(func)
     def wrapper(self: HasFileAttribute, *args, **kwargs):
-        if not self._file._mutable:
+        if not self._file.mutable:
             raise PermissionError("Simulation file is read-only.")
         return func(self, *args, **kwargs)
 
@@ -123,16 +126,107 @@ def with_file_open(
     return decorator
 
 
+class KeysViewHDF5(KeysView):
+    def __str__(self) -> str:
+        return "<KeysViewHDF5 {}>".format(list(self))
+
+    __repr__ = __str__
+
+
+class _FileMapMixin(Mapping[str, _VT_filemap]):
+    def keys(self) -> KeysViewHDF5:
+        return KeysViewHDF5(self)
+
+    def datasets(self):
+        return tuple(k for k, v in self.items() if v is h5py.Dataset)
+
+    def groups(self):
+        return tuple(k for k, v in self.items() if v is h5py.Group)
+
+    def _ipython_key_completions_(self):
+        return self.keys()
+
+
+class FileMap(MutableMapping[str, _VT_filemap], _FileMapMixin):
+    _instances: dict[str, FileMap] = {}
+    _valid: bool
+
+    def __new__(cls, file: HDF5File):
+        filename = file._filename
+        if filename not in cls._instances:
+            cls._instances[filename] = super().__new__(cls)
+        return cls._instances[filename]
+
+    def __init__(self, file: HDF5File):
+        self._file = file
+        self._dict: dict[HDF5Path, _VT_filemap] = {}
+        self.valid = False
+
+    def __getitem__(self, key: HDF5Path, /) -> _VT_filemap:
+        return self._dict[key]
+
+    def __setitem__(self, key: HDF5Path, value: _VT_filemap) -> None:
+        self._dict[key] = value
+
+    def __delitem__(self, key: HDF5Path) -> None:
+        self._dict.pop(key)
+
+    def __iter__(self) -> Iterator[HDF5Path]:
+        return iter(self._dict)
+
+    def __len__(self) -> int:
+        return len(self._dict)
+
+    def populate(self) -> None:
+        """Assumes the file is open."""
+
+        # visit all groups and datasets to cache them
+        def cache_items(name, _obj):
+            self._dict[HDF5Path(name)] = type(_obj)
+
+        self._file.visititems(cache_items)
+        self.valid = True
+
+    def invalidate(self) -> None:
+        self.valid = False
+
+
+class FilteredFileMap(MutableMapping[str, _VT_filemap], _FileMapMixin):
+    def __init__(self, file: HDF5File, parent: str) -> None:
+        self.parent = HDF5Path(parent)
+        self.file_map = FileMap(file)
+        self.valid = self.file_map.valid
+
+    def __getitem__(self, key, /):
+        return self.file_map[self.parent.joinpath(key)]
+
+    def __setitem__(self, key: str, value):
+        self.file_map[self.parent.joinpath(key)] = value
+
+    def __delitem__(self, key):
+        del self.file_map[self.parent.joinpath(key)]
+
+    def __iter__(self):
+        return map(
+            lambda x: HDF5Path(x).relative_to(self.parent),
+            filter(
+                lambda x: x.startswith(self.parent) and not x == self.parent,
+                self.file_map,
+            ),
+        )
+
+    def __len__(self):
+        return sum(1 for _ in self.__iter__())
+
+
 class HDF5File(h5py.File, Generic[_MT]):
     """Wrapper for h5py.File to add some functionality"""
 
     _filename: str
     _comm: Comm
     _context_stack: int = 0
-    _object_map: dict[HDF5Path, Type[h5py.Group | h5py.Dataset]]
-    _mapped: bool = False
-    _mutable: bool
-    _current_root_only_flag: bool = False
+    mutable: bool
+    _is_open_on_root_only: bool = False
 
     @overload
     def __init__(
@@ -156,13 +250,13 @@ class HDF5File(h5py.File, Generic[_MT]):
     ):
         self._filename = file.as_posix() if isinstance(file, Path) else file
         self._comm = comm or MPI.COMM_WORLD
-        self._object_map = dict()
-        self._mutable = mutable
+        self.file_map: FileMap = FileMap(self)
+        self.mutable = mutable
 
     def __repr__(self) -> str:
         mode_info = self.mode if self.is_open else "proxy"
         status = "open" if self.is_open else "closed"
-        mutability = Mutable if self._mutable else Immutable
+        mutability = Mutable if self.mutable else Immutable
         return (
             f'<{mutability} HDF5 file "{self._filename}" (mode {mode_info}, {status})>'
         )
@@ -221,7 +315,7 @@ class HDF5File(h5py.File, Generic[_MT]):
             root_only and driver == "mpio"
         ), "Cannot use driver 'mpio' and root_only together."
 
-        if not self._mutable and mode > FileMode.READ:
+        if not self.mutable and mode > FileMode.READ:
             log.error(
                 f"File is read-only, cannot open in mode {mode.value} (open in read-only mode)"
             )
@@ -242,21 +336,22 @@ class HDF5File(h5py.File, Generic[_MT]):
         else:
             # Used by the context manager of this class
             # the root_only flag is ignored if the file is already open
-            self._current_root_only_flag = root_only
+            self._is_open_on_root_only = root_only
 
-        if self._current_root_only_flag and self._comm.rank != 0:  # do not open
+        if self._is_open_on_root_only and self._comm.rank != 0:  # do not open
             return self
 
         return self._try_open_repeat(mode, driver)
 
     def __enter__(self):
-        if self._current_root_only_flag and self._comm.rank != 0:
+        if self._is_open_on_root_only and self._comm.rank != 0:
             raise StopIteration()
         return super().__enter__()
 
     def __exit__(self, exc_type, exc_value, traceback):
         if exc_type is StopIteration and self._comm.rank != 0:
             return
+        # super().__exit__ calls `close` method
         return super().__exit__(exc_type, exc_value, traceback)
 
     def _try_open_repeat(
@@ -275,10 +370,9 @@ class HDF5File(h5py.File, Generic[_MT]):
                     f"[{id(self)}] opened file (mode {mode.value}) {self._filename}"
                 )
 
-                # cache object names
-                if not self._mapped:
-                    self._map_objects()
-                    self._mapped = True
+                # create file map
+                if not self.file_map.valid:
+                    self.file_map.populate()
 
                 return self
             except BlockingIOError:
@@ -286,29 +380,15 @@ class HDF5File(h5py.File, Generic[_MT]):
                 log.warning(f"file locked (waiting) --> {self._filename}")
                 time.sleep(0.1)
 
-    def map_objects(self) -> Self:
-        with self.open(FileMode.READ):
-            self._map_objects()
-        return self
-
-    def _map_objects(self) -> None:
-        objects = dict()
-
-        # visit all groups and datasets to cache them
-        def cache_items(name, _obj):
-            objects[HDF5Path(name)] = type(_obj)
-
-        self.visititems(cache_items)
-        self._object_map = objects
-
     def close(self):
         self._context_stack = max(0, self._context_stack - 1)
-        log.debug(f"[{id(self)}] context stack - ({self._context_stack})")
 
         # if the context stack is 0, we close the file
         if self._context_stack <= 0:
             log.debug(f"[{id(self)}] closed file {self._filename}")
             super().close()
+
+        log.debug(f"[{id(self)}] context stack - ({self._context_stack})")
 
     def force_close(self):
         super().close()

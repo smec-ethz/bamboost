@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 import pkgutil
-from functools import cache, cached_property
+from functools import cached_property
 from pathlib import Path
 from typing import (
     Any,
@@ -26,6 +26,7 @@ from bamboost import BAMBOOST_LOGGER
 from bamboost._typing import _MT, Mutable
 from bamboost.core.hdf5.file import (
     FileMode,
+    FilteredFileMap,
     HDF5File,
     HDF5Path,
     mutable_only,
@@ -37,11 +38,10 @@ log = BAMBOOST_LOGGER.getChild("hdf5")
 
 MPI_ACTIVE = "mpio" in h5py.registered_drivers() and h5py.get_config().mpi and MPI_ON
 
-_ReturnType = TypeVar("_ReturnType", bound=Union["Group", "Dataset"])
+_RT_group = TypeVar("_RT_group", bound=Union["Group", "Dataset"])
 
 
 class H5Reference(Generic[_MT]):
-    _type: str = "object"
     _valid: bool | None = None
 
     def __init__(self, path: str, file: HDF5File[_MT]):
@@ -67,7 +67,7 @@ class H5Reference(Generic[_MT]):
             if self._valid
             else "invalid"
         )
-        return f'<HDF5 {self._type} "{self._path}" ({valid_str}, file {self._file._filename})>'
+        return f'<HDF5 {type(self).__name__} "{self._path}" ({valid_str}, file {self._file._filename})>'
 
     @overload
     def __getitem__(self, value: str) -> Union[Self, Dataset]: ...
@@ -103,17 +103,17 @@ class H5Reference(Generic[_MT]):
 
     @classmethod
     def new(
-        cls, name: str, file: HDF5File[_MT], _type: Optional[Type[_ReturnType]] = None
-    ) -> _ReturnType:
+        cls, path: str, file: HDF5File[_MT], _type: Optional[Type[_RT_group]] = None
+    ) -> _RT_group:
         """Returns a new pointer object."""
         with file.open(FileMode.READ):
-            _obj = file[name]
+            _obj = file[path]
             if isinstance(_obj, h5py.Group):
-                return cast(_ReturnType, cls(name, file))
+                return cast(_RT_group, cls(path, file))
             elif isinstance(_obj, h5py.Dataset):
-                return cast(_ReturnType, Dataset(name, file))
+                return cast(_RT_group, Dataset(path, file))
             else:
-                raise ValueError(f"Object {name} is not a group or dataset")
+                raise ValueError(f"Object {path} is not a group or dataset")
 
     @cached_property
     @with_file_open(FileMode.READ)
@@ -127,14 +127,15 @@ class H5Reference(Generic[_MT]):
 
     @property
     def mutable(self) -> bool:
-        return self._file._mutable
+        return self._file.mutable
 
 
 class Group(H5Reference[_MT]):
-    _type: str = "group"
-
     def __init__(self, path, file):
         super().__init__(path, file)
+
+        # Create a subset view of the file map with all objects
+        self._group_map = FilteredFileMap(file, path)
 
     @mutable_only
     def __setitem__(self: Group[Mutable], key, newvalue):
@@ -169,41 +170,22 @@ class Group(H5Reference[_MT]):
         for key in self.keys():
             yield self.__getitem__(key)
 
-    @cached_property
-    def _object_map(self) -> dict[HDF5Path, Type[h5py.Group | h5py.Dataset]]:
-        _ = self._file._mapped or self._file.map_objects()
-        return {
-            k: v
-            for k, v in self._file._object_map.items()
-            if k.startswith(self._path) and k != self._path
-        }
+    def _assert_file_map_is_valid(self):
+        if not self._group_map.valid:
+            with self._file.open(FileMode.READ):
+                self._group_map.file_map.populate()
 
-    @property
-    def _children_map(self) -> dict[HDF5Path, Type[h5py.Group | h5py.Dataset]]:
-        return {k: v for k, v in self._object_map.items() if k.parent == self._path}
+    def keys(self):
+        self._assert_file_map_is_valid()
+        return self._group_map.keys()
 
-    @cache
-    def keys(self, all: bool = False) -> tuple[HDF5Path, ...]:
-        object_map = self._object_map if all else self._children_map
-        return tuple(path.relative_to(self._path) for path in object_map.keys())
+    def groups(self):
+        self._assert_file_map_is_valid()
+        return self._group_map.groups()
 
-    @cache
-    def groups(self, all: bool = False) -> list[HDF5Path]:
-        object_map = self._object_map if all else self._children_map
-        return [
-            name.relative_to(self._path)
-            for name, t in object_map.items()
-            if t == h5py.Group
-        ]
-
-    @cache
-    def datasets(self, all: bool = False) -> list[str]:
-        object_map = self._object_map if all else self._children_map
-        return [
-            name.relative_to(self._path)
-            for name, t in object_map.items()
-            if t == h5py.Dataset
-        ]
+    def datasets(self):
+        self._assert_file_map_is_valid()
+        return self._group_map.datasets()
 
     @with_file_open(FileMode.READ)
     def _repr_html_(self):
@@ -258,7 +240,11 @@ class Group(H5Reference[_MT]):
     def require_group(self: Group[Mutable], name: str) -> Group[Mutable]:
         """Create a group if it doesn't exist yet."""
         self._obj.require_group(name)
-        return self.new(name, self._file)
+
+        # update file_map
+        self._group_map[name] = h5py.Group
+
+        return self.new(self._path.joinpath(name), self._file)
 
     @mutable_only
     def add_dataset(
@@ -300,12 +286,15 @@ class Group(H5Reference[_MT]):
         self.update_attrs(attrs)
         log.info(f'Written dataset to "{self._path}/{name}"')
 
+        # update file_map
+        self._group_map[name] = h5py.Dataset
+
 
 class MutableGroup(Group[Mutable]):
     @overload
     def __getitem__(self, key: str): ...
     @overload
-    def __getitem__(self, key: tuple[str, Type[_ReturnType]]) -> _ReturnType: ...
+    def __getitem__(self, key: tuple[str, Type[_RT_group]]) -> _RT_group: ...
     @with_file_open(FileMode.READ)
     def __getitem__(self, key):
         """Used to access datasets (:class:`~bamboost.common.hdf_pointer.Dataset`)
@@ -318,8 +307,6 @@ class MutableGroup(Group[Mutable]):
 
 
 class Dataset(H5Reference[_MT]):
-    _type: str = "dataset"
-
     @property
     def _obj(self) -> h5py.Dataset:
         obj = super()._obj

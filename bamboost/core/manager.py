@@ -173,6 +173,7 @@ class Collection:
         description: Optional[str] = None,
         files: Optional[Iterable[str]] = None,
         links: Optional[Dict[str, str]] = None,
+        override: bool = False,
     ) -> SimulationWriter:
         """Get a writer object for a new simulation. This is written for paralell use
         as it is likely that this may be used in an executable, creating multiple runs
@@ -218,7 +219,7 @@ class Collection:
         # Check if name is already in use, otherwise create a new directory
         import shutil
 
-        if directory.exists():
+        if override and directory.exists():
             shutil.rmtree(directory)
         directory.mkdir(exist_ok=False)
 
@@ -226,92 +227,18 @@ class Collection:
         sim = SimulationWriter(
             name, self.path, self._comm, self._index, collection_uid=self.uid
         )
-        with self._index.sql_transaction():
+        with self._index.sql_transaction(), sim._file.open("w"):
             sim.initialize()  # set metadata and status
             sim.metadata["description"] = description or ""
             sim.parameters.update(parameters or {})
             sim.links.update(links or {})
             sim.copy_files(files or [])
 
-        # update the SQL database
-        self._index.upsert_simulation(
-            self.uid,
-            name,
-            sim.parameters._dict,
-            collection_path=self.path,
-        )
+        # Invalidate the file_map such that it is reloaded
+        sim._file.file_map.invalidate()
 
+        log.info(f"Created simulation {name} in {self.path}")
         return sim
-
-    def create_simulation_old(
-        self,
-        uid: str = None,
-        parameters: dict = None,
-        skip_duplicate_check: bool = False,
-        *,
-        prefix: str = None,
-        duplicate_action: str = "prompt",
-        note: str = None,
-        files: list[str] = None,
-        links: dict[str, str] = None,
-    ) -> SimulationWriter:
-        if parameters and not skip_duplicate_check:
-            go_on = True
-            if self._comm.rank == 0:
-                go_on, uid = self._check_duplicate(
-                    parameters, uid, duplicate_action=duplicate_action
-                )
-            self._comm.bcast((go_on, uid), root=0)
-            if not go_on:
-                print("Aborting by user desire...")
-                return None
-
-        if self._comm.rank == 0:
-            if not uid:
-                uid = uuid.uuid4().hex[:8]  # Assign random unique identifier
-            if isinstance(prefix, str) and prefix != "":
-                uid = "_".join([prefix, uid])
-        uid = self._comm.bcast(uid, root=0)
-
-        try:
-            # Create directory and h5 file
-            if self._comm.rank == 0:
-                os.makedirs(os.path.join(self.path, uid), exist_ok=True)
-                path_to_h5_file = os.path.join(self.path, uid, f"{uid}.h5")
-                if os.path.exists(path_to_h5_file):
-                    os.remove(path_to_h5_file)
-                h5py.File(path_to_h5_file, "a").close()  # create file
-
-            new_sim = SimulationWriter(uid, self.path, self._comm)
-            new_sim.initialize()  # sets metadata and status
-            # add the id to the (fixed) _all_uids list
-            if hasattr(self, "_all_uids"):
-                self._all_uids.append(new_sim.uid)
-
-            # Add parameters, note, files, and links
-            if not any([parameters, note, files, links]):
-                return new_sim
-
-            with new_sim._file("r+"):
-                if parameters:
-                    new_sim.add_parameters(parameters)
-                if note:
-                    new_sim.change_note(note)
-                if files:
-                    new_sim.copy_file(files)
-                if links:
-                    [
-                        new_sim.links.__setitem__(name, uid)
-                        for name, uid in links.items()
-                    ]
-
-            return new_sim
-
-        except Exception as e:
-            # If any error occurs, remove the partially created simulation
-            if self._comm.rank == 0:
-                self.remove(uid)
-            raise e  # Re-raise the exception after cleanup
 
     def find(self, parameter_selection: dict[str, Any]) -> pd.DataFrame:
         """Find simulations with the given parameters.

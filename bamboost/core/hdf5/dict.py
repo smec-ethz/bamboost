@@ -32,7 +32,7 @@ class GroupDict(Mapping, Generic[_MT]):
         self._file = file
         self._path = path
         self._dict = self.read()
-        self.mutable = self._file._mutable
+        self.mutable = self._file.mutable
 
     @with_file_open(FileMode.READ)
     def read(self) -> dict:
