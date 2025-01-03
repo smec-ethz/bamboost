@@ -224,6 +224,9 @@ class HDF5File(h5py.File, Generic[_MT]):
             )
             mode = FileMode.READ
 
+        self._context_stack += 1
+        log.debug(f"[{id(self)}] context stack + ({self._context_stack})")
+
         if self.is_open:
             if mode > FileMode(self.mode):
                 # if the new operation requires a higher mode, we close the file
@@ -237,9 +240,6 @@ class HDF5File(h5py.File, Generic[_MT]):
             # Used by the context manager of this class
             # the root_only flag is ignored if the file is already open
             self._current_root_only_flag = root_only
-
-        self._context_stack += 1
-        log.debug(f"[{id(self)}] context stack + ({self._context_stack})")
 
         if self._current_root_only_flag and self._comm.rank != 0:  # do not open
             return self
