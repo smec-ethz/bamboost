@@ -24,6 +24,7 @@ from typing_extensions import Self
 import bamboost
 from bamboost import BAMBOOST_LOGGER
 from bamboost._typing import _MT, Mutable
+from bamboost.core.hdf5.dict import AttrsDict
 from bamboost.core.hdf5.file import (
     FileMode,
     FilteredFileMap,
@@ -116,9 +117,8 @@ class H5Reference(Generic[_MT]):
                 raise ValueError(f"Object {path} is not a group or dataset")
 
     @cached_property
-    @with_file_open(FileMode.READ)
-    def attrs(self) -> dict[str, Any]:
-        return dict(self._obj.attrs)
+    def attrs(self) -> AttrsDict[_MT]:
+        return AttrsDict(self._file, self._path)
 
     @property
     @with_file_open(FileMode.READ)

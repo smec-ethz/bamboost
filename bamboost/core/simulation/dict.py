@@ -3,10 +3,11 @@ from __future__ import annotations
 from functools import reduce
 from typing import TYPE_CHECKING, Any, Generator, cast
 
+import h5py
 import numpy as np
 
 from bamboost.core import utilities
-from bamboost.core.hdf5.dict import GroupDict, mutable_only
+from bamboost.core.hdf5.dict import AttrsDict, mutable_only
 from bamboost.core.hdf5.file import (
     _MT,
     FileMode,
@@ -19,7 +20,7 @@ if TYPE_CHECKING:
     from bamboost.core.simulation.base import _Simulation
 
 
-class Parameters(GroupDict[_MT]):
+class Parameters(AttrsDict[_MT]):
     _simulation: _Simulation
 
     def __init__(self, simulation: _Simulation[_MT]) -> None:
@@ -27,9 +28,36 @@ class Parameters(GroupDict[_MT]):
         super().__init__(file, "/parameters")
         self._simulation = simulation
 
+    @property
+    def _obj(self) -> h5py.Group:
+        obj = self._file[self._path]
+        assert isinstance(obj, h5py.Group), f"Expected a group, got {type(obj)}"
+        return obj
+
     def read(self) -> dict:
-        tmp_dict = super().read()
-        self._ipython_keys_ = tuple(tmp_dict.keys())
+        """Read the parameters from the HDF5 file.
+
+        In addition to the attributes from the group, this method also reads in
+        all datasets in the group.
+        """
+        tmp_dict = dict()
+
+        try:
+            grp = cast(h5py.Group, self._file[self._path])
+        except KeyError:
+            raise KeyError(
+                f"Group {self._path} not found in file {self._file._filename}."
+            )
+
+        # Read in attributes
+        tmp_dict.update(grp.attrs)
+
+        # Read in datasets
+        for key, value in grp.items():
+            if not isinstance(value, h5py.Dataset):
+                continue
+            tmp_dict.update({key: value[()]})
+
         return utilities.unflatten_dict(tmp_dict)
 
     def _ipython_key_completions_(self) -> Generator[str, None, None]:
@@ -106,12 +134,12 @@ class Parameters(GroupDict[_MT]):
             self._obj.attrs.update(attributes)
 
 
-class Links(GroupDict[_MT]):
+class Links(AttrsDict[_MT]):
     def __init__(self, simulation: _Simulation) -> None:
         super().__init__(cast(HDF5File[_MT], simulation._file), "/links")
 
 
-class Metadata(GroupDict[_MT]):
+class Metadata(AttrsDict[_MT]):
     _simulation: _Simulation
 
     def __init__(self, simulation: _Simulation) -> None:
@@ -127,7 +155,7 @@ class Metadata(GroupDict[_MT]):
         # ), f'Can only set existing metadata keys. "{key}" not found.'
         if isinstance(value, datetime):
             value = value.isoformat()
-        GroupDict.__setitem__(self, key, value)
+        AttrsDict.__setitem__(self, key, value)
 
         # also send the updated parameter to the SQL database
         self._simulation.send_to_sql(metadata={key: value})  # type: ignore
@@ -147,7 +175,7 @@ class Metadata(GroupDict[_MT]):
             k: v.isoformat() if isinstance(v, datetime) else v
             for k, v in update_dict.items()
         }
-        GroupDict.update(self, dict_stringified)  # type: ignore
+        AttrsDict.update(self, dict_stringified)  # type: ignore
 
         # try update the sql database
         self._simulation.send_to_sql(metadata=update_dict)

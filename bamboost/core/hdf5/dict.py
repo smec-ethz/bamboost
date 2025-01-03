@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from typing import Any, Generic, Mapping, cast
+from typing import Any, Generic, Mapping, TypeVar, cast
 
 import h5py
 
@@ -13,7 +13,7 @@ from bamboost.core.hdf5.file import (
 )
 
 
-class GroupDict(Mapping, Generic[_MT]):
+class AttrsDict(Mapping, Generic[_MT]):
     """A dictionary-like object for the attributes of a group in the HDF5
     file.
 
@@ -36,25 +36,7 @@ class GroupDict(Mapping, Generic[_MT]):
 
     @with_file_open(FileMode.READ)
     def read(self) -> dict:
-        tmp_dict = dict()
-
-        try:
-            grp = cast(h5py.Group, self._file[self._path])
-        except KeyError:
-            raise KeyError(
-                f"Group {self._path} not found in file {self._file._filename}."
-            )
-
-        # Read in attributes
-        tmp_dict.update(grp.attrs)
-
-        # Read in datasets
-        for key, value in grp.items():
-            if not isinstance(value, h5py.Dataset):
-                continue
-            tmp_dict.update({key: value[()]})
-
-        return tmp_dict
+        return dict(self._obj.attrs)
 
     def __getitem__(self, key: str) -> Any:
         return self._dict[key]
@@ -80,25 +62,26 @@ class GroupDict(Mapping, Generic[_MT]):
                 p.pretty(self._dict)
 
     @property
-    def _obj(self) -> h5py.Group:
+    def _obj(self) -> h5py.HLObject:
         obj = self._file[self._path]
-        assert isinstance(obj, h5py.Group), f"Object at {self._path} is not a group."
         return obj
 
     @mutable_only
-    def __setitem__(self: GroupDict[Mutable], key: str, value: Any) -> None:
+    def __setitem__(self: AttrsDict[Mutable], key: str, value: Any) -> None:
         self._dict[key] = value
 
         with self._file.open(FileMode.APPEND, root_only=True):
             self._obj.attrs[key] = value
 
     @mutable_only
-    def __delitem__(self: GroupDict[Mutable], key: str) -> None:
+    def __delitem__(self: AttrsDict[Mutable], key: str) -> None:
+        del self._dict[key]
+
         with self._file.open(FileMode.APPEND, root_only=True):
             del self._obj.attrs[key]
 
     @mutable_only
-    def update(self: GroupDict[Mutable], update_dict: dict) -> None:
+    def update(self: AttrsDict[Mutable], update_dict: dict) -> None:
         """Update the dictionary. This method pushes the update to the HDF5
         file.
 
