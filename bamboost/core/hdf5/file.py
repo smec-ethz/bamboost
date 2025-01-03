@@ -72,12 +72,15 @@ class HDF5Path(str):
     def joinpath(self, other: str) -> HDF5Path:
         return HDF5Path(f"{self}/{other}")
 
-    def relative_to(self, other: HDF5Path) -> HDF5Path:
+    def relative_to(self, other: Union[HDF5Path, str]) -> HDF5Path:
+        other = HDF5Path(other)
+        if not self.startswith(other):
+            raise ValueError(f"{self} is not a subpath of {other}")
         return HDF5Path(self[len(other) :], absolute=False)
 
     @property
-    def parent(self) -> str:
-        return self.rsplit("/", 1)[0] or "/"
+    def parent(self) -> HDF5Path:
+        return HDF5Path(self.rsplit("/", 1)[0] or "/")
 
     @property
     def path(self) -> PurePosixPath:
