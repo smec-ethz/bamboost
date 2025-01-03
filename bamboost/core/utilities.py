@@ -33,6 +33,31 @@ tee = "├── "
 last = "└── "
 
 
+class FilePicker:
+    def __init__(self, path: Path):
+        self.path = path
+        self._dict = self._build_file_dict(path)
+
+    def _build_file_dict(self, path: Path) -> dict:
+        file_dict = {}
+        for f in path.iterdir():
+            if f.is_dir():
+                subdir_dict = self._build_file_dict(f)
+                file_dict.update({f"{f.name}/{k}": v for k, v in subdir_dict.items()})
+            else:
+                file_dict[f.name] = f.absolute()
+        return file_dict
+
+    def __getitem__(self, key) -> Path:
+        return self._dict[key]
+
+    def _ipython_key_completions_(self):
+        return tuple(self._dict.keys())
+
+    def __repr__(self):
+        return tree(self.path)
+
+
 def flatten_dict(dictionary: Mapping, parent_key="", seperator=".") -> dict:
     items = []
     for key, value in dictionary.items():

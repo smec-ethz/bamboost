@@ -32,7 +32,13 @@ from typing_extensions import Self, deprecated
 
 import bamboost.core.simulation._repr as reprs
 from bamboost import BAMBOOST_LOGGER, config
-from bamboost._typing import _MT, Immutable, Mutable
+from bamboost._typing import (
+    _MT,
+    Immutable,
+    Mutable,
+    _SimulationMetadataT,
+    _SimulationParameterT,
+)
 from bamboost.core import utilities
 from bamboost.core.hdf5.file import (
     FileMode,
@@ -45,8 +51,6 @@ from bamboost.core.simulation.xdmf import XDMFWriter
 from bamboost.index import (
     CollectionUID,
     Index,
-    _SimulationMetadataT,
-    _SimulationParameterT,
 )
 from bamboost.mpi import MPI, MPI_ON
 from bamboost.utilities import StrPath
@@ -60,9 +64,6 @@ if TYPE_CHECKING:
 log = BAMBOOST_LOGGER.getChild("simulation")
 
 UID_SEPARATOR = ":"
-
-_GT = TypeVar("_GT", bound=H5Reference)
-_SimT = TypeVar("_SimT", bound="Simulation")
 
 
 class SimulationName(str):
@@ -222,33 +223,7 @@ class _Simulation(ABC, Generic[_MT]):
 
     @cached_property
     def files(self):
-        class FilePicker:
-            def __init__(self, path: Path):
-                self.path = path
-                self._dict = self._build_file_dict(path)
-
-            def _build_file_dict(self, path: Path) -> dict:
-                file_dict = {}
-                for f in path.iterdir():
-                    if f.is_dir():
-                        subdir_dict = self._build_file_dict(f)
-                        file_dict.update(
-                            {f"{f.name}/{k}": v for k, v in subdir_dict.items()}
-                        )
-                    else:
-                        file_dict[f.name] = f.absolute()
-                return file_dict
-
-            def __getitem__(self, key):
-                return self._dict[key]
-
-            def _ipython_key_completions_(self):
-                return tuple(self._dict.keys())
-
-            def __repr__(self):
-                return utilities.tree(self.path)
-
-        return FilePicker(self.path)
+        return utilities.FilePicker(self.path)
 
     def open_in_paraview(self) -> None:
         """Open the xdmf file in paraview."""
