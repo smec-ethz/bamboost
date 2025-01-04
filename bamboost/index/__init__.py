@@ -54,9 +54,9 @@ from bamboost import BAMBOOST_LOGGER, config
 from bamboost._typing import (
     _P,
     _T,
+    SimulationMetadataT,
+    SimulationParameterT,
     StrPath,
-    _SimulationMetadataT,
-    _SimulationParameterT,
 )
 from bamboost.index.sqlmodel import (
     CollectionORM,
@@ -457,8 +457,8 @@ class Index(metaclass=MPISafeMeta):
         self,
         collection_uid: str,
         simulation_name: str,
-        parameters: Optional[_SimulationParameterT] = None,
-        metadata: Optional[_SimulationMetadataT] = None,
+        parameters: Optional[SimulationParameterT] = None,
+        metadata: Optional[SimulationMetadataT] = None,
         *,
         collection_path: Optional[StrPath] = None,
     ) -> None:
@@ -471,10 +471,13 @@ class Index(metaclass=MPISafeMeta):
         """
         collection_path = Path(collection_path or self.resolve_path(collection_uid))
 
-        h5_file = collection_path.joinpath(simulation_name, f"data.h5")
         if metadata is None and parameters is None:
+            from bamboost.core.simulation.base import Simulation
+
             # if neither metadata nor parameters are provided, read them from the HDF5 file
-            metadata, parameters = simulation_metadata_from_h5(h5_file)
+            sim = Simulation(simulation_name, collection_path)
+            metadata = sim.metadata._dict
+            parameters = sim.parameters._dict
 
         # Upsert the simulation table
         sim_id = self._s.execute(
@@ -500,7 +503,7 @@ class Index(metaclass=MPISafeMeta):
 
     @_sql_transaction
     def update_simulation_metadata(
-        self, collection_uid: str, simulation_name: str, data: _SimulationMetadataT
+        self, collection_uid: str, simulation_name: str, data: SimulationMetadataT
     ) -> None:
         """Update the metadata of a simulation by passing it as a dict.
 
@@ -518,7 +521,7 @@ class Index(metaclass=MPISafeMeta):
         self,
         collection_uid: str,
         simulation_name: str,
-        parameters: _SimulationParameterT,
+        parameters: SimulationParameterT,
     ) -> None:
         """Update the parameters of a simulation by passing it as a dict.
 
@@ -574,7 +577,7 @@ class Index(metaclass=MPISafeMeta):
 
 def simulation_metadata_from_h5(
     file: Path,
-) -> Tuple[_SimulationMetadataT, _SimulationParameterT]:
+) -> Tuple[SimulationMetadataT, SimulationParameterT]:
     """Extract metadata and parameters from a BAMBOOST simulation HDF5 file.
 
     Reads the metadata and parameters from the HDF5 file and returns them as a
@@ -589,7 +592,7 @@ def simulation_metadata_from_h5(
     from bamboost.core.hdf5.file import HDF5File
 
     with HDF5File(file).open("r", root_only=True) as f:
-        meta: _SimulationMetadataT = {
+        meta: SimulationMetadataT = {
             "created_at": datetime.fromisoformat(f.attrs.get("created_at", 0))
             if f.attrs.get("created_at")
             else datetime.now(),
@@ -597,7 +600,7 @@ def simulation_metadata_from_h5(
             "description": f.attrs.get("notes", ""),
             "status": f.attrs.get("status", ""),
         }
-        params: _SimulationParameterT = dict(f["parameters"].attrs)
+        params: SimulationParameterT = dict(f["parameters"].attrs)
 
         return meta, params
 

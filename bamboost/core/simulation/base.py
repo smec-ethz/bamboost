@@ -38,8 +38,8 @@ from bamboost._typing import (
     _MT,
     Immutable,
     Mutable,
-    _SimulationMetadataT,
-    _SimulationParameterT,
+    SimulationMetadataT,
+    SimulationParameterT,
 )
 from bamboost.core import utilities
 from bamboost.core.hdf5.file import (
@@ -49,6 +49,7 @@ from bamboost.core.hdf5.file import (
 )
 from bamboost.core.hdf5.ref import Group, H5Reference
 from bamboost.core.simulation.dict import Links, Metadata, Parameters
+from bamboost.core.simulation.groups import GroupGit
 from bamboost.core.simulation.xdmf import XDMFWriter
 from bamboost.index import (
     CollectionUID,
@@ -196,8 +197,8 @@ class _Simulation(ABC, Generic[_MT]):
     def send_to_sql(
         self,
         *,
-        metadata: Optional[_SimulationMetadataT] = None,
-        parameters: Optional[_SimulationParameterT] = None,
+        metadata: Optional[SimulationMetadataT] = None,
+        parameters: Optional[SimulationParameterT] = None,
     ) -> None:
         """Push update to sqlite database.
 
@@ -413,10 +414,10 @@ class SimulationWriter(_Simulation[Mutable]):
                 }
             )
             # create groups
-            f.create_group("parameters")
-            f.create_group("links")
-            f.create_group("userdata")
-            data_grp = f.create_group("data")
+            f.create_group(".parameters")
+            f.create_group(".links")
+            f.create_group(".userdata")
+            data_grp = f.create_group(".data")
             data_grp.create_group("field_data")
             data_grp.create_group("global_data")
 

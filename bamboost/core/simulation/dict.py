@@ -1,11 +1,13 @@
 from __future__ import annotations
 
+from datetime import datetime
 from functools import reduce
 from typing import TYPE_CHECKING, Any, Generator, cast
 
 import h5py
 import numpy as np
 
+from bamboost._typing import SimulationParameterT
 from bamboost.core import utilities
 from bamboost.core.hdf5.dict import AttrsDict, mutable_only
 from bamboost.core.hdf5.file import (
@@ -13,8 +15,9 @@ from bamboost.core.hdf5.file import (
     FileMode,
     HDF5File,
     Mutable,
+    with_file_open,
 )
-from bamboost.index import _SimulationMetadataT
+from bamboost.index import SimulationMetadataT
 
 if TYPE_CHECKING:
     from bamboost.core.simulation.base import _Simulation
@@ -22,10 +25,11 @@ if TYPE_CHECKING:
 
 class Parameters(AttrsDict[_MT]):
     _simulation: _Simulation
+    _dict: SimulationParameterT
 
     def __init__(self, simulation: _Simulation[_MT]) -> None:
         file = simulation._file
-        super().__init__(file, "/parameters")
+        super().__init__(file, "/.parameters")
         self._simulation = simulation
 
     @property
@@ -34,6 +38,7 @@ class Parameters(AttrsDict[_MT]):
         assert isinstance(obj, h5py.Group), f"Expected a group, got {type(obj)}"
         return obj
 
+    @with_file_open(FileMode.READ)
     def read(self) -> dict:
         """Read the parameters from the HDF5 file.
 
@@ -136,32 +141,39 @@ class Parameters(AttrsDict[_MT]):
 
 class Links(AttrsDict[_MT]):
     def __init__(self, simulation: _Simulation) -> None:
-        super().__init__(cast(HDF5File[_MT], simulation._file), "/links")
+        super().__init__(cast(HDF5File[_MT], simulation._file), "/.links")
 
 
 class Metadata(AttrsDict[_MT]):
     _simulation: _Simulation
+    _dict: SimulationMetadataT
 
-    def __init__(self, simulation: _Simulation) -> None:
-        super().__init__(cast(HDF5File[_MT], simulation._file), "/")
+    def __init__(self, simulation: _Simulation[_MT]) -> None:
+        super().__init__(simulation._file, "/")
         self._simulation = simulation
+
+        # transform strings to datetime if type should be datetime
+        for k, v in self._dict.items():
+            if (
+                isinstance(v, str)
+                and SimulationMetadataT.__annotations__[k] == datetime
+            ):
+                self._dict[k] = datetime.fromisoformat(v)
 
     @mutable_only
     def __setitem__(self: Metadata[Mutable], key: str, value: Any) -> None:
-        from datetime import datetime
+        self._dict[key] = value
 
-        # assert (
-        #     key in self._dict
-        # ), f'Can only set existing metadata keys. "{key}" not found.'
-        if isinstance(value, datetime):
-            value = value.isoformat()
-        AttrsDict.__setitem__(self, key, value)
+        with self._file.open(FileMode.APPEND, root_only=True):
+            self._obj.attrs[key] = (
+                value.isoformat() if isinstance(value, datetime) else value
+            )
 
         # also send the updated parameter to the SQL database
         self._simulation.send_to_sql(metadata={key: value})  # type: ignore
 
     @mutable_only
-    def update(self: Metadata[Mutable], update_dict: _SimulationMetadataT) -> None:
+    def update(self: Metadata[Mutable], update_dict: SimulationMetadataT) -> None:
         """Update the metadata dictionary. This method pushes the update to the
         HDF5 file, and the SQL database.
 

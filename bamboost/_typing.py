@@ -9,8 +9,8 @@ _T = TypeVar("_T")
 _U = TypeVar("_U")
 _P = ParamSpec("_P")
 
-_SimulationMetadataT = TypedDict(
-    "_SimulationMetadataT",
+SimulationMetadataT = TypedDict(
+    "SimulationMetadataT",
     {
         "created_at": datetime,
         "modified_at": datetime,
@@ -19,7 +19,7 @@ _SimulationMetadataT = TypedDict(
     },
     total=False,
 )
-_SimulationParameterT: TypeAlias = Dict[str, Any]
+SimulationParameterT: TypeAlias = Dict[str, Any]
 
 
 class _MutabilitySentinel(type):

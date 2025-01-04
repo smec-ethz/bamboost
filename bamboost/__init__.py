@@ -42,5 +42,6 @@ __getattr__, __dir__, __all__ = lazy.attach(
     {
         "core.manager": ["Collection"],
         "core.simulation": ["Simulation", "SimulationWriter"],
+        "index": ["Index"],
     },
 )

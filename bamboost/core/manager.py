@@ -8,9 +8,7 @@
 # There is no warranty for this code
 from __future__ import annotations
 
-import os
 import pkgutil
-import uuid
 from ctypes import ArgumentError
 from functools import cache
 from pathlib import Path
@@ -228,7 +226,7 @@ class Collection:
             name, self.path, self._comm, self._index, collection_uid=self.uid
         )
         with self._index.sql_transaction(), sim._file.open("w"):
-            sim.initialize()  # set metadata and status
+            sim.initialize()  # create groups, set metadata and status
             sim.metadata["description"] = description or ""
             sim.parameters.update(parameters or {})
             sim.links.update(links or {})

@@ -13,6 +13,6 @@ def set_log_level(
 ) -> None: ...
 
 from bamboost._config import config as config
-
 from bamboost.core.manager import *
 from bamboost.core.simulation import *
+from bamboost.index import Index as Index
