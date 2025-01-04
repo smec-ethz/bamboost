@@ -104,13 +104,19 @@ class H5Reference(Generic[_MT]):
 
     @classmethod
     def new(
-        cls, path: str, file: HDF5File[_MT], _type: Optional[Type[_RT_group]] = None
+        cls,
+        path: str,
+        file: HDF5File[_MT],
+        _type: Optional[Type[_RT_group]] = None,
     ) -> _RT_group:
         """Returns a new pointer object."""
+        if _type:
+            return _type(path, file)
+
         with file.open(FileMode.READ):
             _obj = file[path]
             if isinstance(_obj, h5py.Group):
-                return cast(_RT_group, cls(path, file))
+                return cast(_RT_group, Group(path, file))
             elif isinstance(_obj, h5py.Dataset):
                 return cast(_RT_group, Dataset(path, file))
             else:
@@ -196,6 +202,9 @@ class Group(H5Reference[_MT]):
         except ValueError:
             self._valid = False
             return f"Invalid HDF5 object: <b>{self._path}</b> is not a group"
+        except KeyError:
+            self._valid = False
+            return f"Invalid HDF5 object: <b>{self._path}</b> not found in file"
 
         from jinja2 import Template
 
@@ -237,14 +246,35 @@ class Group(H5Reference[_MT]):
 
     @mutable_only
     @with_file_open(FileMode.APPEND)
-    def require_group(self: Group[Mutable], name: str) -> Group[Mutable]:
+    def require_self(self: Group[Mutable]) -> None:
+        """Create the group if it doesn't exist yet."""
+        self._file.require_group(self._path)
+        self._file.file_map[self._path] = h5py.Group
+
+    @overload
+    def require_group(
+        self: Group[Mutable],
+        name: str,
+        *,
+        return_type: Type[_RT_group],
+    ) -> _RT_group: ...
+    @overload
+    def require_group(self: Group[Mutable], name: str) -> Group[Mutable]: ...
+    @mutable_only
+    @with_file_open(FileMode.APPEND)
+    def require_group(
+        self,
+        name,
+        *,
+        return_type: Optional[Type[_RT_group]] = None,
+    ) -> _RT_group:
         """Create a group if it doesn't exist yet."""
         self._obj.require_group(name)
 
         # update file_map
         self._group_map[name] = h5py.Group
 
-        return self.new(self._path.joinpath(name), self._file)
+        return self.new(self._path.joinpath(name), self._file, _type=return_type)
 
     @mutable_only
     def add_numerical_dataset(

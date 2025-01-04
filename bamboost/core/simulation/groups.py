@@ -15,12 +15,16 @@ class GroupGit(Group[_MT]):
         super().__init__(".git", simulation._file)
 
     def add(self: GroupGit[Mutable], repo_path: StrPath) -> None:
-        status = get_git_status(repo_path)
+        # Make sure the .git group exists
+        self.require_self()
 
-        new_grp = self.require_group(
-            status["origin"].split("/")[-1].replace(".git", "")
-        )
+        status = get_git_status(repo_path)
+        name = status["origin"].split("/")[-1].replace(".git", "")
+        if name in self.keys():  # delete if already exists
+            del self[name]
+
+        new_grp = self.require_group(name)
         new_grp.attrs.update(
             {k: v for k, v in status.items() if k in {"origin", "commit", "branch"}}
         )
-        new_grp.add_dataset("patch", status["patch"])
+        new_grp.add_dataset("patch", data=status["patch"])
