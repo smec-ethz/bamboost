@@ -13,7 +13,7 @@ from argparse import ArgumentParser
 from collections.abc import MutableMapping
 from itertools import islice
 from pathlib import Path
-from typing import TYPE_CHECKING, Mapping, NamedTuple
+from typing import TYPE_CHECKING, Mapping, NamedTuple, TypedDict
 
 if TYPE_CHECKING:
     from pandas import DataFrame
@@ -146,6 +146,49 @@ def h5_tree(val, pre=""):
                 h5_tree(val, pre + "│   ")
             else:
                 print(pre + "├── " + key + " (%d)" % len(val))
+
+class _GitStatus(TypedDict):
+    origin: str
+    commit: str
+    branch: str
+    patch: str
+
+def get_git_status(repo_path) -> _GitStatus:
+    import subprocess
+
+    def run_git_command(command: str) -> str:
+        return subprocess.run(
+            ["git", "-C", str(repo_path), *command.split()],
+            capture_output=True,
+            text=True,
+            check=True,
+        ).stdout.strip()
+
+    return {
+        "origin": run_git_command("remote get-url origin"),
+        "commit": run_git_command("rev-parse HEAD"),
+        "branch": run_git_command("rev-parse --abbrev-ref HEAD"),
+        "patch": run_git_command("diff HEAD"),
+    }
+
+    # git_string = dedent(
+    #     """\
+    #     ----- REMOTE ------
+    #     {remote}
+    #
+    #     ----- BRANCH ------
+    #     {branch}
+    #
+    #     ----- LAST COMMIT ------
+    #     {commit}
+    #
+    #     ----- STATUS ------
+    #     {status}
+    #
+    #     ----- DIFFERENCE ------
+    #     {diff}
+    # """
+    # )
 
 
 def show_differences(df: "DataFrame") -> "DataFrame":

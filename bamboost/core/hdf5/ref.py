@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 import pkgutil
-from functools import cached_property
+from functools import cached_property, wraps
 from pathlib import Path
 from typing import (
     Any,
@@ -145,7 +145,7 @@ class Group(H5Reference[_MT]):
         if isinstance(newvalue, str) or not isinstance(newvalue, Iterable):
             self.update_attrs({key: newvalue})
         else:
-            self.add_dataset(key, np.array(newvalue))
+            self.add_numerical_dataset(key, np.array(newvalue))
 
     @mutable_only
     @with_file_open(FileMode.APPEND)
@@ -247,7 +247,7 @@ class Group(H5Reference[_MT]):
         return self.new(self._path.joinpath(name), self._file)
 
     @mutable_only
-    def add_dataset(
+    def add_numerical_dataset(
         self: Group[Mutable],
         name: str,
         vector: np.ndarray,
@@ -284,6 +284,23 @@ class Group(H5Reference[_MT]):
             dataset[idx_start:idx_end] = vector
 
         self.update_attrs(attrs)
+        log.info(f'Written dataset to "{self._path}/{name}"')
+
+        # update file_map
+        self._group_map[name] = h5py.Dataset
+
+    @mutable_only
+    def add_dataset(
+        self: Group[Mutable],
+        name: str,
+        data: Any,
+        attrs: Optional[Dict[str, Any]] = None,
+        dtype: Optional[str] = None,
+    ) -> None:
+        with self._file.open(FileMode.APPEND, root_only=True):
+            self._obj.create_dataset(name, data=data, dtype=dtype)
+            if attrs:
+                self._obj[name].attrs.update(attrs)
         log.info(f'Written dataset to "{self._path}/{name}"')
 
         # update file_map

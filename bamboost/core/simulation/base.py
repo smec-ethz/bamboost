@@ -232,6 +232,10 @@ class _Simulation(ABC, Generic[_MT]):
     def files(self):
         return utilities.FilePicker(self.path)
 
+    @cached_property
+    def git(self) -> GroupGit[_MT]:
+        return GroupGit(self)
+
     def open_in_paraview(self) -> None:
         """Open the xdmf file in paraview."""
         subprocess.call(["paraview", self._xdmf_file])
@@ -353,22 +357,6 @@ class _Simulation(ABC, Generic[_MT]):
                 "steps": steps,
             }
         return pd.DataFrame.from_dict(tmp_dictionary)
-
-    @property
-    @with_file_open("r")
-    def git(self) -> dict:
-        """Get Git information.
-
-        Returns:
-            :class:`dict` with different repositories.
-        """
-        if "git" not in self._file.keys():
-            return "Sorrrry, no git information stored :()"
-        grp = self._file["git"]
-        tmp_dict = {}
-        for repo in grp.keys():
-            tmp_dict[repo] = grp[repo][()].decode("utf8")
-        return tmp_dict
 
     @with_file_open()
     def show_h5tree(self) -> None:
