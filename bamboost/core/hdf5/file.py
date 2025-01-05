@@ -143,6 +143,11 @@ class _FileMapMixin(Mapping[str, _VT_filemap]):
     def keys(self) -> KeysViewHDF5:
         return KeysViewHDF5(self)
 
+    def items(self, all: bool = False):
+        if not all:
+            return ((k, v) for k, v in super().items() if "/" not in k)
+        return super().items()
+
     def datasets(self):
         return tuple(k for k, v in self.items() if v is h5py.Dataset)
 
