@@ -262,12 +262,7 @@ class Group(H5Reference[_MT]):
     def require_group(self: Group[Mutable], name: str) -> Group[Mutable]: ...
     @mutable_only
     @with_file_open(FileMode.APPEND)
-    def require_group(
-        self,
-        name,
-        *,
-        return_type: Optional[Type[_RT_group]] = None,
-    ) -> _RT_group:
+    def require_group(self, name, *, return_type=None):
         """Create a group if it doesn't exist yet."""
         self._obj.require_group(name)
 
