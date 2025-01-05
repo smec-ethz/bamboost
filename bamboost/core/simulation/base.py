@@ -25,7 +25,6 @@ from typing import (
     Iterable,
     Optional,
     Tuple,
-    TypeVar,
 )
 
 import h5py
@@ -47,9 +46,9 @@ from bamboost.core.hdf5.file import (
     HDF5File,
     with_file_open,
 )
-from bamboost.core.hdf5.ref import Group, H5Reference
+from bamboost.core.hdf5.ref import Group
 from bamboost.core.simulation.dict import Links, Metadata, Parameters
-from bamboost.core.simulation.groups import GroupGit
+from bamboost.core.simulation.groups import GroupData, GroupGit
 from bamboost.core.simulation.xdmf import XDMFWriter
 from bamboost.index import (
     CollectionUID,
@@ -388,6 +387,17 @@ class Simulation(_Simulation[Immutable]):
         return HDF5File(self._data_file, comm=self._comm, mutable=False)
 
 
+class StepWriter:
+    step: int
+
+    def __init__(self, data_group: GroupData, step: Optional[int] = None) -> None:
+        self.data_group = data_group
+        self.step = step or self.resolve_next_step()
+
+    def resolve_next_step(self) -> int:
+        return self.data_group.last_step or 0
+
+
 class SimulationWriter(_Simulation[Mutable]):
     def __init__(
         self,
@@ -398,6 +408,21 @@ class SimulationWriter(_Simulation[Mutable]):
         **kwargs,
     ):
         super().__init__(name, parent, comm, index, **kwargs)
+
+    def __enter__(self) -> SimulationWriter:
+        self.metadata["status"] = "started"
+        return self
+
+    def __exit__(self, exc_type, exc_val, exc_tb):
+        if exc_type:
+            self.change_status(f"failed [{exc_type.__name__}]")
+            log.error(
+                f"Simulation failed with {exc_type.__name__}: {exc_val}\nTraceback: {exc_tb}"
+            )
+        self._comm.barrier()
+
+    def require_step(self, step: Optional[int] = None) -> StepWriter:
+        return StepWriter(self._file, step)
 
     @cached_property
     def _file(self) -> HDF5File[Mutable]:
@@ -419,7 +444,7 @@ class SimulationWriter(_Simulation[Mutable]):
             f.create_group(".userdata")
             data_grp = f.create_group(".data")
             data_grp.create_group("field_data")
-            data_grp.create_group("global_data")
+            data_grp.create_group("scalar_data")
 
         self._comm.barrier()
 

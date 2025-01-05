@@ -20,7 +20,6 @@ from typing import (
     Literal,
     Optional,
     Protocol,
-    Type,
     Union,
     overload,
 )

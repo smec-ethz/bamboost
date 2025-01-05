@@ -321,7 +321,7 @@ class Index(metaclass=MPISafeMeta):
 
                 # if the HDF5 file has not been modified since the last sync,
                 # remove the simulation from the active update set
-                h5_file = path.joinpath(simulation.name, f"data.h5")
+                h5_file = path.joinpath(simulation.name, "data.h5")
                 if (  # type: ignore
                     datetime.fromtimestamp(h5_file.stat().st_mtime)
                     <= simulation.modified_at

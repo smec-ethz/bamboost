@@ -1,13 +1,75 @@
 from __future__ import annotations
 
-from typing import TYPE_CHECKING
+from collections import Iterable
+from typing import TYPE_CHECKING, Generic, Optional, Union
+
+import numpy as np
 
 from bamboost._typing import _MT, Mutable, StrPath
+from bamboost.core.hdf5.file import FileMode
 from bamboost.core.hdf5.ref import Group
 from bamboost.core.utilities import get_git_status
 
 if TYPE_CHECKING:
     from bamboost.core.simulation.base import _Simulation
+
+
+class GroupData(Group[_MT]):
+    def __init__(self, simulation: "_Simulation"):
+        super().__init__(".data", simulation._file)
+        self._simulation = simulation
+
+        with self._file.open(FileMode.APPEND, root_only=True):
+            self._obj.require_dataset(
+                "times",
+                (0,),
+                dtype=np.float64,
+                chunks=True,
+                maxshape=(None,),
+                fillvalue=np.nan,
+            )
+
+    @property
+    def last_step(self) -> Optional[int]:
+        return self.attrs.get("last_step")
+
+
+class GroupFieldData(Group[_MT]):
+    PATH = ".data/field_data"
+
+    def __init__(self, data_group: GroupData[_MT]):
+        super().__init__(self.PATH, data_group._file)
+        self._data_group = data_group
+
+    def __getitem__(self, key: str) -> FieldData[_MT]:
+        return FieldData(self, key)
+
+
+class FieldData(Group[_MT]):
+    def __init__(self, group: GroupFieldData[_MT], name: str):
+        self._group = group
+        self.name = name
+
+    def __getitem__(
+        self, key: Union[int, slice, tuple[slice | int, ...]]
+    ) -> np.ndarray:
+        if isinstance(key, Iterable):
+            step = key[0]
+            rest = key[1:]
+        else:
+            step = key
+            rest = ()
+
+        if isinstance(step, int):
+            return (self._obj[str(step)])[rest]  # type: ignore
+        else:
+            return np.array([self._obj[i][rest] for i in self._slice_step(step)])  # type: ignore
+
+    def _slice_step(self, step: slice) -> list[str]:
+        indices = [
+            str(i) for i in range(*step.indices(self._group._data_group.last_step + 1))
+        ]
+        return indices
 
 
 class GroupGit(Group[_MT]):
