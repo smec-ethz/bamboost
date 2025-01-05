@@ -1,11 +1,12 @@
 from __future__ import annotations
 
+from functools import cached_property
 from typing import TYPE_CHECKING, Iterable, Optional, Union
 
 import numpy as np
 
 from bamboost._typing import _MT, Mutable, StrPath
-from bamboost.core.hdf5.file import FileMode
+from bamboost.core.hdf5.file import FileMode, HDF5Path
 from bamboost.core.hdf5.ref import Group
 from bamboost.core.utilities import get_git_status
 
@@ -22,19 +23,13 @@ class GroupData(Group[_MT]):
         super().__init__(PATH_DATA, simulation._file)
         self._simulation = simulation
 
-        with self._file.open(FileMode.APPEND, root_only=True):
-            self._obj.require_dataset(
-                "times",
-                (0,),
-                dtype=np.float64,
-                chunks=True,
-                maxshape=(None,),
-                fillvalue=np.nan,
-            )
-
     @property
     def last_step(self) -> Optional[int]:
         return self.attrs.get("last_step")
+
+    @cached_property
+    def fields(self) -> GroupFieldData[_MT]:
+        return GroupFieldData(self)
 
 
 class GroupFieldData(Group[_MT]):
@@ -47,8 +42,9 @@ class GroupFieldData(Group[_MT]):
 
 
 class FieldData(Group[_MT]):
-    def __init__(self, group: GroupFieldData[_MT], name: str):
-        self._group = group
+    def __init__(self, field: GroupFieldData[_MT], name: str):
+        super().__init__(HDF5Path(PATH_FIELD_DATA).joinpath(name), field._file)
+        self._field = field
         self.name = name
 
     def __getitem__(
@@ -61,15 +57,27 @@ class FieldData(Group[_MT]):
             step = key
             rest = ()
 
-        if isinstance(step, int):
-            return (self._obj[str(step)])[rest]  # type: ignore
-        else:
-            return np.array([self._obj[i][rest] for i in self._slice_step(step)])  # type: ignore
+        with self._file.open(FileMode.READ, root_only=True):
+            if isinstance(step, int):
+                step_positive = self._handle_negative_index(step)
+                try:
+                    return self._obj[str(step_positive)][rest]  # type: ignore
+                except KeyError:
+                    raise IndexError(
+                        f"Index ({step_positive}) out of range for (0-{self._field._data_group.last_step})"
+                    )
+            else:
+                return np.array([self._obj[i][rest] for i in self._slice_step(step)])  # type: ignore
+
+    def _handle_negative_index(self, index: int) -> int:
+        if index < 0:
+            return (self._field._data_group.last_step or 0) + index + 1
+        return index
 
     def _slice_step(self, step: slice) -> list[str]:
         indices = [
             str(i)
-            for i in range(*step.indices((self._group._data_group.last_step or 0) + 1))
+            for i in range(*step.indices((self._field._data_group.last_step or 0) + 1))
         ]
         return indices
 

@@ -246,6 +246,10 @@ class _Simulation(ABC, Generic[_MT]):
     def git(self) -> GroupGit[_MT]:
         return GroupGit(self)
 
+    @cached_property
+    def data(self) -> GroupData[_MT]:
+        return GroupData(self)
+
     def open_in_paraview(self) -> None:
         """Open the xdmf file in paraview."""
         subprocess.call(["paraview", self._xdmf_file])
@@ -420,10 +424,34 @@ def dump_array_parallel(
 class StepWriter:
     step: int
 
-    def __init__(self, file: HDF5File[Mutable], step: int) -> None:
+    def __init__(
+        self, file: HDF5File[Mutable], step: int, time: float = np.nan
+    ) -> None:
         self._file = file
         self._comm = file._comm
         self.step = step
+        self.time = time
+
+        self._store_time(step, time)
+
+    @with_file_open(FileMode.APPEND, root_only=True)
+    def _store_time(self, step: int, time: float) -> None:
+        data_grp = self._file.require_group(PATH_DATA)
+        # require the dataset for the timesteps
+        dataset = data_grp.require_dataset(
+            ".times",
+            shape=(step + 1,),
+            dtype=np.float64,
+            chunks=True,
+            maxshape=(None,),
+            fillvalue=np.nan,
+        )
+        # resize the dataset and store the time
+        new_size = max(step + 1, dataset.shape[0])
+        log.error(f"Resizing dataset {dataset.name} to {new_size}")
+        dataset.resize(new_size, axis=0)
+        dataset[step] = time
+
 
     def dump_field_data(self, fieldname: str, data: np.ndarray) -> None:
         dump_array_parallel(
@@ -475,12 +503,15 @@ class SimulationWriter(_Simulation[Mutable]):
             )
         self._comm.barrier()
 
-    def require_step(self, step: Optional[int] = None) -> StepWriter:
+    def require_step(
+        self, time: float = np.nan, step: Optional[int] = None
+    ) -> StepWriter:
         attrs_data = AttrsDict(self._file, PATH_DATA)
-        step = max(attrs_data.get("last_step", -1) + 1, step or 0)
-        print(f"step: {step}")
+        step = step or (attrs_data.get("last_step", -1) + 1)
         attrs_data["last_step"] = step
-        return StepWriter(self._file, step)
+
+        log.info(f"Step writer for step {step} created.")
+        return StepWriter(self._file, step, time)
 
     @cached_property
     def _file(self) -> HDF5File[Mutable]:
