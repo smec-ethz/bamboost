@@ -128,8 +128,8 @@ class H5Reference(Generic[_MT]):
 
     @property
     @with_file_open(FileMode.READ)
-    def parent(self) -> Self:
-        return self.__class__(self._obj.parent.name or "", self._file)
+    def parent(self) -> Group[_MT]:
+        return Group(self._obj.parent.name or "", self._file)
 
     @property
     def mutable(self) -> bool:
