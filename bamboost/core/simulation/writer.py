@@ -9,17 +9,14 @@
 
 from __future__ import annotations
 
-import datetime
 import os
 import shutil
-import subprocess
 from typing import Any, Dict, Literal, Tuple, Union
 
 import numpy as np
 
 from bamboost import BAMBOOST_LOGGER
 from bamboost.core.simulation.base import Simulation
-from bamboost.core.utilities import flatten_dict
 from bamboost.mpi import MPI
 
 __all__ = ["SimulationWriter"]
@@ -50,64 +47,6 @@ class SimulationWriter(Simulation):
     ):
         super().__init__(uid, path, comm, create_if_not_exists)
         self.step: int = 0
-
-    def __enter__(self):
-        self.change_status("Started")  # change status to running (process 0 only)
-        self._comm.barrier()  # wait for change status to be written
-        return self
-
-    def __exit__(self, exc_type, exc_val, exc_tb):
-        if exc_type:
-            self.change_status(f"Failed [{exc_type.__name__}]")
-            log.error(f"Simulation failed with {exc_type.__name__}: {exc_val}")
-            log.error(exc_tb)
-            # raise RuntimeError(f"Simulation failed [Process {self._prank}]")
-        self._comm.barrier()
-
-    def initialize(self) -> SimulationWriter:
-        """Create a new file for this simlation.
-        This deletes an existing h5 file of the simulation and creates an empty new one
-        """
-        self.step = 0
-        self.add_metadata()
-        self.change_status("Initiated")
-
-        return self
-
-    def add_metadata(self) -> None:
-        """Add metadata to h5 file."""
-        nb_proc = self._comm.Get_size()
-        if self._prank == 0:
-            with self._file("a"):
-                data = {
-                    "time_stamp": str(datetime.datetime.now().replace(microsecond=0)),
-                    "id": self.name,
-                    "processors": nb_proc,
-                    "notes": self._file.attrs.get("notes", ""),
-                }
-                self._file.attrs.update(data)
-            self._push_update_to_sqlite(data)
-
-    def add_parameters(self, parameters: dict) -> None:
-        """Add parameters to simulation.
-
-        Args:
-            parameters: Dictionary with parameters.
-        """
-        if self._prank == 0:
-            with self._file("a"):
-                # flatten parameters
-                parameters = flatten_dict(parameters)
-
-                if "parameters" in self._file.keys():
-                    del self._file["parameters"]
-                grp = self._file.create_group("/parameters")
-                for key, val in parameters.items():
-                    if isinstance(val, np.ndarray):
-                        grp.create_dataset(key, data=val)
-                    elif val is not None:
-                        grp.attrs[key] = val
-            self._push_update_to_sqlite(parameters)
 
     def add_mesh(
         self, coordinates: np.ndarray, connectivity: np.ndarray, mesh_name: str = None

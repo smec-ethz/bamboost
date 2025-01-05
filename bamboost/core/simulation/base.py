@@ -17,6 +17,7 @@ from abc import ABC, abstractmethod
 from contextlib import contextmanager
 from datetime import datetime
 from functools import cached_property, wraps
+from numbers import Number
 from pathlib import Path
 from typing import (
     TYPE_CHECKING,
@@ -25,6 +26,7 @@ from typing import (
     Iterable,
     Optional,
     Tuple,
+    Union,
 )
 
 import h5py
@@ -41,14 +43,22 @@ from bamboost._typing import (
     SimulationParameterT,
 )
 from bamboost.core import utilities
+from bamboost.core.hdf5.dict import AttrsDict
 from bamboost.core.hdf5.file import (
     FileMode,
     HDF5File,
+    HDF5Path,
     with_file_open,
 )
 from bamboost.core.hdf5.ref import Group
 from bamboost.core.simulation.dict import Links, Metadata, Parameters
-from bamboost.core.simulation.groups import GroupData, GroupGit
+from bamboost.core.simulation.groups import (
+    PATH_DATA,
+    PATH_FIELD_DATA,
+    PATH_SCALAR_DATA,
+    GroupData,
+    GroupGit,
+)
 from bamboost.core.simulation.xdmf import XDMFWriter
 from bamboost.index import (
     CollectionUID,
@@ -387,15 +397,67 @@ class Simulation(_Simulation[Immutable]):
         return HDF5File(self._data_file, comm=self._comm, mutable=False)
 
 
+def dump_array_parallel(
+    file: HDF5File[Mutable], path: HDF5Path, arr: np.ndarray
+) -> None:
+    dim = arr.shape[1:] if arr.ndim > 1 else ()
+    len_local = arr.shape[0]
+    len_others = np.array(file._comm.allgather(len_local))
+    len_total = len_others.sum()
+
+    # global indices
+    idx_start = np.sum(len_others[: file._comm.rank])
+    idx_end = idx_start + len_local
+
+    with file.open(FileMode.APPEND, driver="mpio") as f:
+        grp = f.require_group(path.parent)
+        dataset = grp.require_dataset(
+            path.basename, shape=(len_total, *dim), dtype=arr.dtype
+        )
+        dataset[idx_start:idx_end] = arr
+
+
 class StepWriter:
     step: int
 
-    def __init__(self, data_group: GroupData, step: Optional[int] = None) -> None:
-        self.data_group = data_group
-        self.step = step or self.resolve_next_step()
+    def __init__(self, file: HDF5File[Mutable], step: Optional[int] = None) -> None:
+        self._file = file
+        self._comm = file._comm
+        self.data_group = AttrsDict(self._file, PATH_DATA)
+        self.step = step or self.data_group.get("last_step", -1) + 1
 
-    def resolve_next_step(self) -> int:
-        return self.data_group.last_step or 0
+    def __enter__(self) -> StepWriter:
+        return self
+
+    def __exit__(self, exc_type, exc_val, exc_tb):
+        self.data_group["last_step"] = self.step
+        self._comm.barrier()
+
+    def dump_field_data(self, fieldname: str, data: np.ndarray) -> None:
+        dump_array_parallel(
+            self._file,
+            HDF5Path(PATH_FIELD_DATA).joinpath(fieldname, str(self.step)),
+            data,
+        )
+
+    @with_file_open(FileMode.APPEND, root_only=True)
+    def dump_scalar_data(self, scalarname: str, data: Union[Number, Iterable]) -> None:
+        data_arr = np.array(data)
+        grp_scalars = self._file.require_group(PATH_SCALAR_DATA)
+
+        # if the dataset does not exist, create it
+        dataset = grp_scalars.require_dataset(
+            scalarname,
+            shape=(1, *data_arr.shape),
+            dtype=data_arr.dtype,
+            maxshape=(None, *data_arr.shape),
+            chunks=True,
+            fillvalue=np.full_like(data_arr, np.nan),
+        )
+
+        # append the data
+        dataset.resize(self.step + 1, axis=0)
+        dataset[self.step] = data_arr
 
 
 class SimulationWriter(_Simulation[Mutable]):
@@ -408,6 +470,8 @@ class SimulationWriter(_Simulation[Mutable]):
         **kwargs,
     ):
         super().__init__(name, parent, comm, index, **kwargs)
+
+        self._data_attrs = AttrsDict(self._file, PATH_DATA)
 
     def __enter__(self) -> SimulationWriter:
         self.metadata["status"] = "started"
@@ -422,6 +486,8 @@ class SimulationWriter(_Simulation[Mutable]):
         self._comm.barrier()
 
     def require_step(self, step: Optional[int] = None) -> StepWriter:
+        step = max(self._data_attrs.get("last_step", -1) + 1, step or 0)
+        self._data_attrs["last_step"] = step
         return StepWriter(self._file, step)
 
     @cached_property

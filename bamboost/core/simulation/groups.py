@@ -1,7 +1,6 @@
 from __future__ import annotations
 
-from collections import Iterable
-from typing import TYPE_CHECKING, Generic, Optional, Union
+from typing import TYPE_CHECKING, Generic, Iterable, Optional, Union
 
 import numpy as np
 
@@ -13,10 +12,14 @@ from bamboost.core.utilities import get_git_status
 if TYPE_CHECKING:
     from bamboost.core.simulation.base import _Simulation
 
+PATH_DATA = ".data"
+PATH_FIELD_DATA = f"{PATH_DATA}/field_data"
+PATH_SCALAR_DATA = f"{PATH_DATA}/scalar_data"
+
 
 class GroupData(Group[_MT]):
     def __init__(self, simulation: "_Simulation"):
-        super().__init__(".data", simulation._file)
+        super().__init__(PATH_DATA, simulation._file)
         self._simulation = simulation
 
         with self._file.open(FileMode.APPEND, root_only=True):
@@ -35,10 +38,8 @@ class GroupData(Group[_MT]):
 
 
 class GroupFieldData(Group[_MT]):
-    PATH = ".data/field_data"
-
     def __init__(self, data_group: GroupData[_MT]):
-        super().__init__(self.PATH, data_group._file)
+        super().__init__(PATH_FIELD_DATA, data_group._file)
         self._data_group = data_group
 
     def __getitem__(self, key: str) -> FieldData[_MT]:
@@ -67,7 +68,8 @@ class FieldData(Group[_MT]):
 
     def _slice_step(self, step: slice) -> list[str]:
         indices = [
-            str(i) for i in range(*step.indices(self._group._data_group.last_step + 1))
+            str(i)
+            for i in range(*step.indices((self._group._data_group.last_step or 0) + 1))
         ]
         return indices
 
