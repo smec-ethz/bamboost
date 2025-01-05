@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from typing import Any, Generic, Mapping, TypeVar, cast
+from typing import Any, Generic, Mapping
 
 import h5py
 
@@ -8,6 +8,7 @@ from bamboost._typing import _MT, Mutable
 from bamboost.core.hdf5.file import (
     FileMode,
     HDF5File,
+    HDF5Path,
     mutable_only,
     with_file_open,
 )
@@ -27,12 +28,29 @@ class AttrsDict(Mapping, Generic[_MT]):
     """
 
     mutable: bool = False
+    _file: HDF5File[_MT]
+    _path: str
+    _dict: dict
 
-    def __init__(self, file: HDF5File[_MT], path: str) -> None:
+    def __new__(cls, *args, **kwargs):
+        if cls is not AttrsDict:
+            return super().__new__(cls)
+
+        # Singleton pattern for base attrs dict class
+        # signature: __new__(cls, file: HDF5File[_MT], path: str)
+        file = args[0] if args else kwargs.get("file")
+        path = HDF5Path(args[1]) if len(args) > 1 else kwargs.get("path")
+
+        instances = file._attrs_dict_instances
+        if path not in instances:
+            instances[path] = super().__new__(cls)
+        return instances[path]
+
+    def __init__(self, file: HDF5File[_MT], path: str):
         self._file = file
         self._path = path
         self._dict = self.read()
-        self.mutable = self._file.mutable
+        self.mutable = file.mutable
 
     @with_file_open(FileMode.READ)
     def read(self) -> dict:
@@ -75,10 +93,9 @@ class AttrsDict(Mapping, Generic[_MT]):
 
     @mutable_only
     def __delitem__(self: AttrsDict[Mutable], key: str) -> None:
-        del self._dict[key]
-
         with self._file.open(FileMode.APPEND, root_only=True):
             del self._obj.attrs[key]
+        del self._dict[key]
 
     @mutable_only
     def update(self: AttrsDict[Mutable], update_dict: dict) -> None:

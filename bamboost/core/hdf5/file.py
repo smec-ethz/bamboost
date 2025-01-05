@@ -36,6 +36,7 @@ from bamboost.utilities import StrPath
 if TYPE_CHECKING:
     from bamboost.mpi import Comm
 
+    from .dict import AttrsDict
     from .ref import Group
 
 log = BAMBOOST_LOGGER.getChild("hdf5")
@@ -71,8 +72,8 @@ class HDF5Path(str):
     def __truediv__(self, other: str) -> HDF5Path:
         return self.joinpath(other)
 
-    def joinpath(self, other: str) -> HDF5Path:
-        return HDF5Path(f"{self}/{other}")
+    def joinpath(self, *other: str) -> HDF5Path:
+        return HDF5Path("/".join([self, *other]))
 
     def relative_to(self, other: Union[HDF5Path, str]) -> HDF5Path:
         other = HDF5Path(other)
@@ -83,6 +84,10 @@ class HDF5Path(str):
     @property
     def parent(self) -> HDF5Path:
         return HDF5Path(self.rsplit("/", 1)[0] or "/")
+
+    @property
+    def basename(self) -> str:
+        return self.rsplit("/", 1)[-1]
 
     @property
     def path(self) -> PurePosixPath:
@@ -109,6 +114,8 @@ def mutable_only(func):
 def with_file_open(
     mode: FileMode = FileMode.READ,
     driver: Optional[Literal["mpio"]] = None,
+    *,
+    root_only: bool = False,
 ):
     """Decorator for context manager to open and close the file for a method of
     a class with a file attribute (self._file)
@@ -117,7 +124,7 @@ def with_file_open(
     def decorator(method):
         @wraps(method)
         def inner(self: HasFileAttribute, *args, **kwargs):
-            with self._file.open(mode, driver):
+            with self._file.open(mode, driver, root_only=root_only):
                 return method(self, *args, **kwargs)
 
         return inner
@@ -147,14 +154,7 @@ class _FileMapMixin(Mapping[str, _VT_filemap]):
 
 
 class FileMap(MutableMapping[str, _VT_filemap], _FileMapMixin):
-    _instances: dict[str, FileMap] = {}
     _valid: bool
-
-    def __new__(cls, file: HDF5File):
-        filename = file._filename
-        if filename not in cls._instances:
-            cls._instances[filename] = super().__new__(cls)
-        return cls._instances[filename]
 
     def __init__(self, file: HDF5File):
         self._file = file
@@ -191,9 +191,9 @@ class FileMap(MutableMapping[str, _VT_filemap], _FileMapMixin):
 
 
 class FilteredFileMap(MutableMapping[str, _VT_filemap], _FileMapMixin):
-    def __init__(self, file: HDF5File, parent: str) -> None:
+    def __init__(self, file_map: FileMap, parent: str) -> None:
         self.parent = HDF5Path(parent)
-        self.file_map = FileMap(file)
+        self.file_map = file_map
         self.valid = self.file_map.valid
 
     def __getitem__(self, key, /):
@@ -225,7 +225,9 @@ class HDF5File(h5py.File, Generic[_MT]):
     _comm: Comm
     _context_stack: int = 0
     mutable: bool
+    file_map: FileMap
     _is_open_on_root_only: bool = False
+    _attrs_dict_instances: dict[str, "AttrsDict[_MT]"] = {}
 
     @overload
     def __init__(
@@ -249,7 +251,7 @@ class HDF5File(h5py.File, Generic[_MT]):
     ):
         self._filename = file.as_posix() if isinstance(file, Path) else file
         self._comm = comm or MPI.COMM_WORLD
-        self.file_map: FileMap = FileMap(self)
+        self.file_map = FileMap(self)
         self.mutable = mutable
 
     def __repr__(self) -> str:

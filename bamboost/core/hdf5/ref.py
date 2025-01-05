@@ -141,7 +141,7 @@ class Group(H5Reference[_MT]):
         super().__init__(path, file)
 
         # Create a subset view of the file map with all objects
-        self._group_map = FilteredFileMap(file, path)
+        self._group_map = FilteredFileMap(file.file_map, path)
 
     @mutable_only
     def __setitem__(self: Group[Mutable], key, newvalue):

@@ -27,9 +27,9 @@ class Parameters(AttrsDict[_MT]):
     _simulation: _Simulation
     _dict: SimulationParameterT
 
-    def __init__(self, simulation: _Simulation[_MT]) -> None:
-        file = simulation._file
-        super().__init__(file, "/.parameters")
+    def __init__(self, simulation: _Simulation[_MT]):
+        path = "/.parameters"
+        super().__init__(simulation._file, path)
         self._simulation = simulation
 
     @property

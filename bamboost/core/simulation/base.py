@@ -420,18 +420,10 @@ def dump_array_parallel(
 class StepWriter:
     step: int
 
-    def __init__(self, file: HDF5File[Mutable], step: Optional[int] = None) -> None:
+    def __init__(self, file: HDF5File[Mutable], step: int) -> None:
         self._file = file
         self._comm = file._comm
-        self.data_group = AttrsDict(self._file, PATH_DATA)
-        self.step = step or self.data_group.get("last_step", -1) + 1
-
-    def __enter__(self) -> StepWriter:
-        return self
-
-    def __exit__(self, exc_type, exc_val, exc_tb):
-        self.data_group["last_step"] = self.step
-        self._comm.barrier()
+        self.step = step
 
     def dump_field_data(self, fieldname: str, data: np.ndarray) -> None:
         dump_array_parallel(
@@ -471,8 +463,6 @@ class SimulationWriter(_Simulation[Mutable]):
     ):
         super().__init__(name, parent, comm, index, **kwargs)
 
-        self._data_attrs = AttrsDict(self._file, PATH_DATA)
-
     def __enter__(self) -> SimulationWriter:
         self.metadata["status"] = "started"
         return self
@@ -486,8 +476,10 @@ class SimulationWriter(_Simulation[Mutable]):
         self._comm.barrier()
 
     def require_step(self, step: Optional[int] = None) -> StepWriter:
-        step = max(self._data_attrs.get("last_step", -1) + 1, step or 0)
-        self._data_attrs["last_step"] = step
+        attrs_data = AttrsDict(self._file, PATH_DATA)
+        step = max(attrs_data.get("last_step", -1) + 1, step or 0)
+        print(f"step: {step}")
+        attrs_data["last_step"] = step
         return StepWriter(self._file, step)
 
     @cached_property
