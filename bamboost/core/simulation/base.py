@@ -34,7 +34,7 @@ import numpy as np
 from typing_extensions import Self, deprecated
 
 import bamboost.core.simulation._repr as reprs
-from bamboost import BAMBOOST_LOGGER, config
+from bamboost import BAMBOOST_LOGGER, config, constants
 from bamboost._typing import (
     _MT,
     Immutable,
@@ -42,17 +42,8 @@ from bamboost._typing import (
     SimulationMetadataT,
     SimulationParameterT,
 )
-from bamboost.constants import (
-    HDF_DATA_FILE_NAME,
-    PATH_DATA,
-    PATH_FIELD_DATA,
-    PATH_SCALAR_DATA,
-    RUN_FILE_NAME,
-    UID_SEPARATOR,
-    XDMF_FILE_NAME,
-)
 from bamboost.core import utilities
-from bamboost.core.hdf5.dict import AttrsDict
+from bamboost.core.hdf5.attrs_dict import AttrsDict
 from bamboost.core.hdf5.file import (
     FileMode,
     HDF5File,
@@ -64,6 +55,8 @@ from bamboost.core.simulation.dict import Links, Metadata, Parameters
 from bamboost.core.simulation.groups import (
     GroupData,
     GroupGit,
+    GroupMesh,
+    GroupMeshes,
 )
 from bamboost.core.simulation.xdmf import XDMFWriter
 from bamboost.index import (
@@ -129,9 +122,6 @@ class _Simulation(ABC, Generic[_MT]):
         FileNotFoundError: If the simulation doesn't exist.
     """
 
-    _mesh_location = "meshes"
-    _default_mesh = "default"
-
     _repr_html_ = reprs.simulation_html_repr
 
     def __init__(
@@ -155,9 +145,9 @@ class _Simulation(ABC, Generic[_MT]):
             "collection_uid", None
         ) or self._index.resolve_uid(self.path.parent)
 
-        self._data_file: Path = self.path.joinpath(HDF_DATA_FILE_NAME)
-        self._xdmf_file: Path = self.path.joinpath(XDMF_FILE_NAME)
-        self._bash_file: Path = self.path.joinpath(RUN_FILE_NAME)
+        self._data_file: Path = self.path.joinpath(constants.HDF_DATA_FILE_NAME)
+        self._xdmf_file: Path = self.path.joinpath(constants.XDMF_FILE_NAME)
+        self._bash_file: Path = self.path.joinpath(constants.RUN_FILE_NAME)
 
         # MPI information
         self._comm: Comm = comm or MPI.COMM_WORLD
@@ -189,7 +179,7 @@ class _Simulation(ABC, Generic[_MT]):
             uid: the full id (Collection uid : simulation name)
             **kwargs: additional arguments to pass to the constructor
         """
-        collection_uid, name = uid.split(UID_SEPARATOR)
+        collection_uid, name = uid.split(constants.UID_SEPARATOR)
         index = kwargs.pop("index", None) or Index()
         collection_path = index.resolve_path(collection_uid)
         return cls(name, collection_path, index=index, **kwargs)
@@ -197,14 +187,14 @@ class _Simulation(ABC, Generic[_MT]):
     @property
     def uid(self) -> str:
         """The full uid of the simulation (collection_uid:simulation_name)."""
-        return f"{self.collection_uid}{UID_SEPARATOR}{self.name}"
+        return f"{self.collection_uid}{constants.UID_SEPARATOR}{self.name}"
 
     def edit(self) -> SimulationWriter:
         """Return an object with writing rights to edit the simulation."""
         return SimulationWriter(self.name, self.path.parent, self._comm, self._index)
 
     @_on_root
-    def send_to_sql(
+    def update_index(
         self,
         *,
         metadata: Optional[SimulationMetadataT] = None,
@@ -250,6 +240,14 @@ class _Simulation(ABC, Generic[_MT]):
     @cached_property
     def data(self) -> GroupData[_MT]:
         return GroupData(self)
+
+    @cached_property
+    def meshes(self) -> GroupMeshes[_MT]:
+        return GroupMeshes(self)
+
+    @cached_property
+    def mesh(self) -> GroupMesh:
+        return GroupMesh(self, GroupMeshes._default_mesh)
 
     def open_in_paraview(self) -> None:
         """Open the xdmf file in paraview."""
@@ -319,15 +317,6 @@ class _Simulation(ABC, Generic[_MT]):
         """
         mode = FileMode(mode)
         return self._file.open(mode, driver)
-
-    @property
-    def mesh(self) -> Mesh:
-        """Return the default mesh.
-
-        Returns:
-            MeshGroup
-        """
-        return self.meshes[self._default_mesh]
 
     @with_file_open("r")
     def get_mesh(self, mesh_name: str = None) -> Tuple[np.ndarray, np.ndarray]:
@@ -421,6 +410,10 @@ def dump_array_parallel(
         )
         dataset[idx_start:idx_end] = arr
 
+        # update the file map
+        file.file_map[path.parent] = h5py.Group
+        # file.file_map[path] = h5py.Dataset
+
 
 class StepWriter:
     step: int
@@ -437,10 +430,10 @@ class StepWriter:
 
     @with_file_open(FileMode.APPEND, root_only=True)
     def _store_time(self, step: int, time: float) -> None:
-        data_grp = self._file.require_group(PATH_DATA)
+        data_grp = self._file.root.require_group(constants.PATH_DATA)
         # require the dataset for the timesteps
         dataset = data_grp.require_dataset(
-            ".times",
+            constants.DS_NAME_TIMESTEPS,
             shape=(step + 1,),
             dtype=np.float64,
             chunks=True,
@@ -456,14 +449,14 @@ class StepWriter:
     def dump_field_data(self, fieldname: str, data: np.ndarray) -> None:
         dump_array_parallel(
             self._file,
-            HDF5Path(PATH_FIELD_DATA).joinpath(fieldname, str(self.step)),
+            HDF5Path(constants.PATH_FIELD_DATA).joinpath(fieldname, str(self.step)),
             data,
         )
 
     @with_file_open(FileMode.APPEND, root_only=True)
     def dump_scalar_data(self, scalarname: str, data: Union[Number, Iterable]) -> None:
         data_arr = np.array(data)
-        grp_scalars = self._file.require_group(PATH_SCALAR_DATA)
+        grp_scalars = self._file.require_group(constants.PATH_SCALAR_DATA)
 
         # if the dataset does not exist, create it
         dataset = grp_scalars.require_dataset(
@@ -506,7 +499,7 @@ class SimulationWriter(_Simulation[Mutable]):
     def require_step(
         self, time: float = np.nan, step: Optional[int] = None
     ) -> StepWriter:
-        attrs_data = AttrsDict(self._file, PATH_DATA)
+        attrs_data = AttrsDict(self._file, constants.PATH_DATA)
         step = step or (attrs_data.get("last_step", -1) + 1)
         attrs_data["last_step"] = step
 
@@ -528,12 +521,13 @@ class SimulationWriter(_Simulation[Mutable]):
                 }
             )
             # create groups
-            f.create_group(".parameters")
-            f.create_group(".links")
-            f.create_group(".userdata")
-            data_grp = f.create_group(".data")
-            data_grp.create_group("field_data")
-            data_grp.create_group("scalar_data")
+            f.create_group(constants.PATH_PARAMETERS)
+            f.create_group(constants.PATH_LINKS)
+            f.create_group(constants.PATH_USERDATA)
+            f.create_group(constants.PATH_DATA)
+            f.create_group(constants.PATH_FIELD_DATA)
+            f.create_group(constants.PATH_SCALAR_DATA)
+            f.create_group(constants.PATH_MESH)
 
         self._comm.barrier()
 

@@ -186,7 +186,9 @@ class FileMap(MutableMapping[str, _VT_filemap], _FileMapMixin):
 
         # visit all groups and datasets to cache them
         def cache_items(name, _obj):
-            self._dict[HDF5Path(name)] = type(_obj)
+            path = HDF5Path(name)
+            if not path.basename.isdigit():
+                self._dict[path] = type(_obj)
 
         self._file.visititems(cache_items)
         self.valid = True

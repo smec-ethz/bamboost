@@ -1,17 +1,19 @@
 from __future__ import annotations
 
 from functools import cached_property
-from typing import TYPE_CHECKING, Iterable, Optional, Union
+from typing import TYPE_CHECKING, Iterable, Optional, TypedDict, Union, cast
 
 import numpy as np
 
-from bamboost.constants import PATH_DATA, PATH_FIELD_DATA
+from bamboost import constants
 from bamboost._typing import _MT, Mutable, StrPath
+from bamboost.constants import PATH_DATA, PATH_FIELD_DATA, PATH_MESH, PATH_SCALAR_DATA
 from bamboost.core.hdf5.file import FileMode, HDF5Path
-from bamboost.core.hdf5.ref import Group
-from bamboost.core.utilities import get_git_status
+from bamboost.core.hdf5.ref import Dataset, Group
 
 if TYPE_CHECKING:
+    import pandas as pd
+
     from bamboost.core.simulation.base import _Simulation
 
 
@@ -27,6 +29,14 @@ class GroupData(Group[_MT]):
     @cached_property
     def fields(self) -> GroupFieldData[_MT]:
         return GroupFieldData(self)
+
+    @cached_property
+    def scalars(self) -> GroupScalarData[_MT]:
+        return GroupScalarData(self)
+
+    @property
+    def times(self) -> np.ndarray:
+        return self[constants.DS_NAME_TIMESTEPS][:]
 
 
 class GroupFieldData(Group[_MT]):
@@ -79,6 +89,103 @@ class FieldData(Group[_MT]):
         return indices
 
 
+class GroupScalarData(Group[_MT]):
+    def __init__(self, data_group: GroupData[_MT]):
+        super().__init__(PATH_SCALAR_DATA, data_group._file)
+
+    def __getitem__(self, key: str) -> Dataset[_MT]:
+        return super().__getitem__((key, Dataset[_MT]))
+
+    @property
+    def df(self) -> pd.DataFrame:
+        from pandas import DataFrame
+
+        return DataFrame({k: list(v[:]) for k, v in self.items()})
+
+
+class GroupMeshes(Group[_MT]):
+    _default_mesh = "default"
+
+    def __init__(self, simulation: "_Simulation"):
+        super().__init__(PATH_MESH, simulation._file)
+        self._simulation = simulation
+
+    def __getitem__(self, key: str) -> GroupMesh[_MT]:
+        return GroupMesh(self._simulation, key)
+
+    def add(
+        self: GroupMeshes[Mutable],
+        nodes: np.ndarray,
+        cells: np.ndarray,
+        name: Optional[str] = None,
+        cell_type: str = "Triangle",
+    ) -> None:
+        """Add a mesh with the given name to the simulation.
+
+        Args:
+            nodes: Node coordinates
+            cells: Cell connectivity
+            name: Name of the mesh
+            cell_type: Cell type (default: "triangle"). In general, we do not care about
+                the cell type and leave it up to the user to make sense of the data they
+                provide. However, the cell type specified is needed for writing an XDMF
+                file. For possible types, consult the XDMF/paraview manual.
+        """
+        name = name or self._default_mesh
+        with self._file.open(FileMode.APPEND, driver="mpio"):
+            new_grp = self.require_group(name)
+            new_grp.add_numerical_dataset("coordinates", vector=nodes)
+            new_grp.add_numerical_dataset(
+                "topology", vector=cells, attrs={"cell_type": cell_type}
+            )
+
+
+class GroupMesh(Group[_MT]):
+    NODES = "coordinates"
+    CELLS = "topology"
+
+    def __init__(self, simulation: "_Simulation", name: str):
+        super().__init__(f"{PATH_MESH}/{name}", simulation._file)
+
+    @property
+    def coordinates(self) -> np.ndarray[tuple[int, ...], np.dtype[np.float64]]:
+        return self[self.NODES][:]
+
+    @property
+    def cells(self) -> np.ndarray[tuple[int, ...], np.dtype[np.int64]]:
+        return self[self.CELLS][:]
+
+    @property
+    def cell_type(self) -> str:
+        return self.attrs["cell_type"]
+
+
+class _GitStatus(TypedDict):
+    origin: str
+    commit: str
+    branch: str
+    patch: str
+
+
+def get_git_status(repo_path) -> _GitStatus:
+    import subprocess
+
+    def run_git_command(command: str) -> str:
+        return subprocess.run(
+            ["git", "-C", str(repo_path), *command.split()],
+            capture_output=True,
+            text=True,
+            check=True,
+        ).stdout.strip()
+
+    return {
+        "origin": run_git_command("remote get-url origin"),
+        "commit": run_git_command("rev-parse HEAD"),
+        "branch": run_git_command("rev-parse --abbrev-ref HEAD"),
+        "patch": run_git_command("diff HEAD"),
+    }
+
+
 class GroupGit(Group[_MT]):
     def __init__(self, simulation: "_Simulation"):
         super().__init__(".git", simulation._file)
@@ -97,3 +204,20 @@ class GroupGit(Group[_MT]):
             {k: v for k, v in status.items() if k in {"origin", "commit", "branch"}}
         )
         new_grp.add_dataset("patch", data=status["patch"])
+
+    def __getitem__(self, key: str) -> GitItem:
+        grp = super().__getitem__((key, Group[_MT]))
+        return GitItem(key, grp.attrs._dict, grp["patch"][()])
+
+
+class GitItem:
+    def __init__(self, name: str, attrs: dict[str, str], patch: bytes):
+        self.name = name
+        status: _GitStatus = cast(_GitStatus, attrs)
+        self.branch = status["branch"]
+        self.commit = status["commit"]
+        self.origin = status["origin"]
+        self.patch = patch.decode()
+
+    def __repr__(self) -> str:
+        return f"GitItem(name={self.name}, branch={self.branch}, commit={self.commit}, origin={self.origin}, patch={self.patch[:10]}...)"

@@ -1,11 +1,12 @@
 from __future__ import annotations
 
 import pkgutil
-from functools import cached_property, wraps
+from functools import cached_property, partial, wraps
 from pathlib import Path
 from typing import (
     Any,
     Dict,
+    Generator,
     Generic,
     Iterable,
     Optional,
@@ -24,7 +25,7 @@ from typing_extensions import Self
 import bamboost
 from bamboost import BAMBOOST_LOGGER
 from bamboost._typing import _MT, Mutable
-from bamboost.core.hdf5.dict import AttrsDict
+from bamboost.core.hdf5.attrs_dict import AttrsDict
 from bamboost.core.hdf5.file import (
     FileMode,
     FilteredFileMap,
@@ -73,9 +74,9 @@ class H5Reference(Generic[_MT]):
     @overload
     def __getitem__(self, value: str) -> Union[Self, Dataset]: ...
     @overload
-    def __getitem__(self, value: Union[slice, Tuple[()]]) -> np.ndarray: ...
+    def __getitem__(self, value: Union[slice, Tuple[()]]) -> Any: ...
     @overload
-    def __getitem__(self, value: tuple[str, Type[Group]]) -> Self: ...
+    def __getitem__(self, value: tuple[str, Type[Group]]) -> Group[_MT]: ...
     @overload
     def __getitem__(self, value: tuple[str, Type[Dataset]]) -> Dataset[_MT]: ...
     @with_file_open(FileMode.READ)
@@ -193,6 +194,12 @@ class Group(H5Reference[_MT]):
         self._assert_file_map_is_valid()
         return self._group_map.datasets()
 
+    def items(
+        self,
+    ) -> Generator[Tuple[str, Union[Group[_MT], Dataset[_MT]]], None, None]:
+        for key in self.keys():
+            yield key, self.__getitem__(key)
+
     @with_file_open(FileMode.READ)
     def _repr_html_(self):
         """Repr showing the content of the group."""
@@ -272,6 +279,20 @@ class Group(H5Reference[_MT]):
         return self.new(self._path.joinpath(name), self._file, _type=return_type)
 
     @mutable_only
+    @with_file_open(FileMode.APPEND)
+    def require_dataset(
+        self: Group[Mutable],
+        name: str,
+        shape: tuple[int, ...],
+        dtype,
+        exact: bool = False,
+        **kwargs,
+    ):
+        grp = self._obj.require_dataset(name, shape, dtype, exact=exact, **kwargs)
+        self._group_map[name] = h5py.Dataset  # type: ignore
+        return grp
+
+    @mutable_only
     def add_numerical_dataset(
         self: Group[Mutable],
         name: str,
@@ -301,7 +322,6 @@ class Group(H5Reference[_MT]):
         idx_start = np.sum(length_p[ranks < self._file._comm.rank])
         idx_end = idx_start + length_local
 
-        # with self._file("a", driver="mpio"):
         with self.open(FileMode.APPEND, driver="mpio"):
             dataset = self._obj.require_dataset(
                 name, shape=vec_shape, dtype=dtype if dtype else vector.dtype
@@ -357,7 +377,7 @@ class Dataset(H5Reference[_MT]):
         return obj
 
     @with_file_open(FileMode.READ)
-    def __getitem__(self, key: tuple | slice) -> np.ndarray:
+    def __getitem__(self, key: tuple | slice) -> Any:
         return h5py.Dataset.__getitem__(self._obj, key)
 
     @property

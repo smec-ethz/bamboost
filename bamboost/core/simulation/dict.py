@@ -9,7 +9,7 @@ import numpy as np
 
 from bamboost._typing import SimulationParameterT
 from bamboost.core import utilities
-from bamboost.core.hdf5.dict import AttrsDict, mutable_only
+from bamboost.core.hdf5.attrs_dict import AttrsDict, mutable_only
 from bamboost.core.hdf5.file import (
     _MT,
     FileMode,
@@ -100,7 +100,7 @@ class Parameters(AttrsDict[_MT]):
                 self._obj.attrs[key] = value
 
         # also send the updated parameter to the SQL database
-        self._simulation.send_to_sql(parameters={key: value})
+        self._simulation.update_index(parameters={key: value})
 
     @mutable_only
     def update(self: Parameters[Mutable], update_dict: dict) -> None:
@@ -117,7 +117,7 @@ class Parameters(AttrsDict[_MT]):
         self._dict.update(update_dict)
 
         # try update the sql database
-        self._simulation.send_to_sql(parameters=update_dict)
+        self._simulation.update_index(parameters=update_dict)
 
         # Filter out numpy arrays
         arrays = {}
@@ -170,7 +170,7 @@ class Metadata(AttrsDict[_MT]):
             )
 
         # also send the updated parameter to the SQL database
-        self._simulation.send_to_sql(metadata={key: value})  # type: ignore
+        self._simulation.update_index(metadata={key: value})  # type: ignore
 
     @mutable_only
     def update(self: Metadata[Mutable], update_dict: SimulationMetadataT) -> None:
@@ -190,4 +190,4 @@ class Metadata(AttrsDict[_MT]):
         AttrsDict.update(self, dict_stringified)  # type: ignore
 
         # try update the sql database
-        self._simulation.send_to_sql(metadata=update_dict)
+        self._simulation.update_index(metadata=update_dict)
