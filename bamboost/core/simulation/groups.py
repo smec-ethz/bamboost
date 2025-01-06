@@ -5,6 +5,7 @@ from typing import TYPE_CHECKING, Iterable, Optional, Union
 
 import numpy as np
 
+from bamboost.constants import PATH_DATA, PATH_FIELD_DATA
 from bamboost._typing import _MT, Mutable, StrPath
 from bamboost.core.hdf5.file import FileMode, HDF5Path
 from bamboost.core.hdf5.ref import Group
@@ -12,10 +13,6 @@ from bamboost.core.utilities import get_git_status
 
 if TYPE_CHECKING:
     from bamboost.core.simulation.base import _Simulation
-
-PATH_DATA = ".data"
-PATH_FIELD_DATA = f"{PATH_DATA}/field_data"
-PATH_SCALAR_DATA = f"{PATH_DATA}/scalar_data"
 
 
 class GroupData(Group[_MT]):

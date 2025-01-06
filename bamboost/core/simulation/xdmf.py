@@ -7,7 +7,6 @@
 #
 # There is no warranty for this code
 
-import os
 import xml.etree.ElementTree as ET
 from typing import cast
 

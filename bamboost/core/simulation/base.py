@@ -42,6 +42,15 @@ from bamboost._typing import (
     SimulationMetadataT,
     SimulationParameterT,
 )
+from bamboost.constants import (
+    HDF_DATA_FILE_NAME,
+    PATH_DATA,
+    PATH_FIELD_DATA,
+    PATH_SCALAR_DATA,
+    RUN_FILE_NAME,
+    UID_SEPARATOR,
+    XDMF_FILE_NAME,
+)
 from bamboost.core import utilities
 from bamboost.core.hdf5.dict import AttrsDict
 from bamboost.core.hdf5.file import (
@@ -53,9 +62,6 @@ from bamboost.core.hdf5.file import (
 from bamboost.core.hdf5.ref import Group
 from bamboost.core.simulation.dict import Links, Metadata, Parameters
 from bamboost.core.simulation.groups import (
-    PATH_DATA,
-    PATH_FIELD_DATA,
-    PATH_SCALAR_DATA,
     GroupData,
     GroupGit,
 )
@@ -74,11 +80,6 @@ if TYPE_CHECKING:
 
 
 log = BAMBOOST_LOGGER.getChild("simulation")
-
-UID_SEPARATOR = ":"
-_HDFFileName = "data.h5"
-_XDMFFileName = "data.xdmf"
-_RUNFileName = "run.sh"
 
 
 class SimulationName(str):
@@ -154,9 +155,9 @@ class _Simulation(ABC, Generic[_MT]):
             "collection_uid", None
         ) or self._index.resolve_uid(self.path.parent)
 
-        self._data_file: Path = self.path.joinpath(_HDFFileName)
-        self._xdmf_file: Path = self.path.joinpath(_XDMFFileName)
-        self._bash_file: Path = self.path.joinpath(_RUNFileName)
+        self._data_file: Path = self.path.joinpath(HDF_DATA_FILE_NAME)
+        self._xdmf_file: Path = self.path.joinpath(XDMF_FILE_NAME)
+        self._bash_file: Path = self.path.joinpath(RUN_FILE_NAME)
 
         # MPI information
         self._comm: Comm = comm or MPI.COMM_WORLD
@@ -451,7 +452,6 @@ class StepWriter:
         log.error(f"Resizing dataset {dataset.name} to {new_size}")
         dataset.resize(new_size, axis=0)
         dataset[step] = time
-
 
     def dump_field_data(self, fieldname: str, data: np.ndarray) -> None:
         dump_array_parallel(
