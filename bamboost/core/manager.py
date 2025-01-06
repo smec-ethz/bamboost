@@ -89,7 +89,7 @@ class Collection:
         self._index = index_instance or Index()
 
         # Resolve the path
-        self.path = Path(path or self._index.resolve_path(uid.upper()))
+        self.path = Path(path or self._index.resolve_path(uid.upper())).absolute()
         if not self.path.is_dir():
             if not create_if_not_exist:
                 raise NotADirectoryError("Specified path does not exist.")
