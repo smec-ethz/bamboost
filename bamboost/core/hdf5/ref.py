@@ -149,10 +149,7 @@ class Group(H5Reference[_MT]):
         """Used to set an attribute.
         Will be written as an attribute to the group.
         """
-        if isinstance(newvalue, str) or not isinstance(newvalue, Iterable):
-            self.update_attrs({key: newvalue})
-        else:
-            self.add_numerical_dataset(key, np.array(newvalue))
+        self.add_numerical_dataset(key, np.array(newvalue))
 
     @mutable_only
     @with_file_open(FileMode.APPEND)
@@ -279,7 +276,6 @@ class Group(H5Reference[_MT]):
         return self.new(self._path.joinpath(name), self._file, _type=return_type)
 
     @mutable_only
-    @with_file_open(FileMode.APPEND)
     def require_dataset(
         self: Group[Mutable],
         name: str,
@@ -287,7 +283,7 @@ class Group(H5Reference[_MT]):
         dtype,
         exact: bool = False,
         **kwargs,
-    ):
+    ) -> h5py.Dataset:
         grp = self._obj.require_dataset(name, shape, dtype, exact=exact, **kwargs)
         self._group_map[name] = h5py.Dataset  # type: ignore
         return grp
@@ -299,6 +295,8 @@ class Group(H5Reference[_MT]):
         vector: np.ndarray,
         attrs: Optional[Dict[str, Any]] = None,
         dtype: Optional[str] = None,
+        *,
+        file_map: bool = True,
     ) -> None:
         """Add a dataset to the group. Error is thrown if attempting to overwrite
         with different shape than before. If same shape, data is overwritten
@@ -309,6 +307,7 @@ class Group(H5Reference[_MT]):
             vector: Data to write (max 2d)
             attrs: Optional. Attributes of dataset.
             dtype: Optional. dtype of dataset. If not specified, uses dtype of inpyt array
+            file_map: Optional. If True, the dataset is added to the file map. Default is True.
         """
         if attrs is None:
             attrs = {}
@@ -332,7 +331,8 @@ class Group(H5Reference[_MT]):
         log.info(f'Written dataset to "{self._path}/{name}"')
 
         # update file_map
-        self._group_map[name] = h5py.Dataset
+        if file_map:
+            self._group_map[name] = h5py.Dataset
 
     @mutable_only
     def add_dataset(

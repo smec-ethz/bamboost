@@ -1,20 +1,23 @@
 from __future__ import annotations
 
 from functools import cached_property
-from typing import TYPE_CHECKING, Iterable, Optional, TypedDict, Union, cast
+from numbers import Real
+from typing import TYPE_CHECKING, Iterable, Optional, TypedDict, Union, cast, overload
 
 import numpy as np
 
-from bamboost import constants
+from bamboost import BAMBOOST_LOGGER, constants
 from bamboost._typing import _MT, Mutable, StrPath
 from bamboost.constants import PATH_DATA, PATH_FIELD_DATA, PATH_MESH, PATH_SCALAR_DATA
-from bamboost.core.hdf5.file import FileMode, HDF5Path
+from bamboost.core.hdf5.file import FileMode, HDF5Path, mutable_only, with_file_open
 from bamboost.core.hdf5.ref import Dataset, Group
 
 if TYPE_CHECKING:
     import pandas as pd
 
     from bamboost.core.simulation.base import _Simulation
+
+log = BAMBOOST_LOGGER.getChild(__name__)
 
 
 class GroupData(Group[_MT]):
@@ -23,8 +26,8 @@ class GroupData(Group[_MT]):
         self._simulation = simulation
 
     @property
-    def last_step(self) -> Optional[int]:
-        return self.attrs.get("last_step")
+    def last_step(self) -> int:
+        return self.attrs.get("last_step", -1)
 
     @cached_property
     def fields(self) -> GroupFieldData[_MT]:
@@ -35,11 +38,93 @@ class GroupData(Group[_MT]):
         return GroupScalarData(self)
 
     @property
-    def times(self) -> np.ndarray:
+    def timesteps(self) -> np.ndarray:
         return self[constants.DS_NAME_TIMESTEPS][:]
+
+    @mutable_only
+    def create_step(
+        self: GroupData[Mutable],
+        time: float = np.nan,
+        step: Optional[int] = None,
+    ) -> StepWriter:
+        if step is None:
+            step = self.last_step + 1
+        self.attrs["last_step"] = step
+
+        # store the timestep if given
+        self._store_time(step, time)
+
+        return StepWriter(self, step)
+
+    @with_file_open(FileMode.APPEND, root_only=True)
+    def _store_time(self: GroupData[Mutable], step: int, time: float) -> None:
+        self.require_self()
+
+        # require the dataset for the timesteps
+        dataset = self.require_dataset(
+            constants.DS_NAME_TIMESTEPS,
+            shape=(step + 1,),
+            dtype=np.float64,
+            chunks=True,
+            maxshape=(None,),
+            fillvalue=np.nan,
+        )
+        # resize the dataset and store the time
+        new_size = max(step + 1, dataset.shape[0])
+        log.debug(f"Resizing dataset {dataset.name} to {new_size}")
+        dataset.resize(new_size, axis=0)
+        dataset[step] = time
+
+
+class StepWriter:
+    def __init__(self, data_group: GroupData[Mutable], step: int):
+        self._data_group = data_group
+        self._step = step
+
+        self.fields = data_group.fields
+        self.scalars = data_group.scalars
+
+    def add_field(
+        self, name: str, data: np.ndarray, mesh_name: Optional[str] = None
+    ) -> None:
+        mesh_name = mesh_name or GroupMeshes._default_mesh
+        field = self.fields[name]
+        field.require_self()
+        field.add_numerical_dataset(
+            str(self._step), data, file_map=False, attrs={"mesh": mesh_name}
+        )
+        log.debug(f"Added field {name} for step {self._step}")
+
+    def add_fields(
+        self, fields: dict[str, np.ndarray], mesh_name: Optional[str] = None
+    ) -> None:
+        for name, data in fields.items():
+            self.add_field(name, data, mesh_name)
+
+    def add_scalar(self, name: str, data: Union[int, float, Iterable]) -> None:
+        data_arr = np.array(data)
+
+        with self._data_group._file.open(FileMode.APPEND):
+            dataset = self.scalars.require_dataset(
+                name,
+                shape=(1, *data_arr.shape),
+                dtype=data_arr.dtype,
+                maxshape=(None, *data_arr.shape),
+                chunks=True,
+                fillvalue=np.full_like(data_arr, np.nan),
+            )
+            dataset.resize(self._step + 1, axis=0)
+            dataset[self._step] = data_arr
+        log.debug(f"Added scalar {name} for step {self._step}")
+
+    def add_scalars(self, scalars: dict[str, Union[int, float, Iterable]]) -> None:
+        for name, data in scalars.items():
+            self.add_scalar(name, data)
 
 
 class GroupFieldData(Group[_MT]):
+    _field_instances: dict[str, FieldData[_MT]] = {}
+
     def __init__(self, data_group: GroupData[_MT]):
         super().__init__(PATH_FIELD_DATA, data_group._file)
         self._data_group = data_group
@@ -49,10 +134,28 @@ class GroupFieldData(Group[_MT]):
 
 
 class FieldData(Group[_MT]):
+    _field: GroupFieldData[_MT]
+    name: str
+
+    def __new__(cls, field: GroupFieldData[_MT], name: str):
+        if name not in field._field_instances:
+            instance = super().__new__(cls)
+
+            # Initialize the instance
+            super(FieldData, instance).__init__(
+                HDF5Path(PATH_FIELD_DATA).joinpath(name), field._file
+            )
+            instance._field = field
+            instance.name = name
+
+            # Store the instance and return
+            field._field_instances[name] = instance
+
+        return field._field_instances[name]
+
     def __init__(self, field: GroupFieldData[_MT], name: str):
-        super().__init__(HDF5Path(PATH_FIELD_DATA).joinpath(name), field._file)
-        self._field = field
-        self.name = name
+        # initialization is done in __new__ for simplicity
+        pass
 
     def __getitem__(
         self, key: Union[int, slice, tuple[slice | int, ...]]

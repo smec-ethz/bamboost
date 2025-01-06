@@ -27,6 +27,7 @@ from typing import (
     Optional,
     Tuple,
     Union,
+    cast,
 )
 
 import h5py
@@ -412,65 +413,6 @@ def dump_array_parallel(
 
         # update the file map
         file.file_map[path.parent] = h5py.Group
-        # file.file_map[path] = h5py.Dataset
-
-
-class StepWriter:
-    step: int
-
-    def __init__(
-        self, file: HDF5File[Mutable], step: int, time: float = np.nan
-    ) -> None:
-        self._file = file
-        self._comm = file._comm
-        self.step = step
-        self.time = time
-
-        self._store_time(step, time)
-
-    @with_file_open(FileMode.APPEND, root_only=True)
-    def _store_time(self, step: int, time: float) -> None:
-        data_grp = self._file.root.require_group(constants.PATH_DATA)
-        # require the dataset for the timesteps
-        dataset = data_grp.require_dataset(
-            constants.DS_NAME_TIMESTEPS,
-            shape=(step + 1,),
-            dtype=np.float64,
-            chunks=True,
-            maxshape=(None,),
-            fillvalue=np.nan,
-        )
-        # resize the dataset and store the time
-        new_size = max(step + 1, dataset.shape[0])
-        log.error(f"Resizing dataset {dataset.name} to {new_size}")
-        dataset.resize(new_size, axis=0)
-        dataset[step] = time
-
-    def dump_field_data(self, fieldname: str, data: np.ndarray) -> None:
-        dump_array_parallel(
-            self._file,
-            HDF5Path(constants.PATH_FIELD_DATA).joinpath(fieldname, str(self.step)),
-            data,
-        )
-
-    @with_file_open(FileMode.APPEND, root_only=True)
-    def dump_scalar_data(self, scalarname: str, data: Union[Number, Iterable]) -> None:
-        data_arr = np.array(data)
-        grp_scalars = self._file.require_group(constants.PATH_SCALAR_DATA)
-
-        # if the dataset does not exist, create it
-        dataset = grp_scalars.require_dataset(
-            scalarname,
-            shape=(1, *data_arr.shape),
-            dtype=data_arr.dtype,
-            maxshape=(None, *data_arr.shape),
-            chunks=True,
-            fillvalue=np.full_like(data_arr, np.nan),
-        )
-
-        # append the data
-        dataset.resize(self.step + 1, axis=0)
-        dataset[self.step] = data_arr
 
 
 class SimulationWriter(_Simulation[Mutable]):
@@ -495,16 +437,6 @@ class SimulationWriter(_Simulation[Mutable]):
                 f"Simulation failed with {exc_type.__name__}: {exc_val}\nTraceback: {exc_tb}"
             )
         self._comm.barrier()
-
-    def require_step(
-        self, time: float = np.nan, step: Optional[int] = None
-    ) -> StepWriter:
-        attrs_data = AttrsDict(self._file, constants.PATH_DATA)
-        step = step or (attrs_data.get("last_step", -1) + 1)
-        attrs_data["last_step"] = step
-
-        log.info(f"Step writer for step {step} created.")
-        return StepWriter(self._file, step, time)
 
     @cached_property
     def _file(self) -> HDF5File[Mutable]:
