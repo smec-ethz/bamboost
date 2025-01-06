@@ -211,32 +211,39 @@ class Collection:
         Returns:
             A simulation writer object.
         """
+        import shutil
+
         name = SimulationName(name)  # Generates a unique id as name if not provided
         directory = self.path.joinpath(name)
 
-        # Check if name is already in use, otherwise create a new directory
-        import shutil
+        try:
+            # Check if name is already in use, otherwise create a new directory
+            if override and directory.exists():
+                shutil.rmtree(directory)
+            directory.mkdir(exist_ok=False)
 
-        if override and directory.exists():
+            # Create the simulation instance
+            sim = SimulationWriter(
+                name, self.path, self._comm, self._index, collection_uid=self.uid
+            )
+            with self._index.sql_transaction(), sim._file.open("w"):
+                sim.initialize()  # create groups, set metadata and status
+                sim.metadata["description"] = description or ""
+                sim.parameters.update(parameters or {})
+                sim.links.update(links or {})
+                sim.copy_files(files or [])
+
+            # Invalidate the file_map such that it is reloaded
+            sim._file.file_map.invalidate()
+
+            log.info(f"Created simulation {name} in {self.path}")
+            return sim
+        except (OSError, ValueError, PermissionError):
+            log.error(
+                f"Error occurred while creating simulation {name} at path {self.path}"
+            )
             shutil.rmtree(directory)
-        directory.mkdir(exist_ok=False)
-
-        # Create the simulation instance
-        sim = SimulationWriter(
-            name, self.path, self._comm, self._index, collection_uid=self.uid
-        )
-        with self._index.sql_transaction(), sim._file.open("w"):
-            sim.initialize()  # create groups, set metadata and status
-            sim.metadata["description"] = description or ""
-            sim.parameters.update(parameters or {})
-            sim.links.update(links or {})
-            sim.copy_files(files or [])
-
-        # Invalidate the file_map such that it is reloaded
-        sim._file.file_map.invalidate()
-
-        log.info(f"Created simulation {name} in {self.path}")
-        return sim
+            raise
 
     def find(self, parameter_selection: dict[str, Any]) -> pd.DataFrame:
         """Find simulations with the given parameters.
