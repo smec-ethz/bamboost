@@ -218,15 +218,17 @@ class Collection:
 
         try:
             # Check if name is already in use, otherwise create a new directory
-            if override and directory.exists():
-                shutil.rmtree(directory)
-            directory.mkdir(exist_ok=False)
+            if self._comm.rank == 0:
+                if override and directory.exists():
+                    shutil.rmtree(directory)
+                directory.mkdir(exist_ok=False)
+            self._comm.barrier()
 
             # Create the simulation instance
             sim = SimulationWriter(
                 name, self.path, self._comm, self._index, collection_uid=self.uid
             )
-            with self._index.sql_transaction(), sim._file.open("w"):
+            with self._index.sql_transaction(), sim._file.open("w", driver="mpio"):
                 sim.initialize()  # create groups, set metadata and status
                 sim.metadata["description"] = description or ""
                 sim.parameters.update(parameters or {})

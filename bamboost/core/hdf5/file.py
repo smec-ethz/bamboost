@@ -127,8 +127,15 @@ def with_file_open(
     def decorator(method):
         @wraps(method)
         def inner(self: HasFileAttribute, *args, **kwargs):
-            with self._file.open(mode, driver, root_only=root_only):
-                return method(self, *args, **kwargs)
+            if root_only:
+                res = None
+                if self._file._comm.rank == 0:
+                    with self._file.open(mode, driver):
+                        res = method(self, *args, **kwargs)
+                return self._file._comm.bcast(res, root=0)
+            else:
+                with self._file.open(mode, driver):
+                    return method(self, *args, **kwargs)
 
         return inner
 
@@ -236,8 +243,9 @@ class ProcessQueue:
     def add(self, func: Callable, args: tuple) -> None:
         # if file is not open, open it and apply the function immediately
         if not self._file.is_open:
-            with self._file.open(FileMode.APPEND):
-                func(*args)
+            if self._file._comm.rank == 0:
+                with self._file.open(FileMode.APPEND):
+                    func(*args)
         # if file is open and not using mpio, apply the function immediately
         elif self._file.is_open and self._file.driver != "mpio":
             func(*args)
@@ -251,12 +259,13 @@ class ProcessQueue:
             log.debug("Process queue is empty")
             return
 
-        with self._file.open(FileMode.APPEND, root_only=True):
-            log.debug("Applying process queue...")
-            while self.deque:
-                func, args = self.deque.popleft()
-                func(*args)
-                log.debug(f"Applied {func}{args} from process queue")
+        if self._file._comm.rank == 0:
+            with self._file.open(FileMode.APPEND):
+                log.debug("Applying process queue...")
+                while self.deque:
+                    func, args = self.deque.popleft()
+                    func(*args)
+                    log.debug(f"Applied {func}{args} from process queue")
 
 
 class HDF5File(h5py.File, Generic[_MT]):
@@ -313,31 +322,23 @@ class HDF5File(h5py.File, Generic[_MT]):
         self: HDF5File[Immutable],
         mode: Literal[FileMode.READ, "r"] = "r",
         driver: Optional[Literal["mpio"]] = None,
-        *,
-        root_only: bool = False,
     ) -> HDF5File[Immutable]: ...
     @overload
     def open(
         self: HDF5File[Mutable],
         mode: Union[FileMode, Literal["r", "r+", "w", "w-", "x", "a"]] = "r",
         driver: Optional[Literal["mpio"]] = None,
-        *,
-        root_only: bool = False,
     ) -> HDF5File[Mutable]: ...
     @overload
     def open(
         self: HDF5File,
         mode: Union[FileMode, str] = "r",
         driver: Optional[Literal["mpio"]] = None,
-        *,
-        root_only: bool = False,
     ) -> HDF5File: ...
     def open(
         self,
         mode: Union[FileMode, str] = "r",
         driver=None,
-        *,
-        root_only=False,
     ) -> HDF5File:
         """Context manager to opens the HDF5 file with the specified mode and
         driver.
@@ -358,10 +359,6 @@ class HDF5File(h5py.File, Generic[_MT]):
         """
         mode = FileMode(mode)
 
-        assert not (
-            root_only and driver == "mpio"
-        ), "Cannot use driver 'mpio' and root_only together."
-
         if not self.mutable and mode > FileMode.READ:
             log.error(
                 f"File is read-only, cannot open in mode {mode.value} (open in read-only mode)"
@@ -380,25 +377,8 @@ class HDF5File(h5py.File, Generic[_MT]):
                 # if the file is already open with the same or higher mode, we
                 # just increase the context stack and return
                 return self
-        else:
-            # Used by the context manager of this class
-            # the root_only flag is ignored if the file is already open
-            self._is_open_on_root_only = root_only
-
-        if self._is_open_on_root_only and self._comm.rank != 0:  # do not open
-            return self
 
         return self._try_open_repeat(mode, driver)
-
-    def __enter__(self):
-        if self._is_open_on_root_only and self._comm.rank != 0:
-            raise StopIteration()
-        return super().__enter__()
-
-    def __exit__(self, exc_type, exc_value, traceback):
-        if exc_type is StopIteration and self._comm.rank != 0:
-            return
-        self.close()
 
     def _try_open_repeat(
         self, mode: FileMode, driver: Optional[Literal["mpio"]] = None
@@ -406,7 +386,8 @@ class HDF5File(h5py.File, Generic[_MT]):
         # try to open the file until it is available
         while True:
             try:
-                if driver == "mpio" and MPI_ACTIVE:
+                # if driver == "mpio" and MPI_ACTIVE:
+                if MPI_ACTIVE and mode > FileMode.READ and driver == "mpio":
                     h5py.File.__init__(
                         self, self._filename, mode.value, driver=driver, comm=self._comm
                     )

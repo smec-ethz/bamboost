@@ -167,7 +167,7 @@ class FieldData(Group[_MT]):
             step = key
             rest = ()
 
-        with self._file.open(FileMode.READ, root_only=True):
+        with self._file.open(FileMode.READ):
             if isinstance(step, int):
                 step_positive = self._handle_negative_index(step)
                 try:

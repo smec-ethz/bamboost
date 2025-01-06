@@ -30,7 +30,7 @@ from __future__ import annotations
 
 import subprocess
 import uuid
-from contextlib import contextmanager
+from contextlib import contextmanager, nullcontext
 from datetime import datetime
 from functools import wraps
 from pathlib import Path
@@ -168,6 +168,10 @@ class Index(metaclass=MPISafeMeta):
             >>> with index.sql_transaction() as s:
             ...     s.execute(...)
         """
+        # if not root rank, return dummy context manager
+        if not self._comm.rank == 0:
+            yield None  # type: ignore
+            return
         if self._s.in_transaction():
             yield self._s
             return
@@ -477,8 +481,9 @@ class Index(metaclass=MPISafeMeta):
 
             # if neither metadata nor parameters are provided, read them from the HDF5 file
             sim = Simulation(simulation_name, collection_path)
-            with sim._file.open("r", root_only=True):
-                metadata, parameters = sim.metadata._dict, sim.parameters._dict
+            if sim._comm.rank == 0:
+                with sim._file.open("r"):
+                    metadata, parameters = sim.metadata._dict, sim.parameters._dict
 
         # Upsert the simulation table
         sim_id = self._s.execute(
@@ -593,7 +598,7 @@ def simulation_metadata_from_h5(
 
     from bamboost.core.hdf5.file import HDF5File
 
-    with HDF5File(file).open("r", root_only=True) as f:
+    with HDF5File(file).open("r") as f:
         meta: SimulationMetadataT = {
             "created_at": datetime.fromisoformat(f.attrs.get("created_at", 0))
             if f.attrs.get("created_at")

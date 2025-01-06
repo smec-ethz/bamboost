@@ -342,10 +342,11 @@ class Group(H5Reference[_MT]):
         attrs: Optional[Dict[str, Any]] = None,
         dtype: Optional[str] = None,
     ) -> None:
-        with self._file.open(FileMode.APPEND, root_only=True):
-            self._obj.create_dataset(name, data=data, dtype=dtype)
-            if attrs:
-                self._obj[name].attrs.update(attrs)
+        if self._file._comm.rank == 0:
+            with self._file.open(FileMode.APPEND):
+                self._obj.create_dataset(name, data=data, dtype=dtype)
+                if attrs:
+                    self._obj[name].attrs.update(attrs)
         log.info(f'Written dataset to "{self._path}/{name}"')
 
         # update file_map

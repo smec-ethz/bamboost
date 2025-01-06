@@ -95,8 +95,9 @@ class AttrsDict(Mapping, Generic[_MT]):
 
     @mutable_only
     def __delitem__(self: AttrsDict[Mutable], key: str) -> None:
-        with self._file.open(FileMode.APPEND, root_only=True):
-            del self._obj.attrs[key]
+        if self._file._comm.rank == 0:
+            with self._file.open(FileMode.APPEND):
+                del self._obj.attrs[key]
         del self._dict[key]
 
     @mutable_only

@@ -72,7 +72,11 @@ class MPISafeMeta(type):
             type: The new class with MPI-safe methods.
         """
         for attr_name, attr_value in attrs.items():
-            if callable(attr_value) and not attr_name.startswith("__"):
+            if (
+                callable(attr_value)
+                and not attr_name.startswith("__")
+                and attr_name != "sql_transaction"
+            ):
                 if hasattr(attr_value, "_bcast"):  # check for @bcast decorator
                     attrs[attr_name] = attr_value
                 else:

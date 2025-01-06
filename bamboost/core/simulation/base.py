@@ -445,7 +445,7 @@ class SimulationWriter(_Simulation[Mutable]):
     def initialize(self) -> None:
         """Initialize the simulation."""
         # create the data file
-        with self._file.open(FileMode.WRITE, root_only=True) as f:
+        with self._file.open(FileMode.APPEND) as f:
             self.metadata.update(
                 {
                     "status": "initialized",

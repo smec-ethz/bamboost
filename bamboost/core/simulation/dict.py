@@ -81,7 +81,7 @@ class Parameters(AttrsDict[_MT]):
         active_dict = reduce(lambda obj, k: obj[k], key.split(".")[:-1], self._dict)
         active_dict[key.split(".")[-1]] = value
 
-        with self._file.open(FileMode.APPEND, root_only=True):
+        def _write(self, key, value):
             # because values can be stored as datasets or attributes, we need
             # to check if the key already exists and remove it before writing
             # the new value -> to avoid duplicates
@@ -98,6 +98,8 @@ class Parameters(AttrsDict[_MT]):
                 self._obj.create_dataset(key, data=value)
             else:  # any other type as attribute
                 self._obj.attrs[key] = value
+
+        self._file.single_process_queue.add(_write, (self, key, value))
 
         # also send the updated parameter to the SQL database
         self._simulation.update_index(parameters={key: value})
@@ -164,10 +166,12 @@ class Metadata(AttrsDict[_MT]):
     def __setitem__(self: Metadata[Mutable], key: str, value: Any) -> None:
         self._dict[key] = value
 
-        with self._file.open(FileMode.APPEND, root_only=True):
+        def _write(self, key, value):
             self._obj.attrs[key] = (
                 value.isoformat() if isinstance(value, datetime) else value
             )
+
+        self._file.single_process_queue.add(_write, (self, key, value))
 
         # also send the updated parameter to the SQL database
         self._simulation.update_index(metadata={key: value})  # type: ignore
