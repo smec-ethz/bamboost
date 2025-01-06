@@ -50,7 +50,7 @@ from sqlalchemy.exc import SQLAlchemyError
 from sqlalchemy.orm import Session, joinedload, sessionmaker
 from typing_extensions import Concatenate
 
-from bamboost import BAMBOOST_LOGGER, config
+from bamboost import BAMBOOST_LOGGER, config, constants
 from bamboost._typing import (
     _P,
     _T,
@@ -285,7 +285,7 @@ class Index(metaclass=MPISafeMeta):
         if cached_uid and _validate_path(path, cached_uid):
             return CollectionUID(cached_uid)
 
-        log.debug(f"No or invalid path found in cache for collection <{path}>.")
+        log.debug(f"No or invalid uid found in cache for collection <{path}>.")
 
         identified_uid = _find_uid_from_path(path)
         uid = CollectionUID(
@@ -321,7 +321,7 @@ class Index(metaclass=MPISafeMeta):
 
                 # if the HDF5 file has not been modified since the last sync,
                 # remove the simulation from the active update set
-                h5_file = path.joinpath(simulation.name, "data.h5")
+                h5_file = path.joinpath(simulation.name, constants.HDF_DATA_FILE_NAME)
                 if (  # type: ignore
                     datetime.fromtimestamp(h5_file.stat().st_mtime)
                     <= simulation.modified_at
@@ -329,6 +329,7 @@ class Index(metaclass=MPISafeMeta):
                     all_simulations_fs.remove(simulation.name)
 
         for name in all_simulations_fs:
+            log.debug(f"Syncing simulation {name} in collection {uid}.")
             self.upsert_simulation(
                 collection_uid=uid, simulation_name=name, collection_path=path
             )
@@ -476,8 +477,8 @@ class Index(metaclass=MPISafeMeta):
 
             # if neither metadata nor parameters are provided, read them from the HDF5 file
             sim = Simulation(simulation_name, collection_path)
-            metadata = sim.metadata._dict
-            parameters = sim.parameters._dict
+            with sim._file.open("r", root_only=True):
+                metadata, parameters = sim.metadata._dict, sim.parameters._dict
 
         # Upsert the simulation table
         sim_id = self._s.execute(
@@ -485,6 +486,7 @@ class Index(metaclass=MPISafeMeta):
                 {
                     "collection_uid": collection_uid,
                     "name": simulation_name,
+                    "modified_at": datetime.now(),
                     **(metadata or {}),
                 }
             )
