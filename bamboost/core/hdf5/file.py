@@ -9,12 +9,14 @@
 from __future__ import annotations
 
 import time
+from collections import deque
 from collections.abc import KeysView, Mapping, MutableMapping
 from enum import Enum
 from functools import total_ordering, wraps
 from pathlib import Path, PurePosixPath
 from typing import (
     TYPE_CHECKING,
+    Callable,
     Generic,
     Iterator,
     Literal,
@@ -25,6 +27,7 @@ from typing import (
 )
 
 import h5py
+from pandas.io.formats.style_render import is_complex
 from typing_extensions import Self
 
 from bamboost import BAMBOOST_LOGGER
@@ -225,6 +228,37 @@ class FilteredFileMap(MutableMapping[str, _VT_filemap], _FileMapMixin):
         return sum(1 for _ in self.__iter__())
 
 
+class ProcessQueue:
+    def __init__(self, file: HDF5File):
+        self._file = file
+        self.deque = deque[tuple[Callable, tuple]]()
+
+    def add(self, func: Callable, args: tuple) -> None:
+        # if file is not open, open it and apply the function immediately
+        if not self._file.is_open:
+            with self._file.open(FileMode.APPEND):
+                func(*args)
+        # if file is open and not using mpio, apply the function immediately
+        elif self._file.is_open and self._file.driver != "mpio":
+            func(*args)
+        # else, the file is open with mpio, so we add the function to the queue
+        else:
+            self.deque.append((func, args))
+            log.debug(f"Added {func}{args} to process queue")
+
+    def apply(self):
+        if not self.deque:
+            log.debug("Process queue is empty")
+            return
+
+        with self._file.open(FileMode.APPEND, root_only=True):
+            log.debug("Applying process queue...")
+            while self.deque:
+                func, args = self.deque.popleft()
+                func(*args)
+                log.debug(f"Applied {func}{args} from process queue")
+
+
 class HDF5File(h5py.File, Generic[_MT]):
     """Wrapper for h5py.File to add some functionality"""
 
@@ -260,6 +294,11 @@ class HDF5File(h5py.File, Generic[_MT]):
         self._comm = comm or MPI.COMM_WORLD
         self.file_map = FileMap(self)
         self.mutable = mutable
+
+        # Single process queue: Stuff in here is applied when the file is closed (at
+        # latest)
+        if self.mutable:
+            self.single_process_queue = ProcessQueue(self)
 
     def __repr__(self) -> str:
         mode_info = self.mode if self.is_open else "proxy"
@@ -359,8 +398,7 @@ class HDF5File(h5py.File, Generic[_MT]):
     def __exit__(self, exc_type, exc_value, traceback):
         if exc_type is StopIteration and self._comm.rank != 0:
             return
-        # super().__exit__ calls `close` method
-        return super().__exit__(exc_type, exc_value, traceback)
+        self.close()
 
     def _try_open_repeat(
         self, mode: FileMode, driver: Optional[Literal["mpio"]] = None
@@ -395,6 +433,10 @@ class HDF5File(h5py.File, Generic[_MT]):
         if self._context_stack <= 0:
             log.debug(f"[{id(self)}] closed file {self._filename}")
             super().close()
+
+            # if the file is mutable, we further apply the single process queue
+            if self.mutable:
+                self.single_process_queue.apply()
 
         log.debug(f"[{id(self)}] context stack - ({self._context_stack})")
 

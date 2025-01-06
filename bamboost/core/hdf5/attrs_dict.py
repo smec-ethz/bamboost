@@ -88,8 +88,10 @@ class AttrsDict(Mapping, Generic[_MT]):
     def __setitem__(self: AttrsDict[Mutable], key: str, value: Any) -> None:
         self._dict[key] = value
 
-        with self._file.open(FileMode.APPEND, root_only=True):
-            self._obj.attrs[key] = value
+        self._file.single_process_queue.add(
+            lambda self, key, value: self._obj.attrs.__setitem__(key, value),
+            (self, key, value),
+        )
 
     @mutable_only
     def __delitem__(self: AttrsDict[Mutable], key: str) -> None:
@@ -107,5 +109,7 @@ class AttrsDict(Mapping, Generic[_MT]):
         """
         self._dict.update(update_dict)
 
-        with self._file.open(FileMode.APPEND, root_only=True):
-            self._obj.attrs.update(update_dict)
+        self._file.single_process_queue.add(
+            lambda self, update_dict: self._obj.attrs.update,
+            (self, update_dict),
+        )
