@@ -23,6 +23,7 @@ from typing import (
     Optional,
     Protocol,
     Union,
+    cast,
     overload,
 )
 
@@ -30,7 +31,7 @@ import h5py
 from typing_extensions import Self
 
 from bamboost import BAMBOOST_LOGGER
-from bamboost._typing import _MT, Immutable, Mutable
+from bamboost._typing import _MT, _P, _T, Immutable, Mutable
 from bamboost.core.hdf5 import _VT_filemap
 from bamboost.mpi import MPI, MPI_ON
 from bamboost.utilities import StrPath
@@ -118,7 +119,7 @@ def with_file_open(
     driver: Optional[Literal["mpio"]] = None,
     *,
     root_only: bool = False,
-):
+) -> Callable[[Callable[_P, _T]], Callable[_P, _T]]:
     """Decorator for context manager to open and close the file for a method of a class
     with a file attribute (self._file).
 
@@ -126,25 +127,25 @@ def with_file_open(
         mode: The mode to open the file with. Defaults to FileMode.READ.
         driver: The driver to use for file I/O. If "mpio" and MPI is active, it will
             use MPI I/O. Defaults to None.
-        root_only: If True, the method will only be executed on the root process. This is
-            done by adding the instructions to the single process queue instead of
-            immediately applying them. Defaults to False.
+        root_only: Only for void functions! If True, the method will only be executed on
+            the root process. This is done by adding the instructions to the single
+            process queue instead of immediately applying them. Defaults to False.
     """
 
-    def decorator(method):
+    def decorator(method: Callable[_P, _T]) -> Callable[_P, _T]:
         @wraps(method)
-        def inner_root_only(self: HasFileAttribute, *args, **kwargs):
+        def inner_root_only(self: HasFileAttribute, *args: _P.args, **kwargs: _P.kwargs) -> _T:  # type: ignore
             # if the method is supposed to open the file only on the root process, we add
             # the instructions to the single process queue instead of immediately applying
             # them. This is because the file may be in operation for multiple processes.
             self._file.single_process_queue.add(method, (self, *args, *kwargs))
 
         @wraps(method)
-        def inner(self: HasFileAttribute, *args, **kwargs):
+        def inner(self: HasFileAttribute, *args: _P.args, **kwargs: _P.kwargs) -> _T:
             with self._file.open(mode, driver):
-                return method(self, *args, **kwargs)
+                return method(self, *args, **kwargs)  # type: ignore
 
-        return inner_root_only if root_only else inner
+        return inner_root_only if root_only else inner  # type: ignore
 
     return decorator
 
@@ -264,11 +265,11 @@ class ProcessQueue:
             )
 
     def apply(self):
-        if not self.deque:
-            log.debug("Process queue is empty")
-            return
-
         if self._file._comm.rank == 0:
+            if not self.deque:
+                log.debug("Process queue is empty")
+                return
+
             with self._file.open(FileMode.APPEND):
                 log.debug("Applying process queue...")
                 while self.deque:
@@ -415,7 +416,7 @@ class HDF5File(h5py.File, Generic[_MT]):
                 return self
             except BlockingIOError:
                 # If the file is locked, we wait and try again
-                log.warning(f"file locked (waiting) --> {self._filename}")
+                log.warning(f"[{id(self)}] file locked (waiting) {self._filename}")
                 time.sleep(0.1)
 
     def close(self):

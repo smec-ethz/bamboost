@@ -1,8 +1,7 @@
 from __future__ import annotations
 
 from functools import cached_property
-from numbers import Real
-from typing import TYPE_CHECKING, Iterable, Optional, TypedDict, Union, cast, overload
+from typing import TYPE_CHECKING, Iterable, Optional, TypedDict, Union, cast
 
 import numpy as np
 
@@ -47,6 +46,7 @@ class GroupData(Group[_MT]):
         time: float = np.nan,
         step: Optional[int] = None,
     ) -> StepWriter:
+        self._file._comm.barrier()
         if step is None:
             step = self.last_step + 1
         self.attrs["last_step"] = step
@@ -107,8 +107,9 @@ class StepWriter:
     def add_scalar(self, name: str, data: Union[int, float, Iterable]) -> None:
         data_arr = np.array(data)
 
-        with self._data_group._file.open(FileMode.APPEND):
-            dataset = self.scalars.require_dataset(
+        # with self._data_group._file.open(FileMode.APPEND):
+        def _write_scalar(group: GroupData, name: str, data_arr, step: int):
+            dataset = group.scalars.require_dataset(
                 name,
                 shape=(1, *data_arr.shape),
                 dtype=data_arr.dtype,
@@ -116,8 +117,12 @@ class StepWriter:
                 chunks=True,
                 fillvalue=np.full_like(data_arr, np.nan),
             )
-            dataset.resize(self._step + 1, axis=0)
-            dataset[self._step] = data_arr
+            dataset.resize(step + 1, axis=0)
+            dataset[step] = data_arr
+
+        self._data_group._file.single_process_queue.add(
+            _write_scalar, (self._data_group, name, data_arr, self._step)
+        )
         log.debug(f"Added scalar {name} for step {self._step}")
 
     def add_scalars(self, scalars: dict[str, Union[int, float, Iterable]]) -> None:

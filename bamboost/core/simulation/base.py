@@ -389,29 +389,6 @@ class Simulation(_Simulation[Immutable]):
         return HDF5File(self._data_file, comm=self._comm, mutable=False)
 
 
-def dump_array_parallel(
-    file: HDF5File[Mutable], path: HDF5Path, arr: np.ndarray
-) -> None:
-    dim = arr.shape[1:] if arr.ndim > 1 else ()
-    len_local = arr.shape[0]
-    len_others = np.array(file._comm.allgather(len_local))
-    len_total = len_others.sum()
-
-    # global indices
-    idx_start = np.sum(len_others[: file._comm.rank])
-    idx_end = idx_start + len_local
-
-    with file.open(FileMode.APPEND, driver="mpio") as f:
-        grp = f.require_group(path.parent)
-        dataset = grp.require_dataset(
-            path.basename, shape=(len_total, *dim), dtype=arr.dtype
-        )
-        dataset[idx_start:idx_end] = arr
-
-        # update the file map
-        file.file_map[path.parent] = h5py.Group
-
-
 class SimulationWriter(_Simulation[Mutable]):
     def __init__(
         self,
@@ -433,6 +410,7 @@ class SimulationWriter(_Simulation[Mutable]):
             log.error(
                 f"Simulation failed with {exc_type.__name__}: {exc_val}\nTraceback: {exc_tb}"
             )
+        self.metadata["status"] = "finished"
         self._comm.barrier()
 
     @cached_property

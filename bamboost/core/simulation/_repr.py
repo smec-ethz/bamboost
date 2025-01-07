@@ -21,9 +21,9 @@ def simulation_html_repr(simulation: "Simulation") -> str:
         )
 
     status_options = {
-        "Finished": get_pill_div("Finished", "green"),
-        "Failed": get_pill_div("Failed", "red"),
-        "Initiated": get_pill_div("Initiated", "grey"),
+        "finished": get_pill_div("finished", "green"),
+        "failed": get_pill_div("failed", "red"),
+        "initialized": get_pill_div("initialized", "grey"),
     }
     submitted_options = {
         True: get_pill_div("Submitted", "green"),
@@ -47,5 +47,5 @@ def simulation_html_repr(simulation: "Simulation") -> str:
             f'<div class="status">{metadata["status"]}</div>',
         ),
         submitted=submitted_options[metadata.get("submitted", False)],
-        timestamp=metadata.get('created_at', 'N/A'),
+        timestamp=metadata.get("created_at", "N/A"),
     )
