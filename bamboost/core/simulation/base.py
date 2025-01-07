@@ -9,14 +9,13 @@
 
 from __future__ import annotations
 
-import inspect
 import os
 import subprocess
 import uuid
 from abc import ABC, abstractmethod
 from contextlib import contextmanager
 from datetime import datetime
-from functools import cached_property, wraps
+from functools import cached_property
 from pathlib import Path
 from typing import (
     TYPE_CHECKING,
@@ -44,7 +43,6 @@ from bamboost.core import utilities
 from bamboost.core.hdf5.file import (
     FileMode,
     HDF5File,
-    HDF5Path,
     with_file_open,
 )
 from bamboost.core.hdf5.ref import Group
@@ -82,28 +80,6 @@ class SimulationName(str):
     @staticmethod
     def generate_name(length: int) -> str:
         return uuid.uuid4().hex[:length]
-
-
-def _on_root(func):
-    """Decorator to run a function only on the root process."""
-
-    @wraps(func)
-    def wrapper_with_bcast(self: Simulation, *args, **kwargs):
-        res = None
-        if self._comm.rank == 0:
-            res = func(self, *args, **kwargs)
-        return self._comm.bcast(res, root=0)
-
-    @wraps(func)
-    def wrapper(self: Simulation, *args, **kwargs):
-        if self._comm.rank == 0:
-            return func(self, *args, **kwargs)
-
-    # check if return annotation is not None
-    if inspect.signature(func).return_annotation is not None:
-        return wrapper_with_bcast
-    else:
-        return wrapper
 
 
 class _Simulation(ABC, Generic[_MT]):
@@ -191,7 +167,6 @@ class _Simulation(ABC, Generic[_MT]):
         """Return an object with writing rights to edit the simulation."""
         return SimulationWriter(self.name, self.path.parent, self._comm, self._index)
 
-    @_on_root
     def update_index(
         self,
         *,
