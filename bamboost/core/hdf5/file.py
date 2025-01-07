@@ -27,7 +27,6 @@ from typing import (
 )
 
 import h5py
-from pandas.io.formats.style_render import is_complex
 from typing_extensions import Self
 
 from bamboost import BAMBOOST_LOGGER
@@ -39,7 +38,7 @@ from bamboost.utilities import StrPath
 if TYPE_CHECKING:
     from bamboost.mpi import Comm
 
-    from .dict import AttrsDict
+    from .attrs_dict import AttrsDict
     from .ref import Group
 
 log = BAMBOOST_LOGGER.getChild("hdf5")
@@ -250,9 +249,11 @@ class ProcessQueue:
         elif self._file.is_open and self._file.driver != "mpio":
             func(*args)
         # else, the file is open with mpio, so we add the function to the queue
-        else:
+        elif self._file._comm.rank == 0:
             self.deque.append((func, args))
-            log.debug(f"Added {func}{args} to process queue")
+            log.debug(
+                f"Added {func.__qualname__} to process queue (args: {','.join(map(str, args))})"
+            )
 
     def apply(self):
         if not self.deque:
@@ -265,7 +266,9 @@ class ProcessQueue:
                 while self.deque:
                     func, args = self.deque.popleft()
                     func(*args)
-                    log.debug(f"Applied {func}{args} from process queue")
+                    log.debug(
+                        f"Applied {func.__qualname__} (args: {','.join(map(str, args))})"
+                    )
 
 
 class HDF5File(h5py.File, Generic[_MT]):

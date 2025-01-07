@@ -1,14 +1,13 @@
 from __future__ import annotations
 
 import pkgutil
-from functools import cached_property, partial, wraps
+from functools import cached_property
 from pathlib import Path
 from typing import (
     Any,
     Dict,
     Generator,
     Generic,
-    Iterable,
     Optional,
     Tuple,
     Type,
@@ -240,16 +239,6 @@ class Group(H5Reference[_MT]):
 
     @mutable_only
     @with_file_open(FileMode.APPEND)
-    def update_attrs(self: Group[Mutable], attrs: Dict[str, Any]) -> None:
-        """Update the attributes of the group.
-
-        Args:
-            attrs: the dictionary to write as attributes
-        """
-        self._obj.attrs.update(attrs)
-
-    @mutable_only
-    @with_file_open(FileMode.APPEND)
     def require_self(self: Group[Mutable]) -> None:
         """Create the group if it doesn't exist yet."""
         self._file.require_group(self._path)
@@ -265,7 +254,7 @@ class Group(H5Reference[_MT]):
     @overload
     def require_group(self: Group[Mutable], name: str) -> Group[Mutable]: ...
     @mutable_only
-    @with_file_open(FileMode.APPEND)
+    @with_file_open(FileMode.APPEND, driver="mpio")
     def require_group(self, name, *, return_type=None):
         """Create a group if it doesn't exist yet."""
         self._obj.require_group(name)
@@ -321,13 +310,13 @@ class Group(H5Reference[_MT]):
         idx_start = np.sum(length_p[ranks < self._file._comm.rank])
         idx_end = idx_start + length_local
 
-        with self.open(FileMode.APPEND, driver="mpio"):
+        with self._file.open(FileMode.APPEND, driver="mpio"):
             dataset = self._obj.require_dataset(
                 name, shape=vec_shape, dtype=dtype if dtype else vector.dtype
             )
             dataset[idx_start:idx_end] = vector
 
-        self.update_attrs(attrs)
+        self.attrs.update(attrs)
         log.info(f'Written dataset to "{self._path}/{name}"')
 
         # update file_map

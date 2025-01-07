@@ -71,6 +71,9 @@ class AttrsDict(Mapping, Generic[_MT]):
     def __repr__(self) -> str:
         return self._dict.__repr__()
 
+    def __str__(self) -> str:
+        return f"<AttrsDict(path={self._path})>"
+
     def _repr_pretty_(self, p, cycle):
         cls_name = type(self).__name__
         if cycle:
@@ -89,8 +92,8 @@ class AttrsDict(Mapping, Generic[_MT]):
         self._dict[key] = value
 
         self._file.single_process_queue.add(
-            lambda self, key, value: self._obj.attrs.__setitem__(key, value),
-            (self, key, value),
+            lambda self: self._obj.attrs.__setitem__(key, value),
+            (self,),
         )
 
     @mutable_only
@@ -111,6 +114,6 @@ class AttrsDict(Mapping, Generic[_MT]):
         self._dict.update(update_dict)
 
         self._file.single_process_queue.add(
-            lambda self, update_dict: self._obj.attrs.update,
-            (self, update_dict),
+            lambda self: self._obj.attrs.update(update_dict),
+            (self,),
         )
