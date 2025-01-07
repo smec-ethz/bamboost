@@ -86,7 +86,7 @@ class Collection:
         assert not (path and uid), "Only one of path or uid must be provided."
 
         self._comm = comm or MPI.COMM_WORLD
-        self._index = index_instance or Index()
+        self._index = index_instance or Index(comm=self._comm)
 
         # Resolve the path
         self.path = Path(path or self._index.resolve_path(uid.upper())).absolute()
@@ -107,6 +107,8 @@ class Collection:
         # Sync the SQL table with the filesystem
         # Making sure the collection is up to date in the index
         self._index.sync_collection(self.uid, self.path)
+        # Wait for root process to finish syncing
+        self._comm.barrier()
 
     @property
     def _orm(self):

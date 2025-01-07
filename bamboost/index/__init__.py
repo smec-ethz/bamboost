@@ -158,6 +158,16 @@ class Index(metaclass=MPISafeMeta):
         self.search_paths = PathSet(search_paths or config.index.searchPaths)
 
     @contextmanager
+    def comm_self(self) -> Generator[None, None, None]:
+        """Context manager which changes the communicator to MPI.COMM_SELF."""
+        current_comm = self._comm
+        try:
+            self._comm = MPI.COMM_SELF
+            yield
+        finally:
+            self._comm = current_comm
+
+    @contextmanager
     def sql_transaction(self) -> Generator[Session, None, None]:
         """Context manager for a SQL transaction.
 
@@ -313,7 +323,13 @@ class Index(metaclass=MPISafeMeta):
         """
         path = Path(path or self.resolve_path(uid)).absolute()
         # Get all simulation names in the file system
-        all_simulations_fs = set((i.name for i in path.iterdir() if i.is_dir()))
+        all_simulations_fs = set(
+            (
+                i.name
+                for i in path.iterdir()
+                if i.is_dir() and i.joinpath(constants.HDF_DATA_FILE_NAME).is_file()
+            )
+        )
 
         collection = self._s.get(CollectionORM, uid)
 
@@ -480,10 +496,18 @@ class Index(metaclass=MPISafeMeta):
             from bamboost.core.simulation.base import Simulation
 
             # if neither metadata nor parameters are provided, read them from the HDF5 file
-            sim = Simulation(simulation_name, collection_path)
-            if sim._comm.rank == 0:
-                with sim._file.open("r"):
-                    metadata, parameters = sim.metadata._dict, sim.parameters._dict
+            # temp change the communicator to MPI.COMM_SELF -> because here is only
+            # executed on rank 0
+            with self.comm_self():
+                sim = Simulation(
+                    simulation_name,
+                    collection_path,
+                    comm=MPI.COMM_SELF,
+                    index=self,
+                    collection_uid=collection_uid,
+                )
+            with sim._file.open("r"):
+                metadata, parameters = sim.metadata._dict, sim.parameters._dict
 
         # Upsert the simulation table
         sim_id = self._s.execute(

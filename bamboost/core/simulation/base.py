@@ -17,7 +17,6 @@ from abc import ABC, abstractmethod
 from contextlib import contextmanager
 from datetime import datetime
 from functools import cached_property, wraps
-from numbers import Number
 from pathlib import Path
 from typing import (
     TYPE_CHECKING,
@@ -26,8 +25,6 @@ from typing import (
     Iterable,
     Optional,
     Tuple,
-    Union,
-    cast,
 )
 
 import h5py
@@ -44,7 +41,6 @@ from bamboost._typing import (
     SimulationParameterT,
 )
 from bamboost.core import utilities
-from bamboost.core.hdf5.attrs_dict import AttrsDict
 from bamboost.core.hdf5.file import (
     FileMode,
     HDF5File,
@@ -139,7 +135,14 @@ class _Simulation(ABC, Generic[_MT]):
             raise FileNotFoundError(
                 f"Simulation {self.name} does not exist in {self.path}."
             )
-        self._index: Index = index or Index()
+
+        # MPI information
+        self._comm: Comm = comm or MPI.COMM_WORLD
+        self._psize: int = self._comm.size
+        self._prank: int = self._comm.rank
+        self._ranks = np.array([i for i in range(self._psize)])
+
+        self._index: Index = index or Index(comm=self._comm)
 
         # Shortcut to collection uid if available, otherwise resolve it
         self.collection_uid: CollectionUID = kwargs.pop(
@@ -149,12 +152,6 @@ class _Simulation(ABC, Generic[_MT]):
         self._data_file: Path = self.path.joinpath(constants.HDF_DATA_FILE_NAME)
         self._xdmf_file: Path = self.path.joinpath(constants.XDMF_FILE_NAME)
         self._bash_file: Path = self.path.joinpath(constants.RUN_FILE_NAME)
-
-        # MPI information
-        self._comm: Comm = comm or MPI.COMM_WORLD
-        self._psize: int = self._comm.size
-        self._prank: int = self._comm.rank
-        self._ranks = np.array([i for i in range(self._psize)])
 
         # Alias attributes
         self.root: Group[_MT] = self._file.root
@@ -445,7 +442,7 @@ class SimulationWriter(_Simulation[Mutable]):
     def initialize(self) -> None:
         """Initialize the simulation."""
         # create the data file
-        with self._file.open(FileMode.APPEND) as f:
+        with self._file.open(FileMode.APPEND, driver="mpio") as f:
             self.metadata.update(
                 {
                     "status": "initialized",
