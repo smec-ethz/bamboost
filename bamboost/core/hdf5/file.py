@@ -119,24 +119,32 @@ def with_file_open(
     *,
     root_only: bool = False,
 ):
-    """Decorator for context manager to open and close the file for a method of
-    a class with a file attribute (self._file)
+    """Decorator for context manager to open and close the file for a method of a class
+    with a file attribute (self._file).
+
+    Args:
+        mode: The mode to open the file with. Defaults to FileMode.READ.
+        driver: The driver to use for file I/O. If "mpio" and MPI is active, it will
+            use MPI I/O. Defaults to None.
+        root_only: If True, the method will only be executed on the root process. This is
+            done by adding the instructions to the single process queue instead of
+            immediately applying them. Defaults to False.
     """
 
     def decorator(method):
         @wraps(method)
-        def inner(self: HasFileAttribute, *args, **kwargs):
-            if root_only:
-                res = None
-                if self._file._comm.rank == 0:
-                    with self._file.open(mode, driver):
-                        res = method(self, *args, **kwargs)
-                return self._file._comm.bcast(res, root=0)
-            else:
-                with self._file.open(mode, driver):
-                    return method(self, *args, **kwargs)
+        def inner_root_only(self: HasFileAttribute, *args, **kwargs):
+            # if the method is supposed to open the file only on the root process, we add
+            # the instructions to the single process queue instead of immediately applying
+            # them. This is because the file may be in operation for multiple processes.
+            self._file.single_process_queue.add(method, (self, *args, *kwargs))
 
-        return inner
+        @wraps(method)
+        def inner(self: HasFileAttribute, *args, **kwargs):
+            with self._file.open(mode, driver):
+                return method(self, *args, **kwargs)
+
+        return inner_root_only if root_only else inner
 
     return decorator
 

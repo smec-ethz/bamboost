@@ -69,10 +69,13 @@ class GroupData(Group[_MT]):
             maxshape=(None,),
             fillvalue=np.nan,
         )
+
         # resize the dataset and store the time
         new_size = max(step + 1, dataset.shape[0])
         log.debug(f"Resizing dataset {dataset.name} to {new_size}")
         dataset.resize(new_size, axis=0)
+
+        log.debug(f"Storing timestep {time} for step {step}")
         dataset[step] = time
 
 
