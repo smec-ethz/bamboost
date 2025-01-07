@@ -9,19 +9,35 @@ __copyright__ = ""
 __license__ = "MIT"
 __version__ = version("bamboost")
 
+BAMBOOST_LOGGER = logging.getLogger("bamboost")
+
+from bamboost._config import config as config
+
 
 def _add_stream_handler(logger: logging.Logger) -> None:
+    from bamboost.mpi import MPI, MPI_ON
+
+    class _LogFormatterWithRank(logging.Formatter):
+        def format(self, record):
+            record.rank = MPI.COMM_WORLD.rank
+            return super().format(record)
+
     stream_handler = logging.StreamHandler()
-    formatter = logging.Formatter(
-        "[%(asctime)s] %(name)s: %(levelname)s - %(message)s",
-        style="%",
-        datefmt="%Y-%m-%d %H:%M:%S",
-    )
+    if MPI_ON:
+        formatter = _LogFormatterWithRank(
+            "[%(asctime)s] %(name)s: %(levelname)s [%(rank)d] - %(message)s",
+            style="%",
+            datefmt="%Y-%m-%d %H:%M:%S",
+        )
+    else:
+        formatter = logging.Formatter(
+            "[%(asctime)s] %(name)s: %(levelname)s - %(message)s",
+            datefmt="%Y-%m-%d %H:%M:%S",
+        )
     stream_handler.setFormatter(formatter)
     logger.addHandler(stream_handler)
 
 
-BAMBOOST_LOGGER = logging.getLogger("bamboost")
 _add_stream_handler(BAMBOOST_LOGGER)
 
 
@@ -30,8 +46,6 @@ def set_log_level(
 ) -> None:
     BAMBOOST_LOGGER.setLevel(level)
 
-
-from bamboost._config import config as config
 
 # We use lazy_loader to avoid upfront imports of submodules while still
 # providing a consistent API for the user.
