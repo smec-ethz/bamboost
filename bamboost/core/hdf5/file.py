@@ -23,7 +23,6 @@ from typing import (
     Optional,
     Protocol,
     Union,
-    cast,
     overload,
 )
 
@@ -395,10 +394,11 @@ class HDF5File(h5py.File, Generic[_MT]):
     def _try_open_repeat(
         self, mode: FileMode, driver: Optional[Literal["mpio"]] = None
     ) -> Self:
+        waiting_logged = False
+
         # try to open the file until it is available
         while True:
             try:
-                # if driver == "mpio" and MPI_ACTIVE:
                 if MPI_ACTIVE and mode > FileMode.READ and driver == "mpio":
                     h5py.File.__init__(
                         self, self._filename, mode.value, driver=driver, comm=self._comm
@@ -416,8 +416,10 @@ class HDF5File(h5py.File, Generic[_MT]):
                 return self
             except BlockingIOError:
                 # If the file is locked, we wait and try again
-                log.warning(f"[{id(self)}] file locked (waiting) {self._filename}")
-                time.sleep(0.1)
+                if not waiting_logged:
+                    log.warning(f"[{id(self)}] file locked (waiting) {self._filename}")
+                waiting_logged = True
+                time.sleep(0.01)
 
     def close(self):
         self._context_stack = max(0, self._context_stack - 1)
