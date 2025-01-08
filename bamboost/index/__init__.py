@@ -606,6 +606,10 @@ class Index(metaclass=MPISafeMeta):
         ).scalar()
 
 
+# Create module level index instance
+DEFAULT_INDEX = Index()
+
+
 def simulation_metadata_from_h5(
     file: Path,
 ) -> Tuple[SimulationMetadataT, SimulationParameterT]:

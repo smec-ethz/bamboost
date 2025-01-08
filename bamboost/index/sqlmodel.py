@@ -103,6 +103,15 @@ class CollectionORM(_Base):
         stmt = insert(cls).values(data)
         return stmt.on_conflict_do_update(["uid"], set_=dict(stmt.excluded))
 
+    @property
+    def parameters(self) -> List[ParameterORM]:
+        return [p for s in self.simulations for p in s.parameters]
+
+    def get_parameter_keys(self) -> tuple[list[str], list[int]]:
+        unique_params = list(set(p.key for p in self.parameters))
+        counts = [sum(p.key == k for p in self.parameters) for k in unique_params]
+        return unique_params, counts
+
 
 class SimulationORM(_Base):
     __tablename__ = "simulations"
