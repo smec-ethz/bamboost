@@ -25,6 +25,7 @@ from bamboost._typing import StrPath
 from bamboost.core.simulation.base import Simulation, SimulationName, SimulationWriter
 from bamboost.core.utilities import flatten_dict
 from bamboost.index import (
+    DEFAULT_INDEX,
     CollectionUID,
     Index,
     _identifier_filename,
@@ -52,6 +53,15 @@ class NotACollectionError(NotADirectoryError):
         super().__init__(f"{path} is not a valid collection.")
 
 
+class _CollectionPicker:
+    def __getitem__(self, key: str, /) -> Collection:
+        key = key.split(" - ", 1)[0]
+        return Collection(uid=key)
+
+    def _ipython_key_completions_(self):
+        return (f"{i.uid} - {i.path[-30:]}" for i in DEFAULT_INDEX.all_collections)
+
+
 class Collection:
     """View of database.
 
@@ -72,6 +82,7 @@ class Collection:
     FROZEN = False  # TODO: If true, the collection doesn't look for new simulations after initialization
     uid: CollectionUID
     path: Path
+    fromUID = _CollectionPicker()
 
     def __init__(
         self,
