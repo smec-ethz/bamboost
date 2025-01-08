@@ -22,16 +22,17 @@ from typing import (
     Literal,
     Optional,
     Protocol,
+    Type,
+    TypeVar,
     Union,
     overload,
 )
 
 import h5py
-from typing_extensions import Self
+from typing_extensions import Concatenate, Self
 
 from bamboost import BAMBOOST_LOGGER
 from bamboost._typing import _MT, _P, _T, Immutable, Mutable
-from bamboost.core.hdf5 import _VT_filemap
 from bamboost.mpi import MPI, MPI_ON
 from bamboost.utilities import StrPath
 
@@ -44,6 +45,9 @@ if TYPE_CHECKING:
 log = BAMBOOST_LOGGER.getChild("hdf5")
 
 MPI_ACTIVE = "mpio" in h5py.registered_drivers() and h5py.get_config().mpi and MPI_ON
+
+
+_VT_filemap = Type[Union[h5py.Group, h5py.Dataset]]
 
 
 @total_ordering
@@ -96,29 +100,35 @@ class HDF5Path(str):
         return PurePosixPath(self)
 
 
-class HasFileAttribute(Protocol):
-    _file: HDF5File
+class HasFile(Protocol[_MT]):
+    _file: HDF5File[_MT]
 
 
-def mutable_only(func):
+HasFileSubtype = TypeVar("HasFileSubtype", bound=HasFile)
+
+
+def mutable_only(
+    method: Callable[Concatenate[HasFileSubtype, _P], _T],
+) -> Callable[Concatenate[HasFileSubtype, _P], _T]:
     """Decorator to raise an error if the file is not mutable."""
 
-    @wraps(func)
-    def wrapper(self: HasFileAttribute, *args, **kwargs):
+    @wraps(method)
+    def inner(self: HasFileSubtype, *args: _P.args, **kwargs: _P.kwargs) -> _T:
         if not self._file.mutable:
             raise PermissionError("Simulation file is read-only.")
-        return func(self, *args, **kwargs)
+        return method(self, *args, **kwargs)
 
-    wrapper._mutable_only = True  # type: ignore
-    return wrapper
+    inner._mutable_only = True  # type: ignore
+    return inner
 
 
 def with_file_open(
     mode: FileMode = FileMode.READ,
     driver: Optional[Literal["mpio"]] = None,
-    *,
-    root_only: bool = False,
-) -> Callable[[Callable[_P, _T]], Callable[_P, _T]]:
+) -> Callable[
+    [Callable[Concatenate[HasFileSubtype, _P], _T]],
+    Callable[Concatenate[HasFileSubtype, _P], _T],
+]:
     """Decorator for context manager to open and close the file for a method of a class
     with a file attribute (self._file).
 
@@ -126,27 +136,29 @@ def with_file_open(
         mode: The mode to open the file with. Defaults to FileMode.READ.
         driver: The driver to use for file I/O. If "mpio" and MPI is active, it will
             use MPI I/O. Defaults to None.
-        root_only: Only for void functions! If True, the method will only be executed on
-            the root process. This is done by adding the instructions to the single
-            process queue instead of immediately applying them. Defaults to False.
     """
 
-    def decorator(method: Callable[_P, _T]) -> Callable[_P, _T]:
+    def decorator(
+        method: Callable[Concatenate[HasFileSubtype, _P], _T],
+    ) -> Callable[Concatenate[HasFileSubtype, _P], _T]:
         @wraps(method)
-        def inner_root_only(self: HasFileAttribute, *args: _P.args, **kwargs: _P.kwargs) -> _T:  # type: ignore
-            # if the method is supposed to open the file only on the root process, we add
-            # the instructions to the single process queue instead of immediately applying
-            # them. This is because the file may be in operation for multiple processes.
-            self._file.single_process_queue.add(method, (self, *args, *kwargs))
-
-        @wraps(method)
-        def inner(self: HasFileAttribute, *args: _P.args, **kwargs: _P.kwargs) -> _T:
+        def inner(self: HasFileSubtype, *args: _P.args, **kwargs: _P.kwargs) -> _T:
             with self._file.open(mode, driver):
-                return method(self, *args, **kwargs)  # type: ignore
+                return method(self, *args, **kwargs)
 
-        return inner_root_only if root_only else inner  # type: ignore
+        return inner
 
     return decorator
+
+
+def add_to_file_queue(
+    method: Callable[Concatenate[HasFileSubtype, _P], None],
+) -> Callable[Concatenate[HasFileSubtype, _P], None]:
+    @wraps(method)
+    def inner(self: HasFileSubtype, *args: _P.args, **kwargs: _P.kwargs) -> None:
+        self._file.single_process_queue.add(method, (self, *args, *kwargs))
+
+    return inner
 
 
 class KeysViewHDF5(KeysView):
@@ -277,6 +289,8 @@ class ProcessQueue:
                     log.debug(
                         f"Applied {func.__qualname__} (args: {','.join(map(str, args))})"
                     )
+        # wait for root to finish
+        self._file._comm.barrier()
 
 
 class HDF5File(h5py.File, Generic[_MT]):
@@ -312,6 +326,7 @@ class HDF5File(h5py.File, Generic[_MT]):
     ):
         self._filename = file.as_posix() if isinstance(file, Path) else file
         self._comm = comm or MPI.COMM_WORLD
+        self._path = Path(self._filename).absolute()
         self.file_map = FileMap(self)
         self.mutable = mutable
 
