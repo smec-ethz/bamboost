@@ -133,14 +133,6 @@ class _Simulation(ABC, Generic[_MT]):
         self.root: Group[_MT] = self._file.root
         """Access to HDF5 file root group."""
 
-        # Initialize groups to meshes, data and userdata. Create groups.
-        # self.meshes: MeshGroup = MeshGroup(self._file)
-        # self.data: DataGroup = DataGroup(self._file, self.meshes)
-        # self.globals: GlobalGroup = GlobalGroup(self._file, "/globals")
-        # self.userdata: hdf_pointer.MutableGroup = hdf_pointer.MutableGroup(
-        #     self._file, "/userdata"
-        # )
-
     @property
     @abstractmethod
     def _file(self) -> HDF5File[_MT]: ...
@@ -220,63 +212,11 @@ class _Simulation(ABC, Generic[_MT]):
 
     @cached_property
     def mesh(self) -> GroupMesh:
-        return GroupMesh(self, GroupMeshes._default_mesh)
+        return GroupMesh(self, constants.DEFAULT_MESH_NAME)
 
     def open_in_paraview(self) -> None:
         """Open the xdmf file in paraview."""
         subprocess.call(["paraview", self._xdmf_file])
-
-    def create_xdmf_file(self, fields: list = None, nb_steps: int = None) -> None:
-        """Create the xdmf file to read in paraview.
-
-        Args:
-            fields (list[str]): fields for which to write timeseries information,
-                if not specified, all fields in data are written.
-            nb_steps (int): number of steps the simulation has
-        """
-        # TODO: implement this method
-
-        if self._prank == 0:
-            with self._file("r"):
-                f = self._file._h5py_file
-                if "data" not in f.keys():
-                    fields, nb_steps = [], 0
-                if fields is None:
-                    fields = list(f["data"].keys())
-
-                if nb_steps is None:
-                    grp_name = list(f["data"].keys())[0]
-                    nb_steps = list(f[f"data/{grp_name}"].keys())
-                    nb_steps = max(
-                        [
-                            int(step)
-                            for step in nb_steps
-                            if not (
-                                step.startswith("__") or step.endswith("_intermediates")
-                            )
-                        ]
-                    )
-
-                # temporary fix to load coordinates/geometry
-                coords_name = (
-                    "geometry"
-                    if "geometry"
-                    in f[f"{self._mesh_location}/{self._default_mesh}"].keys()
-                    else "coordinates"
-                )
-
-            with self._file("r"):
-                xdmf_writer = XDMFWriter(self._xdmf_file, self._file)
-                xdmf_writer.write_points_cells(
-                    f"{self._mesh_location}/{self._default_mesh}/{coords_name}",
-                    f"{self._mesh_location}/{self._default_mesh}/topology",
-                )
-
-                if fields:
-                    xdmf_writer.add_timeseries(nb_steps + 1, fields)
-                xdmf_writer.write_file()
-
-        self._comm.barrier()
 
     def open(self, mode: FileMode | str = "r", driver=None) -> h5py.File:
         """Use this as a context manager in a `with` statement.

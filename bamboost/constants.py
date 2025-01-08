@@ -13,3 +13,5 @@ PATH_LINKS = ".links"
 PATH_USERDATA = ".userdata"
 
 DS_NAME_TIMESTEPS = ".timesteps"
+
+DEFAULT_MESH_NAME = "default"

@@ -8,11 +8,18 @@
 # There is no warranty for this code
 
 import xml.etree.ElementTree as ET
-from typing import cast
+from pathlib import Path
+from typing import TYPE_CHECKING, Iterable, cast
 
 import h5py
 
-from bamboost.core.hdf5.file import HDF5File
+from bamboost._typing import StrPath
+from bamboost.core.hdf5.file import FileMode, HDF5File, HDF5Path
+from bamboost.core.simulation import FieldType
+from bamboost.mpi.utilities import MPISafeMeta
+
+if TYPE_CHECKING:
+    from bamboost.core.simulation.groups import FieldData, GroupMesh
 
 __all__ = ["XDMFWriter"]
 
@@ -31,26 +38,25 @@ numpy_to_xdmf_dtype = {
 }
 
 
-class XDMFWriter:
+class XDMFWriter(metaclass=MPISafeMeta):
     """Write xdmf file for a subset of the stored data in the H5 file.
 
     Args:
         filename (str): xdmf file path
         h5file (str): h5 file path"""
 
-    def __init__(self, filename: str, _file: HDF5File):
-        self.filename = filename
-        self._file = _file
-        self.h5file = _file._filename
-        self.xdmf_file = ET.Element("Xdmf", Version="3.0")
-        self.domain = ET.SubElement(self.xdmf_file, "Domain")
+    def __init__(self, file: HDF5File):
+        self._file = file
+        self._comm = file._comm  # needed for MPISafeMeta metaclass
+        self.root_element = ET.Element("Xdmf", Version="3.0")
+        self.domain = ET.SubElement(self.root_element, "Domain")
         ET.register_namespace("xi", "https://www.w3.org/2001/XInclude/")
-        self.mesh_name = "mesh"
 
-    def write_file(self):
-        tree = ET.ElementTree(self.xdmf_file)
+    def write_file(self, filename: StrPath):
+        filename = Path(filename)
+        tree = ET.ElementTree(self.root_element)
         self._pretty_print(tree.getroot())
-        tree.write(self.filename)
+        tree.write(filename)
 
     def _pretty_print(self, elem, level=0):
         indent = "  "  # 4 spaces
@@ -67,60 +73,61 @@ class XDMFWriter:
             if level and (not elem.tail or not elem.tail.strip()):
                 elem.tail = "\n" + indent * level
 
-    def write_points_cells(self, points_location: str, cells_location: str):
-        """Write the mesh to the xdmf file.
+    def add_mesh(self, mesh: "GroupMesh"):
+        """Add the mesh to the xdmf tree.
 
         Args:
-            points (str): String to geometry/nodes in h5 file
-            cells (str): String to topology/cells in h5 file
+            nodes_location: String to geometry/nodes in hdf file
+            cells_location: String to topology/cells in hdf file
         """
         grid = ET.SubElement(
-            self.domain, "Grid", Name=self.mesh_name, GridType="Uniform"
+            self.domain, "Grid", Name=mesh._path.basename, GridType="Uniform"
         )
-        self._points(grid, points_location)
-        self._cells(grid, cells_location)
+        with self._file.open(FileMode.READ):
+            self._add_nodes(grid, mesh._path.joinpath("coordinates"))
+            self._add_cells(grid, mesh._path.joinpath("topology"))
 
-    def _points(self, grid: ET.Element, points_location: str):
+    def _add_nodes(self, grid: ET.Element, nodes_path: HDF5Path):
         geometry_type = "XY"
 
-        with self._file.open("r") as f:
-            points = cast(h5py.Dataset, f[points_location])
-            geo = ET.SubElement(grid, "Geometry", GeometryType=geometry_type)
-            dt, prec = numpy_to_xdmf_dtype[points.dtype.name]
-            dim = "{} {}".format(*points.shape)
-            data_item = ET.SubElement(
-                geo,
-                "DataItem",
-                DataType=dt,
-                Dimensions=dim,
-                Format="HDF",
-                Precision=prec,
-            )
-            data_item.text = f"{self.h5file}:/{points_location}"
+        points = cast(h5py.Dataset, self._file[nodes_path])
+        geo = ET.SubElement(grid, "Geometry", GeometryType=geometry_type)
+        dtype, precission = numpy_to_xdmf_dtype[points.dtype.name]
+        dim = "{} {}".format(*points.shape)
+        data_item = ET.SubElement(
+            geo,
+            "DataItem",
+            DataType=dtype,
+            Dimensions=dim,
+            Format="HDF",
+            Precision=precission,
+        )
+        data_item.text = f"{self._file._path.as_posix()}:{nodes_path}"
 
-    def _cells(self, grid: ET.Element, cells_location: str):
-        with self._file.open("r") as f:
-            cells = cast(h5py.Dataset, f[cells_location])
-            nb_cells = cells.shape[0]
-            topo = ET.SubElement(
-                grid,
-                "Topology",
-                TopologyType="Triangle",
-                NumberOfElements=str(nb_cells),
-            )
-            dim = "{} {}".format(*cells.shape)
-            dt, prec = numpy_to_xdmf_dtype[cells.dtype.name]
-            data_item = ET.SubElement(
-                topo,
-                "DataItem",
-                DataType=dt,
-                Dimensions=dim,
-                Format="HDF",
-                Precision=prec,
-            )
-            data_item.text = f"{self.h5file}:/{cells_location}"
+    def _add_cells(self, grid: ET.Element, cells_path: HDF5Path):
+        cells = cast(h5py.Dataset, self._file[cells_path])
+        nb_cells = cells.shape[0]
+        topo = ET.SubElement(
+            grid,
+            "Topology",
+            TopologyType=cells.attrs.get("cell_type", "Triangle"),
+            NumberOfElements=str(nb_cells),
+        )
+        dim = "{} {}".format(*cells.shape)
+        dt, prec = numpy_to_xdmf_dtype[cells.dtype.name]
+        data_item = ET.SubElement(
+            topo,
+            "DataItem",
+            DataType=dt,
+            Dimensions=dim,
+            Format="HDF",
+            Precision=prec,
+        )
+        data_item.text = f"{self._file._path.as_posix()}:{cells_path}"
 
-    def add_timeseries(self, steps: int, fields: list):
+    def add_timeseries(
+        self, timesteps: Iterable[float], fields: "list[FieldData]", mesh_name: str
+    ):
         collection = ET.SubElement(
             self.domain,
             "Grid",
@@ -129,10 +136,18 @@ class XDMFWriter:
             CollectionType="Temporal",
         )
 
-        for i in range(steps):
-            self.write_step(collection, fields, i)
+        with self._file.open(FileMode.READ):
+            for i, t in enumerate(timesteps):
+                self._add_step(i, t, fields, collection, mesh_name)
 
-    def write_step(self, collection: ET.Element, fields: list, step: int):
+    def _add_step(
+        self,
+        step: int,
+        time: float,
+        fields: "list[FieldData]",
+        collection: ET.Element,
+        mesh_name: str,
+    ):
         """Write the data array for time t.
 
         Args:
@@ -140,57 +155,52 @@ class XDMFWriter:
             data_location (str): String to data in h5 file
             name (str): Name for the field in the Xdmf file
         """
-        with self._file.open("r") as f:
-            grid = ET.SubElement(collection, "Grid")
-            ptr = f'xpointer(//Grid[@Name="{self.mesh_name}"]/*[self::Topology or self::Geometry])'
+        grid = ET.SubElement(collection, "Grid")
+        ptr = (
+            f'xpointer(//Grid[@Name="{mesh_name}"]/*[self::Topology or self::Geometry])'
+        )
 
-            ET.SubElement(
-                grid, "{http://www.w3.org/2003/XInclude}include", xpointer=ptr
-            )
+        ET.SubElement(grid, "{http://www.w3.org/2003/XInclude}include", xpointer=ptr)
+        ET.SubElement(grid, "Time", Value=str(time))
 
-            t = f[f"data/{fields[0]}/{step}"].attrs.get("t", step)
-            ET.SubElement(grid, "Time", Value=str(t))
+        for field in fields:
+            self._add_attribute(grid, field, step)
 
-            for name in fields:
-                self.write_attribute(grid, name, name, step)
-
-    def write_attribute(
-        self, grid: ET.Element, field_name: str, name: str, step: int
-    ) -> None:
+    def _add_attribute(self, grid: ET.Element, field: "FieldData", step: int) -> None:
         """Write an attribute/field."""
-        with self._file.open("r") as f:
-            data = cast(h5py.Dataset, f[f"data/{field_name}/{step}"])
+        data = field._obj[str(step)]
+        assert isinstance(data, h5py.Dataset), "Data is not a dataset"
 
-            if data.ndim == 1 or data.shape[1] <= 1:
-                att_type = "Scalar"
-            elif data.ndim == 2:
-                att_type = "Vector"
-            elif data.ndim == 3 and len(set(data.shape[1:])) == 1:
-                # Square shape -> Tensor
-                att_type = "Tensor"
-            else:
-                att_type = "Matrix"
+        if data.ndim == 1 or data.shape[1] <= 1:
+            att_type = "Scalar"
+        elif data.ndim == 2:
+            att_type = "Vector"
+        elif data.ndim == 3 and len(set(data.shape[1:])) == 1:
+            # Square shape -> Tensor
+            att_type = "Tensor"
+        else:
+            att_type = "Matrix"
 
-            # Cell or Node data
-            center = data.attrs.get("center", "Node")
+        # Cell or Node data
+        data_type = FieldType(data.attrs.get("type", FieldType.NODE))
 
-            att = ET.SubElement(
-                grid,
-                "Attribute",
-                Name=name,
-                AttributeType=att_type,
-                Center=center,
-            )
+        att = ET.SubElement(
+            grid,
+            "Attribute",
+            Name=field.name,
+            AttributeType=att_type,
+            Center=data_type.value,
+        )
 
-            dt, prec = numpy_to_xdmf_dtype[data.dtype.name]
-            dim = " ".join([str(i) for i in data.shape])
+        dt, prec = numpy_to_xdmf_dtype[data.dtype.name]
+        dim = " ".join([str(i) for i in data.shape])
 
-            data_item = ET.SubElement(
-                att,
-                "DataItem",
-                DataType=dt,
-                Dimensions=dim,
-                Format="HDF",
-                Precision=prec,
-            )
-            data_item.text = f"{self.h5file}:/data/{field_name}/{step}"
+        data_item = ET.SubElement(
+            att,
+            "DataItem",
+            DataType=dt,
+            Dimensions=dim,
+            Format="HDF",
+            Precision=prec,
+        )
+        data_item.text = f"{self._file._path.as_posix()}:{field._path}/{step}"

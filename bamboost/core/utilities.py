@@ -13,7 +13,7 @@ from argparse import ArgumentParser
 from collections.abc import MutableMapping
 from itertools import islice
 from pathlib import Path
-from typing import TYPE_CHECKING, Mapping, NamedTuple, TypedDict
+from typing import TYPE_CHECKING, Mapping, NamedTuple
 
 if TYPE_CHECKING:
     from pandas import DataFrame

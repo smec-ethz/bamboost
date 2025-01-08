@@ -1,15 +1,35 @@
 from __future__ import annotations
 
 from functools import cached_property
-from typing import TYPE_CHECKING, Iterable, Optional, TypedDict, Union, cast
+from typing import (
+    TYPE_CHECKING,
+    Iterable,
+    Optional,
+    TypedDict,
+    Union,
+    cast,
+    overload,
+)
 
 import numpy as np
 
 from bamboost import BAMBOOST_LOGGER, constants
 from bamboost._typing import _MT, Mutable, StrPath
-from bamboost.constants import PATH_DATA, PATH_FIELD_DATA, PATH_MESH, PATH_SCALAR_DATA
-from bamboost.core.hdf5.file import FileMode, HDF5Path, mutable_only, with_file_open
+from bamboost.constants import (
+    DEFAULT_MESH_NAME,
+    PATH_DATA,
+    PATH_FIELD_DATA,
+    PATH_MESH,
+    PATH_SCALAR_DATA,
+)
+from bamboost.core.hdf5.file import (
+    FileMode,
+    HDF5Path,
+    add_to_file_queue,
+    mutable_only,
+)
 from bamboost.core.hdf5.ref import Dataset, Group
+from bamboost.core.simulation import CellType, FieldType
 
 if TYPE_CHECKING:
     import pandas as pd
@@ -56,7 +76,8 @@ class GroupData(Group[_MT]):
 
         return StepWriter(self, step)
 
-    @with_file_open(FileMode.APPEND, root_only=True)
+    @mutable_only
+    @add_to_file_queue
     def _store_time(self: GroupData[Mutable], step: int, time: float) -> None:
         self.require_self()
 
@@ -78,6 +99,29 @@ class GroupData(Group[_MT]):
         log.debug(f"Storing timestep {time} for step {step}")
         dataset[step] = time
 
+    def create_xdmf(
+        self,
+        field_names: Optional[Union[tuple[str], list[str], set[str]]] = None,
+        timesteps: Optional[Iterable[float]] = None,
+        *,
+        filename: Optional[StrPath] = None,
+        mesh_name: str = DEFAULT_MESH_NAME,
+    ):
+        from bamboost.core.simulation.xdmf import XDMFWriter
+
+        fields = self.fields[field_names] if field_names else self.fields[()]
+        filename = filename or self._simulation.path.joinpath(constants.XDMF_FILE_NAME)
+        timesteps = timesteps or self.timesteps
+
+        def _create_xdmf(group: GroupData):
+            xdmf = XDMFWriter(group._file)
+            xdmf.add_mesh(group._simulation.meshes[mesh_name])
+            xdmf.add_timeseries(timesteps, fields, mesh_name)
+            xdmf.write_file(filename)
+            log.debug(f"produced XDMF file at {filename}")
+
+        self._file.single_process_queue.add(_create_xdmf, (self,))
+
 
 class StepWriter:
     def __init__(self, data_group: GroupData[Mutable], step: int):
@@ -88,21 +132,31 @@ class StepWriter:
         self.scalars = data_group.scalars
 
     def add_field(
-        self, name: str, data: np.ndarray, mesh_name: Optional[str] = None
+        self,
+        name: str,
+        data: np.ndarray,
+        *,
+        mesh_name: str = DEFAULT_MESH_NAME,
+        field_type: FieldType = FieldType.NODE,
     ) -> None:
-        mesh_name = mesh_name or GroupMeshes._default_mesh
         field = self.fields[name]
         field.require_self()
         field.add_numerical_dataset(
-            str(self._step), data, file_map=False, attrs={"mesh": mesh_name}
+            str(self._step),
+            data,
+            file_map=False,
+            attrs={"mesh": mesh_name, "type": field_type.value},
         )
         log.debug(f"Added field {name} for step {self._step}")
 
     def add_fields(
-        self, fields: dict[str, np.ndarray], mesh_name: Optional[str] = None
+        self,
+        fields: dict[str, np.ndarray],
+        mesh_name: str = DEFAULT_MESH_NAME,
+        field_type: FieldType = FieldType.NODE,
     ) -> None:
         for name, data in fields.items():
-            self.add_field(name, data, mesh_name)
+            self.add_field(name, data, mesh_name=mesh_name, field_type=field_type)
 
     def add_scalar(self, name: str, data: Union[int, float, Iterable]) -> None:
         data_arr = np.array(data)
@@ -131,14 +185,26 @@ class StepWriter:
 
 
 class GroupFieldData(Group[_MT]):
-    _field_instances: dict[str, FieldData[_MT]] = {}
-
     def __init__(self, data_group: GroupData[_MT]):
         super().__init__(PATH_FIELD_DATA, data_group._file)
         self._data_group = data_group
+        self._field_instances: dict[str, FieldData[_MT]] = {}
 
-    def __getitem__(self, key: str) -> FieldData[_MT]:
-        return FieldData(self, key)
+    @overload
+    def __getitem__(self, key: tuple[()]) -> list[FieldData[_MT]]: ...
+    @overload
+    def __getitem__(
+        self, key: Union[list[str], tuple[str], set[str]]
+    ) -> list[FieldData[_MT]]: ...
+    @overload
+    def __getitem__(self, key: str) -> FieldData[_MT]: ...
+    def __getitem__(self, key):
+        if isinstance(key, str):
+            return FieldData(self, key)
+        if isinstance(key, tuple) and len(key) == 0:
+            return [FieldData(self, k) for k in self.keys()]
+        # else the key is a iterable of strings
+        return [FieldData(self, k) for k in key]
 
 
 class FieldData(Group[_MT]):
@@ -215,8 +281,6 @@ class GroupScalarData(Group[_MT]):
 
 
 class GroupMeshes(Group[_MT]):
-    _default_mesh = "default"
-
     def __init__(self, simulation: "_Simulation"):
         super().__init__(PATH_MESH, simulation._file)
         self._simulation = simulation
@@ -228,8 +292,8 @@ class GroupMeshes(Group[_MT]):
         self: GroupMeshes[Mutable],
         nodes: np.ndarray,
         cells: np.ndarray,
-        name: Optional[str] = None,
-        cell_type: str = "Triangle",
+        name: str = DEFAULT_MESH_NAME,
+        cell_type: CellType = CellType.TRIANGLE,
     ) -> None:
         """Add a mesh with the given name to the simulation.
 
@@ -242,12 +306,11 @@ class GroupMeshes(Group[_MT]):
                 provide. However, the cell type specified is needed for writing an XDMF
                 file. For possible types, consult the XDMF/paraview manual.
         """
-        name = name or self._default_mesh
         with self._file.open(FileMode.APPEND, driver="mpio"):
             new_grp = self.require_group(name)
             new_grp.add_numerical_dataset("coordinates", vector=nodes)
             new_grp.add_numerical_dataset(
-                "topology", vector=cells, attrs={"cell_type": cell_type}
+                "topology", vector=cells, attrs={"cell_type": cell_type.value}
             )
 
 
