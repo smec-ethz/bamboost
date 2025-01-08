@@ -17,7 +17,7 @@ from bamboost.core.hdf5.file import (
     Mutable,
     with_file_open,
 )
-from bamboost.index import SimulationMetadataT
+from bamboost._typing import SimulationMetadataT
 
 if TYPE_CHECKING:
     from bamboost.core.simulation.base import _Simulation

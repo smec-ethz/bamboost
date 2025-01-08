@@ -28,7 +28,7 @@ from bamboost.index import (
     DEFAULT_INDEX,
     CollectionUID,
     Index,
-    _identifier_filename,
+    get_identifier_filename,
     create_identifier_file,
 )
 from bamboost.mpi import MPI
@@ -112,7 +112,7 @@ class Collection:
         self.uid = CollectionUID(uid or self._index.resolve_uid(self.path))
 
         # Check if identifier file exists
-        if not self.path.joinpath(_identifier_filename(uid=self.uid)).exists():
+        if not self.path.joinpath(get_identifier_filename(uid=self.uid)).exists():
             create_identifier_file(self.path, self.uid)
 
         # Sync the SQL table with the filesystem
