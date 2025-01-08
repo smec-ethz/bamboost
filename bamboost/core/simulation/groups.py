@@ -111,16 +111,16 @@ class GroupData(Group[_MT]):
 
         fields = self.fields[field_names] if field_names else self.fields[()]
         filename = filename or self._simulation.path.joinpath(constants.XDMF_FILE_NAME)
-        timesteps = timesteps or self.timesteps
 
-        def _create_xdmf(group: GroupData):
+        def _create_xdmf(group: GroupData, timesteps: Optional[Iterable[float]]):
+            timesteps = timesteps or self.timesteps
             xdmf = XDMFWriter(group._file)
             xdmf.add_mesh(group._simulation.meshes[mesh_name])
             xdmf.add_timeseries(timesteps, fields, mesh_name)
             xdmf.write_file(filename)
             log.debug(f"produced XDMF file at {filename}")
 
-        self._file.single_process_queue.add(_create_xdmf, (self,))
+        self._file.single_process_queue.add(_create_xdmf, (self, timesteps))
 
 
 class StepWriter:
