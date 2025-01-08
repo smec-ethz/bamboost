@@ -16,7 +16,7 @@ import h5py
 from bamboost._typing import StrPath
 from bamboost.core.hdf5.file import FileMode, HDF5File, HDF5Path
 from bamboost.core.simulation import FieldType
-from bamboost.mpi.utilities import MPISafeMeta
+from bamboost.mpi.utilities import RootProcessMeta
 
 if TYPE_CHECKING:
     from bamboost.core.simulation.groups import FieldData, GroupMesh
@@ -38,7 +38,7 @@ numpy_to_xdmf_dtype = {
 }
 
 
-class XDMFWriter(metaclass=MPISafeMeta):
+class XDMFWriter(metaclass=RootProcessMeta):
     """Write xdmf file for a subset of the stored data in the H5 file.
 
     Args:

@@ -187,6 +187,7 @@ class StepWriter:
 class GroupFieldData(Group[_MT]):
     def __init__(self, data_group: GroupData[_MT]):
         super().__init__(PATH_FIELD_DATA, data_group._file)
+
         self._data_group = data_group
         self._field_instances: dict[str, FieldData[_MT]] = {}
 

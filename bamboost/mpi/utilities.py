@@ -36,29 +36,19 @@ def on_root(func: Callable[_P, _T], comm: "Comm") -> Callable[_P, _T]:
     return on_rank(func, comm, 0)
 
 
-class ClassWithComm(Protocol):
+class HasComm(Protocol):
     _comm: "Comm"
 
 
-def bcast(func):
-    @wraps(func)
-    def wrapper(self: ClassWithComm, *args, **kwargs):
-        result = None
-        if self._comm.rank == 0:
-            result = func(self, *args, **kwargs)
-        return self._comm.bcast(result, root=0)
-
-    wrapper._bcast = True  # type: ignore
-    return wrapper
-
-
-class MPISafeMeta(type):
+class RootProcessMeta(type):
     """A metaclass that makes classes MPI-safe by ensuring methods are only
     executed on the root process.
 
     This metaclass modifies class methods to either use broadcast communication
     (if decorated with @bcast) or to only execute on the root process (rank 0).
     """
+
+    __exclude__ = {"__init__", "__new__"}
 
     def __new__(mcs, name: str, bases: tuple, attrs: dict):
         """Create a new class with MPI-safe methods.
@@ -74,17 +64,23 @@ class MPISafeMeta(type):
         for attr_name, attr_value in attrs.items():
             if (
                 callable(attr_value)
-                and not attr_name.startswith("__")
-                and attr_name != "sql_transaction"
+                # and not attr_name.startswith("__")
+                and attr_name not in mcs.__exclude__
             ):
-                if hasattr(attr_value, "_bcast"):  # check for @bcast decorator
-                    attrs[attr_name] = attr_value
+                if hasattr(
+                    attr_value, "_mpi_bcast_"
+                ):  # check for @cast_result decorator
+                    continue
+                elif hasattr(
+                    attr_value, "_mpi_on_all_"
+                ):  # check for @exclude decorator
+                    continue
                 else:
-                    attrs[attr_name] = mcs.root_only(attr_value)
+                    attrs[attr_name] = mcs._root_only_default(attr_value)
         return super().__new__(mcs, name, bases, attrs)
 
     @staticmethod
-    def root_only(func):
+    def _root_only_default(func):
         """Decorator that ensures a method is only executed on the root process
         (rank 0).
 
@@ -96,8 +92,25 @@ class MPISafeMeta(type):
         """
 
         @wraps(func)
-        def wrapper(self: ClassWithComm, *args, **kwargs):
+        def wrapper(self: HasComm, *args, **kwargs):
             if self._comm.rank == 0:
                 return func(self, *args, **kwargs)
 
         return wrapper
+
+    @staticmethod
+    def bcast_result(func):
+        @wraps(func)
+        def wrapper(self: HasComm, *args, **kwargs):
+            result = None
+            if self._comm.rank == 0:
+                result = func(self, *args, **kwargs)
+            return self._comm.bcast(result, root=0)
+
+        wrapper._mpi_bcast_ = True  # type: ignore
+        return wrapper
+
+    @staticmethod
+    def exclude(func):
+        func._mpi_on_all_ = True
+        return func

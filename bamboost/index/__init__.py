@@ -67,7 +67,7 @@ from bamboost.index.sqlmodel import (
     json_serializer,
 )
 from bamboost.mpi import MPI
-from bamboost.mpi.utilities import MPISafeMeta, bcast, on_root
+from bamboost.mpi.utilities import RootProcessMeta, on_root
 from bamboost.utilities import PathSet
 
 if TYPE_CHECKING:
@@ -108,7 +108,7 @@ def _sql_transaction(
     return inner
 
 
-class Index(metaclass=MPISafeMeta):
+class Index(metaclass=RootProcessMeta):
     """API for indexing BAMBOOST collections and simulations.
 
     Usage:
@@ -145,17 +145,20 @@ class Index(metaclass=MPISafeMeta):
         search_paths: Optional[Set[StrPath]] = None,
     ) -> None:
         self._comm = comm or MPI.COMM_WORLD
+        self.search_paths = PathSet(search_paths or config.index.searchPaths)
+        self._initialize_root_process(sql_file or config.index.databaseFile)
+
+    def _initialize_root_process(self, sql_file: StrPath) -> None:
         self._engine = create_engine(
-            f"sqlite:///{sql_file or config.index.databaseFile}",
+            f"sqlite:///{sql_file}",
             json_serializer=json_serializer,
             json_deserializer=json_deserializer,
         )
-        on_root(create_all, self._comm)(self._engine)
+        create_all(self._engine)
         self._sm = sessionmaker(
             bind=self._engine, autobegin=False, expire_on_commit=False
         )
         self._s = self._sm()
-        self.search_paths = PathSet(search_paths or config.index.searchPaths)
 
     @contextmanager
     def comm_self(self) -> Generator[None, None, None]:
@@ -167,6 +170,7 @@ class Index(metaclass=MPISafeMeta):
         finally:
             self._comm = current_comm
 
+    @RootProcessMeta.exclude
     @contextmanager
     def sql_transaction(self) -> Generator[Session, None, None]:
         """Context manager for a SQL transaction.
@@ -238,7 +242,7 @@ class Index(metaclass=MPISafeMeta):
                 )
                 self._s.delete(collection)
 
-    @bcast
+    @RootProcessMeta.bcast_result
     @_sql_transaction
     def resolve_path(
         self,
@@ -281,7 +285,7 @@ class Index(metaclass=MPISafeMeta):
 
         raise FileNotFoundError(f"Database with {uid} was not found.")
 
-    @bcast
+    @RootProcessMeta.bcast_result
     @_sql_transaction
     def resolve_uid(self, path: StrPath) -> CollectionUID:
         """Resolve the UID of a collection from a path.
@@ -355,7 +359,7 @@ class Index(metaclass=MPISafeMeta):
             )
 
     @property
-    @bcast
+    @RootProcessMeta.bcast_result
     @_sql_transaction
     def all_collections(self) -> Sequence[CollectionORM]:
         """Return all collections in the index. Eagerly loads the simulations
@@ -374,7 +378,7 @@ class Index(metaclass=MPISafeMeta):
             .all()
         )
 
-    @bcast
+    @RootProcessMeta.bcast_result
     @_sql_transaction
     def collection(self, uid: str) -> CollectionORM | None:
         """Return a collection from the index.
@@ -398,7 +402,7 @@ class Index(metaclass=MPISafeMeta):
         )
 
     @property
-    @bcast
+    @RootProcessMeta.bcast_result
     @_sql_transaction
     def all_simulations(self) -> Sequence[SimulationORM]:
         """Return all simulations in the index. Eagerly loads the parameters."""
@@ -411,7 +415,7 @@ class Index(metaclass=MPISafeMeta):
             .all()
         )
 
-    @bcast
+    @RootProcessMeta.bcast_result
     @_sql_transaction
     def simulation(self, collection_uid: str, name: str) -> SimulationORM | None:
         """Return a simulation from the index.
@@ -434,7 +438,7 @@ class Index(metaclass=MPISafeMeta):
         )
 
     @property
-    @bcast
+    @RootProcessMeta.bcast_result
     @_sql_transaction
     def all_parameters(self) -> Sequence[ParameterORM]:
         """Return all parameters in the index."""
@@ -575,7 +579,7 @@ class Index(metaclass=MPISafeMeta):
             )
         )
 
-    @bcast
+    @RootProcessMeta.bcast_result
     @_sql_transaction
     def _get_collection_path(
         self,
@@ -586,12 +590,12 @@ class Index(metaclass=MPISafeMeta):
         ).scalar()
         return Path(res) if res else None
 
-    @bcast
+    @RootProcessMeta.bcast_result
     @_sql_transaction
     def _get_collections(self) -> Sequence[CollectionORM]:
         return self._s.execute(select(CollectionORM)).scalars().all()
 
-    @bcast
+    @RootProcessMeta.bcast_result
     @_sql_transaction
     def _get_simulation(
         self, collection_uid: CollectionUID | str, simulation_name: str

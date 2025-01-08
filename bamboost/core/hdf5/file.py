@@ -34,6 +34,7 @@ from typing_extensions import Concatenate, Self
 from bamboost import BAMBOOST_LOGGER
 from bamboost._typing import _MT, _P, _T, Immutable, Mutable
 from bamboost.mpi import MPI, MPI_ON
+from bamboost.mpi.utilities import RootProcessMeta
 from bamboost.utilities import StrPath
 
 if TYPE_CHECKING:
@@ -254,11 +255,13 @@ class FilteredFileMap(MutableMapping[str, _VT_filemap], _FileMapMixin):
         return sum(1 for _ in self.__iter__())
 
 
-class ProcessQueue:
+class ProcessQueue(metaclass=RootProcessMeta):
     def __init__(self, file: HDF5File):
         self._file = file
+        self._comm = file._comm  # needed for MPISafeMeta to work
         self.deque = deque[tuple[Callable, tuple]]()
 
+    @RootProcessMeta.exclude
     def add(self, func: Callable, args: tuple) -> None:
         # if file is not open, open it and apply the function immediately
         if not self._file.is_open:
@@ -266,31 +269,27 @@ class ProcessQueue:
                 with self._file.open(FileMode.APPEND):
                     func(*args)
         # if file is open and not using mpio, apply the function immediately
-        elif self._file.is_open and self._file.driver != "mpio":
+        elif self._file.driver != "mpio":
             func(*args)
         # else, the file is open with mpio, so we add the function to the queue
-        elif self._file._comm.rank == 0:
-            self.deque.append((func, args))
-            log.debug(
-                f"Added {func.__qualname__} to process queue (args: {','.join(map(str, args))})"
-            )
+        self.deque.append((func, args))
+        log.debug(
+            f"Added {func.__qualname__} to process queue (args: {','.join(map(str, args))})"
+        )
 
     def apply(self):
-        if self._file._comm.rank == 0:
-            if not self.deque:
-                log.debug("Process queue is empty")
-                return
+        if not self.deque:
+            log.debug("Process queue is empty")
+            return
 
-            with self._file.open(FileMode.APPEND):
-                log.debug("Applying process queue...")
-                while self.deque:
-                    func, args = self.deque.popleft()
-                    func(*args)
-                    log.debug(
-                        f"Applied {func.__qualname__} (args: {','.join(map(str, args))})"
-                    )
-        # wait for root to finish
-        self._file._comm.barrier()
+        with self._file.open(FileMode.APPEND):
+            log.debug("Applying process queue...")
+            while self.deque:
+                func, args = self.deque.popleft()
+                func(*args)
+                log.debug(
+                    f"Applied {func.__qualname__} (args: {','.join(map(str, args))})"
+                )
 
 
 class HDF5File(h5py.File, Generic[_MT]):
