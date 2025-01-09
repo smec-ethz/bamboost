@@ -1,219 +1,110 @@
+from __future__ import annotations
+
 import argparse
+from functools import wraps
+from typing import Callable, List, Optional, Type, Union
 
-import rich
 
-from bamboost import config
+class Argument:
+    def __init__(self, *args, **kwargs):
+        self.args = args
+        self.kwargs = kwargs
+
+    def __call__(self, parser: argparse.ArgumentParser):
+        parser.add_argument(*self.args, **self.kwargs)
+
+
+class Cli:
+    parser: argparse.ArgumentParser
+    subcli: List[Type[Cli]]
+    aliases: List[str]
+    execute: Callable[[], None]
+
+    def __init__(self, parser: Optional[argparse.ArgumentParser] = None):
+        self.parser = parser or argparse.ArgumentParser(description=self.__doc__)
+        self.__subclis: dict[str, Cli] = {}
+
+        # add the options
+        for attr, value in self.__class__.__dict__.items():
+            if isinstance(value, Argument):
+                value(self.parser)
+
+        # add subparsers
+        if hasattr(self, "subcli"):
+            subparsers = self.parser.add_subparsers(dest="subcli")
+            for cli in self.subcli:
+                subparser = subparsers.add_parser(
+                    cli.__name__.lower(),
+                    help=cli.__doc__,
+                    description=cli.__doc__,
+                    aliases=cli.aliases,
+                )
+                # init the subparser
+                self.__subclis[cli.__name__.lower()] = cli(subparser)
+
+    def parse(self) -> Cli:
+        args = self.parser.parse_args()
+
+        def get_final_subcli(cli: Cli, args) -> Cli:
+            if hasattr(cli, "subcli") and args.subcli:
+                for i in cli.subcli:
+                    if args.subcli == i.__name__.lower():
+                        subcli_selected = cli.__subclis[args.subcli]
+                        for attr, value in args.__dict__.items():
+                            if attr == 'subcli':
+                                continue
+                            setattr(subcli_selected, attr, value)
+                        return get_final_subcli(subcli_selected, args)
+            return cli
+
+        return get_final_subcli(self, args)
+
+
+class CliParsed:
+    subcli: Type[Cli]
+
+
+class Submit(Cli):
+    """Run jobs or submit jobs on a cluster using slurm."""
+
+    aliases = []
+    # fmt: off
+    path = Argument("path", nargs="?", type=str, help="Path to the directory containing the simulation.")
+    id = Argument("--id", default=None, type=str, help="The id of the simulation.")
+    db = Argument("--db", default=None, type=str, help="The ID of the collection containing the simulation.")
+    all = Argument("--all", action="store_true", help="Submit all unsubmitted jobs in the Collection.")
+
+    # fmt: on
+    def execute(self):
+        print("Submit")
+
+
+class Collection(Cli):
+    """Collection management commands."""
+
+    aliases = ["coll"]
+
+    def execute(self):
+        print("Db")
+
+
+class MainCli(Cli):
+    """The command line interface for bamboost."""
+
+    subcli = [Submit, Collection]
+    """The subcommands of the main CLI."""
+
+    remote = Argument(
+        "-r", "--remote", help="Remote ssh database to fetch data from.", type=str
+    )
 
 
 def main():
-    parser = argparse.ArgumentParser(description="CLI for bamboost")
-    parser.add_argument(
-        "--remote", "-r", help="Remote server to fetch data from", type=str
-    )
-    subparsers = parser.add_subparsers(
-        dest="command",
-    )
-    function_map = {}
-
-    # ----------------
-    # Submit
-    # ----------------
-    function_map["submit"] = submit_simulation
-    parser_submit = subparsers.add_parser("submit", help="Submit a job")
-    parser_submit.add_argument(
-        "path",
-        nargs="?",
-        type=str,
-        help="Path to simulation (directory) to submit",
-    )
-    parser_submit.add_argument(
-        "--id",
-        default=None,
-        type=str,
-        help="Simulation ID",
-    )
-    parser_submit.add_argument(
-        "--db",
-        default=None,
-        type=str,
-        help="Database ID in which a submission will be made",
-    )
-    parser_submit.add_argument(
-        "--all",
-        action="store_true",
-        help="Submit all unsubmitted simulations in the database",
-    )
-
-    # ----------------
-    # Database
-    # ----------------
-    function_map["db"] = manage_db
-    parser_db = subparsers.add_parser("db", help="Database management")
-    parser_db.add_argument("db_id", type=str, help="Database ID")
-    sub_parser_db = parser_db.add_subparsers(
-        dest="subcommand",
-        help="Database management subcommand",
-    )
-    sub_parser_db.add_parser("list", help="List all simulations in the database")
-    sub_parser_db.add_parser("drop", help="Drop database from the index")
-    sub_parser_db.add_parser("reset", help="Reset its table in the sqlite database")
-
-    # ----------------
-    # List
-    # ----------------
-    function_map["list"] = list_databases
-    parser_list = subparsers.add_parser("list", help="List all databases")  # noqa: F841
-
-    # ----------------
-    # Clean
-    # ----------------
-    function_map["clean"] = clean_index
-    parser_clean = subparsers.add_parser("clean", help="Clean the index")
-    parser_clean.add_argument(
-        "--purge",
-        action="store_true",
-        help="also remove the tables from unknown databases",
-    )
-
-    # ----------------
-    # Scan
-    # ----------------
-    def scan_known_paths(args):
-        from bamboost.core.caching.base import CollectionsTable
-
-        CollectionsTable().scan_paths_for_collections()
-        rich.print("Scanned known paths")
-
-    function_map["scan"] = scan_known_paths
-
-    parser_scan = subparsers.add_parser("scan", help="Scan known paths")  # noqa: F841
-
-    # ----------------
-    # Open config file
-    # ----------------
-    function_map["config"] = open_config
-    parser_config = subparsers.add_parser("config", help="Open the config file")
-    parser_config.add_argument(
-        "--tui", "-t", action="store_true", help="Open the tui config file"
-    )
-    parser_config.add_argument(
-        "--functions", "-f", action="store_true", help="Open the tui functions file"
-    )
-
-    # ----------------
-    # New database
-    # ----------------
-    function_map["new"] = create_new_database
-    parser_new = subparsers.add_parser("new", help="Create a new database")
-    parser_new.add_argument("path", type=str, help="Path to the database")
-
-    # ----------------
-    # Parse
-    # ----------------
-    args = parser.parse_args()
-    if args.command is None:
-        parser.print_help()
-        return
-    func = function_map[args.command]
-    func(args)
+    cli = MainCli()
+    a = cli.parse()
+    print(a)
+    print(a.__dict__)
 
 
-def submit_simulation(args):
-    from bamboost.core.simulation.base import Simulation
-    from bamboost.core.caching.base import CollectionsTable
-
-    if args.path is not None:
-        db_path, uid = args.path.rstrip("/").rsplit("/", 1)
-        sim = Simulation(uid, db_path)
-        args.id = uid
-        args.db = CollectionsTable().get_id(db_path)
-    else:
-        assert args.id and args.db, "Simulation ID and database ID must be provided"
-        sim = Simulation(args.id, args.db)
-
-    sim.submit()
-    print(f"Submitted simulation {args.id} [db: {args.db}]")
-
-
-def manage_db(args):
-    from bamboost.core.manager import Manager
-    from bamboost.core.caching.base import CollectionsTable
-
-    # test if the database exists
-    df = CollectionsTable().get_df()
-    if args.db_id not in df["id"].values:
-        match = df[
-            df["path"].astype(str).str.contains(args.db_id, na=False)
-        ].reset_index(drop=True)
-        choice = 0
-        if len(match) > 1:
-            rich.print(
-                f"Database ID {args.db_id} is ambiguous. Possible matches: \n{match.to_string()}"
-            )
-            choice = int(input("Choose one of the above databases to continue: "))
-        args.db_id = match.iloc[choice]["id"]
-
-    if args.subcommand == "list":
-        rich.print(Manager(uid=args.db_id).df)
-    if args.subcommand == "reset":
-        with CollectionsTable().open():
-            CollectionsTable().connection.execute(f"DROP TABLE IF EXISTS db_{args.db_id}")
-            CollectionsTable().connection.execute(f"DROP TABLE IF EXISTS db_{args.db_id}_t")
-        rich.print(f"Database {args.db_id} dropped")
-
-    if args.subcommand == "drop":
-        with CollectionsTable().open():
-            CollectionsTable().connection.execute(f"DROP TABLE IF EXISTS db_{args.db_id}")
-            CollectionsTable().connection.execute(f"DROP TABLE IF EXISTS db_{args.db_id}_t")
-        CollectionsTable().drop_path(args.db_id)
-        rich.print(f"Database {args.db_id} dropped")
-
-
-def list_databases(args):
-    from bamboost.core.caching.base import CollectionsTable
-
-    table = CollectionsTable().get_df()
-    rich.print(table.to_string())
-
-
-def clean_index(args, purge: bool = False):
-    from bamboost.core.caching.base import CollectionsTable
-
-    CollectionsTable().clean(purge=purge)
-    rich.print("Index cleaned")
-
-
-def open_config(args):
-    import os
-    import subprocess
-
-    if args.tui:
-        subprocess.run(
-            [
-                f"{os.environ.get('EDITOR', 'vi')}",
-                f"{config.paths['CONFIG_DIR']}/tui.toml",
-            ]
-        )
-    elif args.functions:
-        subprocess.run(
-            [
-                f"{os.environ.get('EDITOR', 'vi')}",
-                f"{config.paths['CONFIG_DIR']}/custom_functions.py",
-            ]
-        )
-    else:
-        subprocess.run(
-            [f"{os.environ.get('EDITOR', 'vi')}", f"{config.paths['CONFIG_FILE']}"]
-        )
-
-
-def create_new_database(args):
-    from bamboost import index
-    from bamboost.core.manager import Manager
-
-    try:
-        path = index.get_uid_from_path(args.path)
-        rich.print(f"Database at {args.path} already exists. ID: {path}")
-    except FileNotFoundError:
-        db = Manager(args.path, create_if_not_exist=True)
-        rich.print(f"Database at {args.path} created. ID: {db.UID}")
+if __name__ == "__main__":
+    main()

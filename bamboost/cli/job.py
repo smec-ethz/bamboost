@@ -78,11 +78,11 @@ def create_job(
     from bamboost import config
 
     config.options.mpi = False
-    from bamboost.core.manager import Manager
+    from bamboost.core.manager import Collection
 
     bb_input = _import_input_file(input_file)
 
-    db = Manager(db_path)
+    db = Collection(db_path)
 
     # create simulation
     sim = db.create_simulation(
