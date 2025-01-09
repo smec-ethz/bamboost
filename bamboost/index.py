@@ -545,7 +545,17 @@ class DatabaseTable:
         return self._entries[entry_id]
 
 
+def capture_fileIO_error(method):
+    @wraps(method)
+    def inner(self, *args, **kwargs):
+        try:
+            return method(self, *args, **kwargs)
+        except OSError as e:
+            e.add_note(f"[h5file: {self.h5file}, ]")
+            raise e
+        
 
+    return inner
 
 @dataclass
 class Entry:
@@ -558,20 +568,7 @@ class Entry:
         self.path = path
         self.h5file = os.path.join(self.path, self.id, f"{self.id}.h5")
 
-    @staticmethod
-    def capture_fileIO_error(method):
-        @wraps(method)
-        def inner(self, *args, **kwargs):
-            try:
-                return method(self, *args, **kwargs)
-            except OSError as e:
-                e.add_note(f"[h5file: {self.h5file}, ]")
-                raise e
-            
-        if isinstance(method, property):
-            return property(inner)
 
-        return inner
 
     @property
     @capture_fileIO_error
