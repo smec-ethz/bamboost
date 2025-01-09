@@ -567,6 +567,9 @@ class Entry:
             except OSError as e:
                 e.add_note(f"[h5file: {self.h5file}, ]")
                 raise e
+            
+        if isinstance(method, property):
+            return property(inner)
 
         return inner
 
