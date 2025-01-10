@@ -10,7 +10,7 @@ from typing import Optional, Type
 
 class Formatter(
     rich_argparse.RawDescriptionRichHelpFormatter,
-    rich_argparse.MetavarTypeRichHelpFormatter,
+    # rich_argparse.MetavarTypeRichHelpFormatter,
     rich_argparse.ArgumentDefaultsRichHelpFormatter,
 ):
     """Little shorthand for using some useful HelpFormatters from argparse.
@@ -55,7 +55,7 @@ class Formatter(
 Formatter.styles.update(
     {
         "argparse.args": "yellow i",
-        "argparse.groups": "blue u",
+        "argparse.groups": "white bold",
         "argparse.help": "default",
         "argparse.metavar": "white",
         "argparse.syntax": "green",

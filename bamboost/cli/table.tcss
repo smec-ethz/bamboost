@@ -1,0 +1,36 @@
+/* 
+vim: ft=css 
+*/
+
+Screen {
+  align: left top;
+  padding: 0;
+
+  &:inline {
+    border: none;
+    height: 10;
+  }
+}
+
+DataTable {
+  align: left top;
+  border: round ansi_yellow;
+  width: auto;
+  background: transparent;
+  color: ansi_white;
+
+  .datatable--header {
+    background: transparent;
+    color: ansi_blue;
+  }
+  .datatable--cursor {
+    background: transparent;
+    color: ansi_white;
+    text-style: bold;
+  }
+
+  #path {
+    color: ansi_green;
+  }
+
+}

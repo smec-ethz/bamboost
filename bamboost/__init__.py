@@ -10,6 +10,7 @@ __license__ = "MIT"
 __version__ = version("bamboost")
 
 BAMBOOST_LOGGER = logging.getLogger("bamboost")
+STREAM_HANDLER = logging.StreamHandler()
 
 from bamboost._config import config as config
 
@@ -22,7 +23,6 @@ def _add_stream_handler(logger: logging.Logger) -> None:
             record.rank = MPI.COMM_WORLD.rank
             return super().format(record)
 
-    stream_handler = logging.StreamHandler()
     if MPI_ON:
         formatter = _LogFormatterWithRank(
             "[%(asctime)s] %(name)s: %(levelname)s [%(rank)d] - %(message)s",
@@ -34,8 +34,8 @@ def _add_stream_handler(logger: logging.Logger) -> None:
             "[%(asctime)s] %(name)s: %(levelname)s - %(message)s",
             datefmt="%Y-%m-%d %H:%M:%S",
         )
-    stream_handler.setFormatter(formatter)
-    logger.addHandler(stream_handler)
+    STREAM_HANDLER.setFormatter(formatter)
+    logger.addHandler(STREAM_HANDLER)
 
 
 _add_stream_handler(BAMBOOST_LOGGER)

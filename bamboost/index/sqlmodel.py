@@ -34,6 +34,11 @@ from sqlalchemy.sql.dml import ReturningInsert
 from typing_extensions import NotRequired, TypedDict
 
 from bamboost import BAMBOOST_LOGGER
+from bamboost.constants import (
+    TABLENAME_COLLECTIONS,
+    TABLENAME_PARAMETERS,
+    TABLENAME_SIMULATIONS,
+)
 
 if TYPE_CHECKING:
     pass
@@ -82,7 +87,7 @@ def json_deserializer(value: str) -> Any:
 
 
 class CollectionORM(_Base):
-    __tablename__ = "collections"
+    __tablename__ = TABLENAME_COLLECTIONS
 
     uid: Mapped[str] = mapped_column(primary_key=True)
     path: Mapped[str] = mapped_column(String)
@@ -114,7 +119,7 @@ class CollectionORM(_Base):
 
 
 class SimulationORM(_Base):
-    __tablename__ = "simulations"
+    __tablename__ = TABLENAME_SIMULATIONS
     __table_args__ = (
         UniqueConstraint("collection_uid", "name", name="uix_collection_name"),
     )
@@ -194,7 +199,7 @@ class SimulationORM(_Base):
 
 
 class ParameterORM(_Base):
-    __tablename__ = "parameters"
+    __tablename__ = TABLENAME_PARAMETERS
     __table_args__ = (
         UniqueConstraint("simulation_id", "key", name="uix_simulation_key"),
     )

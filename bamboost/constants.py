@@ -15,3 +15,8 @@ PATH_USERDATA = ".userdata"
 DS_NAME_TIMESTEPS = ".timesteps"
 
 DEFAULT_MESH_NAME = "default"
+
+# SQLModel constants
+TABLENAME_COLLECTIONS = "collections"
+TABLENAME_SIMULATIONS = "simulations"
+TABLENAME_PARAMETERS = "parameters"

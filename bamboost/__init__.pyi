@@ -7,6 +7,7 @@ __license__: str
 __version__: str
 
 BAMBOOST_LOGGER: logging.Logger
+STREAM_HANDLER: logging.StreamHandler
 
 def set_log_level(
     level: Literal["DEBUG", "INFO", "WARNING", "ERROR", "CRITICAL"],

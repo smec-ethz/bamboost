@@ -177,7 +177,7 @@ class Index(metaclass=RootProcessMeta):
         self,
         *,
         search_paths: Optional[PathSet] = None,
-    ) -> None:
+    ) -> list[tuple[str, Path]]:
         """Scan known paths for collections and update the index.
 
         Iterates through the search paths and searches files with the
@@ -189,6 +189,8 @@ class Index(metaclass=RootProcessMeta):
                 Defaults to config.index.searchPaths.
         """
         search_paths = PathSet(search_paths) or self.search_paths
+        all_found_collections = []
+
         for path in search_paths:
             found_collections: tuple[tuple[str, Path], ...] = (
                 _scan_directory_for_collections(path)
@@ -199,7 +201,10 @@ class Index(metaclass=RootProcessMeta):
                 {"uid": uid, "path": str(path)} for uid, path in found_collections
             ]
             self._s.execute(CollectionORM.upsert(collections_data))
-            log.info(f"Inserting found collections:\n{found_collections}")
+            log.debug(f"Inserting found collections:\n{collections_data}")
+            all_found_collections.extend(found_collections)
+
+        return all_found_collections
 
     @_sql_transaction
     def check_integrity(self) -> None:
@@ -210,7 +215,7 @@ class Index(metaclass=RootProcessMeta):
         """
         for collection in self._s.execute(select(CollectionORM)).scalars().all():
             if not _validate_path(Path(collection.path), collection.uid):
-                log.warning(
+                log.info(
                     f"Invalid collection path in cache: {collection.uid, collection.path} -> removing."
                 )
                 self._s.delete(collection)
@@ -693,7 +698,7 @@ def _scan_directory_for_collections(root_dir: Path) -> tuple[tuple[str, Path], .
         Tuple of tuples with the UID and path of the collection
     """
 
-    log.info(f"Scanning {root_dir}")
+    log.debug(f"Scanning {root_dir}")
 
     if not root_dir.exists():
         log.warning(f"Path does not exist: {root_dir}")

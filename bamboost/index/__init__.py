@@ -28,6 +28,6 @@ Classes:
 
 from .base import CollectionUID as CollectionUID
 from .base import Index as Index
-from .base import get_identifier_filename, create_identifier_file
+from .base import create_identifier_file, get_identifier_filename
 
 DEFAULT_INDEX = Index()
