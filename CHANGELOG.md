@@ -1,5 +1,9 @@
 # Change log for bamboost
 
+## v0.8.3 (11Jan25)
+
+- ENH: catch file IO errors and display the path of the file causing the error when generating index
+
 ## v0.8.2 (13Nov24)
 
 - ENH: In remote extension, allow shallow sim (object without fetching the data)

@@ -40,6 +40,7 @@ import subprocess
 from dataclasses import dataclass
 from time import time
 from typing import Callable
+from functools import wraps
 
 import pandas as pd
 
@@ -544,6 +545,18 @@ class DatabaseTable:
         return self._entries[entry_id]
 
 
+def capture_fileIO_error(method):
+    @wraps(method)
+    def inner(self, *args, **kwargs):
+        try:
+            return method(self, *args, **kwargs)
+        except OSError as e:
+            e.add_note(f"[h5file: {self.h5file}, ]")
+            raise e
+        
+
+    return inner
+
 @dataclass
 class Entry:
     """Simulation entry in a database.
@@ -556,12 +569,14 @@ class Entry:
         self.h5file = os.path.join(self.path, self.id, f"{self.id}.h5")
 
     @property
+    @capture_fileIO_error
     def metadata(self) -> dict:
         """Get the metadata of the entry."""
         with open_h5file(self.h5file, "r") as file:
             return dict(file.attrs)
 
     @property
+    @capture_fileIO_error
     def parameters(self) -> dict:
         """Get the parameters of the entry."""
         tmp_dict = dict()
