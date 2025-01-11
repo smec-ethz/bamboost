@@ -568,8 +568,6 @@ class Entry:
         self.path = path
         self.h5file = os.path.join(self.path, self.id, f"{self.id}.h5")
 
-
-
     @property
     @capture_fileIO_error
     def metadata(self) -> dict:
