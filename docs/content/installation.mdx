@@ -1,0 +1,59 @@
+---
+title: Installation
+icon: Construction
+---
+
+## Basic installation
+
+To use the latest release of `bamboost`, install it using the python package
+registry.
+
+```bash
+pip install bamboost
+```
+
+The package requires the following packages, which `pip` tries to install
+automatically:
+
+- [h5py](https://docs.h5py.org/en/latest/quick.html)
+- [numpy](https://numpy.org/install/)
+- [pandas](https://pandas.pydata.org/pandas-docs/stable/getting_started/install.html)
+- [mpi4py](https://mpi4py.readthedocs.io/en/stable/install.html)
+
+<Callout type="warning" title="Issues with `mpi4py`">
+
+If you run into issues installing `mpi4py`, make sure that a python distribution
+containing the header files is installed on your system. Google this for your
+distribution. On Linux, a suitable package will be named `python3-dev` or
+`libpython3.8-dev` (insert the python version accordingly).
+
+</Callout>
+
+<Callout type="info" title="Installation troubleshooting">
+
+[Installation troubleshooting](/docs/guides/installation-troubleshooting)
+
+</Callout>
+
+### Parallel support for writing HDF5 files
+
+For MPI support, `h5py` needs to be compiled with MPI support. To do so, you
+will need a local installation of the HDF5 library.
+If you have this, you can build `h5py` with MPI support by running
+
+```bash filename="Install h5py with MPI support"
+export CC=mpicc
+export HDF5_MPI="ON"
+pip install --force-reinstall --no-binary=h5py h5py
+```
+
+## Installation in editable mode
+If you plan to modify the source code, you can install `bamboost` in editable
+mode. This will allow you to modify the source code and use the modified
+version without having to reinstall the package.
+
+```bash
+git clone git@gitlab.com:cmbm-ethz/bamboost.git
+cd bamboost
+pip install -e .
+```

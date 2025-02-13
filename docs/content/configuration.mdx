@@ -1,0 +1,54 @@
+---
+title: Configuration
+icon: MonitorCog
+---
+
+import { Callout } from "fumadocs-ui/components/callout";
+
+# Configuration
+
+A few global options are available. Bamboost can be configured using the
+configuration file at `~/.config/bamboost/config.toml`.
+
+```yaml title="Example configuration file"
+[options]
+# uncomment to disable mpi support
+mpi = true
+
+# default column to sort dataframes by
+sort_table_key = 'time_stamp'
+sort_table_order = 'desc'  # or 'asc'
+
+# sync database tables with sqlite database on the fly
+sync_tables = true
+
+[index]
+# the list of paths to search for databases
+paths = [
+    '/home/florez/work/',
+    '/home/florez/journal/',
+]
+```
+
+## Options
+
+- **mpi**: this switch disables the import of *mpi4py* and thus disables all mpi
+  functionality. This is useful if you never use mpi anyway as most of the
+  import time of `bamboost` is due to the import of MPI.
+
+<Callout type="info">
+You can disable MPI for the current shell by setting the environment variable
+`BAMBOOST_MPI = "0"`.
+</Callout>
+
+- **sort_table_key**: any dataframe will be sorted by this key. This should be a
+  key that exists in all your databases. E.g. the metadata set by bamboost.
+  `time_stamp`, `id`, ...
+- **sort_table_order**: `asc` (ascending) or `desc` (descending) 
+
+
+## Index
+
+- **paths**: A list of paths in which to seearch for databases. The list will be
+  searched from top to bottom. The last resort is always the users home
+  directory.
