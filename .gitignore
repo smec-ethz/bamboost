@@ -9,7 +9,7 @@ make.bat
 Makefile
 
 # directories
-out/
+out*/
 database*/
 *.egg-info*
 *.vscode*

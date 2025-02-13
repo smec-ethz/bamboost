@@ -1,6 +1,6 @@
 from datetime import datetime
 from pathlib import Path
-from typing import Any, Dict, TypedDict, TypeVar, Union
+from typing import Any, Dict, Type, TypedDict, TypeVar, Union
 
 from typing_extensions import ParamSpec, TypeAlias
 

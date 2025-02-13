@@ -48,7 +48,7 @@ if TYPE_CHECKING:
 
 log = BAMBOOST_LOGGER.getChild("Database")
 
-IDENTIFIER_PREFIX = ".BAMBOOST"
+IDENTIFIER_PREFIX = ".bamboost-collection"
 IDENTIFIER_SEPARATOR = "-"
 
 
@@ -713,6 +713,6 @@ def _scan_directory_for_collections(root_dir: Path) -> tuple[tuple[str, Path], .
         return ()
 
     return tuple(
-        (i.split(IDENTIFIER_SEPARATOR)[-1], Path(i).parent)
+        (i.rsplit(IDENTIFIER_SEPARATOR, 1)[-1], Path(i).parent)
         for i in found_indicator_files
     )
