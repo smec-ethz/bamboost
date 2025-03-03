@@ -1,3 +1,23 @@
+"""
+This module provides a high-level abstraction for working with HDF5 (`h5py`) groups and
+datasets. It is built on the concept of describing an object in the file with a reference
+to it (deterministic reference: a file instance, and a path inside the HDF file).
+
+The reference handles file opening and closing, and provides a simple interface to
+data, attributes and subgroups. In essence, this model provides `h5py` objects like any
+other in-memory data structure.
+
+Classes:
+    H5Reference:
+        Base class for Groups and Datasets.
+    Group:
+        Read-only group reference.
+    MutableGroup:
+        Mutable group reference.
+    Dataset:
+        Read-only dataset reference.
+"""
+
 from __future__ import annotations
 
 import pkgutil
@@ -81,9 +101,9 @@ class H5Reference(Generic[_MT]):
     @with_file_open(FileMode.READ)
     def __getitem__(self, value):
         obj = self._obj
-        assert not isinstance(
-            obj, h5py.Datatype
-        ), "__getitem__ not implemented for Datatype"
+        assert not isinstance(obj, h5py.Datatype), (
+            "__getitem__ not implemented for Datatype"
+        )
 
         # If the value is a slice or empty tuple, we return the sliced dataset
         if isinstance(value, slice) or (isinstance(value, tuple) and len(value) == 0):

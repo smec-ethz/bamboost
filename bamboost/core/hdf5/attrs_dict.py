@@ -1,3 +1,16 @@
+"""
+This module provides `AttrsDict`, a dictionary-like object that is synced with the
+attributes of a group in the HDF5 file.
+
+Key features:
+- The object is tied to a simulation. If the simulation is read-only, the object is
+  read-only too.
+- Automatic synchronization: Updates to the mapping are pushed to the file immediately
+  when the simulation is mutable.
+- Thread safe and MPI-compatible. Uses the `single_process_queue` of the file object to
+  handle attribute updates.
+"""
+
 from __future__ import annotations
 
 from typing import Any, Generic, Mapping

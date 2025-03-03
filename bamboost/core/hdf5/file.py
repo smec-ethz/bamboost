@@ -1,11 +1,58 @@
-# This file is part of bamboost, a Python library built for datamanagement
-# using the HDF5 file format.
-#
-# https://gitlab.ethz.ch/compmechmat/research/libs/dbmanager
-#
-# Copyright 2023 Flavio Lorez and contributors
-#
-# There is no warranty for this code
+"""
+This module provides an enhanced interface for working with HDF5 files. Its main goal is
+to provide automatic file management with heavy caching to limit file access to a minimum.
+
+Key features:
+- Lazy h5py.File wrapper: `HDF5File` postpones file opening until necessary.
+- Cached file map: `FileMap` caches all groups and datasets in the file. We also implement
+  a singleton pattern for the file map to avoid multiple instances of the same file. This
+  allows to subsequent usage of the file map (and the file in general) while skipping file
+  access.
+- Automatic handling of opening the file when necessary using a context stack, which
+  enables knowing when the file is no longer needed.
+- Queued operations enable the bundling of operations. This is useful to bundle operations
+  which require to be executed on the root process only (such as attribute updating). The
+  queued operations are executed once the serial context is closed. If the file is not
+  used when something is added to the queue, it is executed immediately.
+- Utility classes for working with HDF5 paths.
+- Decorators to handle file opening, and file mutability checks (avoid write when not
+  intended).
+
+Attributes:
+    MPI_ACTIVE (bool): Indicates whether MPI support is available for HDF5.
+    log (Logger): Logger instance for this module.
+
+Classes:
+    FileMode:
+        Enum representing different file modes (READ, WRITE, APPEND, etc.).
+    HDF5Path:
+        A specialized string class to handle HDF5-style paths.
+    HasFile (Protocol):
+        Protocol defining objects that have an associated HDF5 file.
+    KeysViewHDF5:
+        A specialized `KeysView` implementation for HDF5 mappings.
+    FileMap:
+        Manages an in-memory cache of groups and datasets within an HDF5 file.
+    FilteredFileMap:
+        A filtered view of `FileMap`, allowing scoped access within a subpath.
+    ProcessQueue:
+        A queue to defer execution of file operations, especially useful in MPI contexts.
+    HDF5File:
+        A wrapper around `h5py.File` with additional functionality, including:
+        - Context-managed opening/closing
+        - Deferred process execution
+        - Mutability enforcement
+        - Custom file path handling
+
+Decorators:
+    mutable_only:
+        Ensures that a method can only be executed if the file is mutable.
+    with_file_open:
+        Opens and closes the file automatically when executing a method.
+    add_to_file_queue:
+        Adds a method call to the process queue instead of executing immediately.
+"""
+
 from __future__ import annotations
 
 import time
@@ -211,14 +258,15 @@ class FileMap(MutableMapping[str, _VT_filemap], _FileMapMixin):
     def __len__(self) -> int:
         return len(self._dict)
 
-    def populate(self) -> None:
+    def populate(self, *, exclude_numeric: bool = True) -> None:
         """Assumes the file is open."""
 
         # visit all groups and datasets to cache them
         def cache_items(name, _obj):
             path = HDF5Path(name)
-            if not path.basename.isdigit():
-                self._dict[path] = type(_obj)
+            if exclude_numeric and path.basename.isdigit():
+                return
+            self._dict[path] = type(_obj)
 
         self._file.visititems(cache_items)
         self.valid = True
