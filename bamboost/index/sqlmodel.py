@@ -1,3 +1,15 @@
+"""SQLAlchemy ORM models for the bamboost index database.
+
+The SQL model consists of three tables:
+- `collections`: Contains information about the collections, namely uids and corresponding paths.
+- `simulations`: Contains information about the simulations, including names, statuses, and
+  parameters.
+- `parameters`: Contains the parameters associated with the simulations.
+
+Simulations are linked to collections via a foreign key, and parameters are linked to simulations
+via foreign keys.
+"""
+
 from __future__ import annotations
 
 import json
@@ -87,6 +99,14 @@ def json_deserializer(value: str) -> Any:
 
 
 class CollectionORM(_Base):
+    """ORM model representing a collection of simulations.
+
+    Attributes:
+        uid: Unique identifier for the collection (primary key)
+        path: file system path where the collection is stored.
+        simulations: Relationship to the associated simulations, with cascade delete-orphan.
+    """
+
     __tablename__ = TABLENAME_COLLECTIONS
 
     uid: Mapped[str] = mapped_column(primary_key=True)
@@ -105,20 +125,53 @@ class CollectionORM(_Base):
 
     @classmethod
     def upsert(cls, data: Sequence[Dict[str, str]] | Dict[str, str]) -> Insert:
+        """Inserts or updates collection records based on the unique uid.
+
+        Args:
+            data: Data to be upserted. Can be a single dictionary or a sequence of dictionaries.
+
+        Returns:
+            SQLAlchemy insert statement with conflict resolution.
+        """
         stmt = insert(cls).values(data)
         return stmt.on_conflict_do_update(["uid"], set_=dict(stmt.excluded))
 
     @property
     def parameters(self) -> List[ParameterORM]:
+        """Retrieves all parameters associated with the collections's simulations.
+
+        Returns:
+            List of parameters belonging to simulations in the collection.
+        """
         return [p for s in self.simulations for p in s.parameters]
 
     def get_parameter_keys(self) -> tuple[list[str], list[int]]:
+        """Extracts unique parameter keys and their occurences across all simulations.
+
+        Returns:
+            A tuple containing a list of unique parameter keys and a corresponding count list.
+        """
         unique_params = list(set(p.key for p in self.parameters))
         counts = [sum(p.key == k for p in self.parameters) for k in unique_params]
         return unique_params, counts
 
 
 class SimulationORM(_Base):
+    """ORM model representing a simulation in a collection.
+
+    Attributes:
+        id: Unique simulation ID (primary key)
+        collection_uid: Foreign key linking to `bamboost.index.sqlmodel.CollectionORM`
+        name: Name of the simulation
+        created_at: Timestamp when the simulation was created
+        modified_at: Timestamp when the simulation was last modified
+        description: Optional description of the simulation
+        status: Current status of the simulation
+        submitted: Indicates whether the simulation has been submitted
+        collection: Relationship to the parent collection
+        parameters: List of associated parameters
+    """
+
     __tablename__ = TABLENAME_SIMULATIONS
     __table_args__ = (
         UniqueConstraint("collection_uid", "name", name="uix_collection_name"),
@@ -160,6 +213,14 @@ class SimulationORM(_Base):
 
     @classmethod
     def upsert(cls, data: Sequence[_dataT] | _dataT) -> ReturningInsert[Tuple[int]]:
+        """Generate an upsert (insert or update) statement.
+
+        Args:
+            data: Data to upsert, either a single record or a sequence of records.
+
+        Returns:
+            SQLAlchemy insert statement with conflict resolution. Returning the simulation ID.
+        """
         stmt = insert(cls).values(data)
         # Get keys to update. Do not touch keys that are not in the data.
         # Assumes: for the sequence case, all dictionaries have the same keys
@@ -175,8 +236,11 @@ class SimulationORM(_Base):
         """Return the simulation as a dictionary.
 
         Args:
-            standalone (bool, optional): If False, "id", "collection_uid", and
-                "modified_at" are excluded. Defaults to True.
+            standalone (bool, optional): If False, "id", "collection_uid", and "modified_at" are
+                excluded. Defaults to True.
+
+        Returns:
+            Dictionary representation of the simulation.
         """
         excluded_columns = (
             {
@@ -195,10 +259,21 @@ class SimulationORM(_Base):
 
     @property
     def parameter_dict(self) -> Dict[str, Any]:
+        """Return a dictionary of parameters associated with the simulation."""
         return {p.key: p.value for p in self.parameters}
 
 
 class ParameterORM(_Base):
+    """ORM model representing a parameter associated with a simulation.
+
+    Attributes:
+        id: Unique parameter ID (primary key)
+        simulation_id: Foreign key linking to `bamboost.index.sqlmodel.SimulationORM`
+        key: Parameter key (name)
+        value: Parameter value (stored as JSON)
+        simulation: Relationship to the parent simulation
+    """
+
     __tablename__ = TABLENAME_PARAMETERS
     __table_args__ = (
         UniqueConstraint("simulation_id", "key", name="uix_simulation_key"),
@@ -226,6 +301,14 @@ class ParameterORM(_Base):
 
     @classmethod
     def upsert(cls, data: Sequence[_dataT] | _dataT) -> Insert:
+        """Generate an upsert (insert or update) statement.
+
+        Args:
+            data: Data to upsert, either a single record or a sequence of records.
+
+        Returns:
+            Insert statement with conflict resolution.
+        """
         stmt = insert(cls).values(data)
         return stmt.on_conflict_do_update(
             ["simulation_id", "key"], set_=dict(value=stmt.excluded.value)
