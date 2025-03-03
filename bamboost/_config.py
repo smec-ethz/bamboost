@@ -1,10 +1,23 @@
-"""The module includes functions to copy an example config file to the user's
-config directory and load the config file from the directory. If the config
-file does not exist, a copy of the example config file will be created.
+"""
+This module manages configuration options for bamboost. It supports loading configuration
+from a global file (`~/.config/bamboost/config.toml`) and a project configuration in the
+standard (`pyproject.toml`).
+
+The configuration is structured using dataclasses, allowing hierarchical and
+type-validated configuration handling.
+
+Key Features:
+- Detects the root directory of the project based on common anchor files.
+- Reads configuration from global and project-specific TOML files.
+- Provides structured access to configuration values via dataclasses.
+- Supports nested dictionary updates for merging configuration sources.
+- Includes an index system for managing paths and database settings.
 
 Attributes:
-    config: A config options object. Initialized from config file
-        `~/.config/bamboost/config.toml`.
+    ROOT_DIR (Path): The detected root directory of the project.
+    config (_Config): The main configuration instance containing paths, options, and index
+        settings.
+
 """
 
 from __future__ import annotations
@@ -92,7 +105,7 @@ class _Base:
         s = ""
         max_length = max(len(field.name) for field in fields(self))
         for field in fields(self):
-            s += f"{field.name:<{max_length+1}}: {getattr(self, field.name)}\n"
+            s += f"{field.name:<{max_length + 1}}: {getattr(self, field.name)}\n"
         return s
 
     def __getitem__(self, key: str) -> Any:
