@@ -7,7 +7,8 @@ from typing import TYPE_CHECKING, Any, Generator, cast
 import h5py
 import numpy as np
 
-from bamboost._typing import SimulationParameterT
+from bamboost import constants
+from bamboost._typing import SimulationMetadataT, SimulationParameterT
 from bamboost.core import utilities
 from bamboost.core.hdf5.attrs_dict import AttrsDict, mutable_only
 from bamboost.core.hdf5.file import (
@@ -17,7 +18,6 @@ from bamboost.core.hdf5.file import (
     Mutable,
     with_file_open,
 )
-from bamboost._typing import SimulationMetadataT
 
 if TYPE_CHECKING:
     from bamboost.core.simulation.base import _Simulation
@@ -28,8 +28,7 @@ class Parameters(AttrsDict[_MT]):
     _dict: SimulationParameterT
 
     def __init__(self, simulation: _Simulation[_MT]):
-        path = "/.parameters"
-        super().__init__(simulation._file, path)
+        super().__init__(simulation._file, constants.PATH_PARAMETERS)
         self._simulation = simulation
 
     @property
@@ -143,7 +142,7 @@ class Parameters(AttrsDict[_MT]):
 
 class Links(AttrsDict[_MT]):
     def __init__(self, simulation: _Simulation) -> None:
-        super().__init__(cast(HDF5File[_MT], simulation._file), "/.links")
+        super().__init__(cast(HDF5File[_MT], simulation._file), constants.PATH_LINKS)
 
 
 class Metadata(AttrsDict[_MT]):
