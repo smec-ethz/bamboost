@@ -1,16 +1,7 @@
-# This file is part of bamboost, a Python library built for datamanagement
-# using the HDF5 file format.
-#
-# https://gitlab.ethz.ch/compmechmat/research/libs/dbmanager
-#
-# Copyright 2024 Flavio Lorez and contributors
-#
-# There is no warranty for this code
-
-
-"""Mock module for `mpi4py.MPI` to be used when MPI is not available or usage
-not desired. Not importing MPI increases launch speed significantly, which
-is important for CLI applications.
+"""
+Mock module for `mpi4py.MPI` to be used when MPI is not available or usage not desired.
+Not importing MPI increases launch speed significantly, which is important for CLI
+applications.
 
 Attributes:
     Comm: Mock class for `mpi4py.MPI.Comm`

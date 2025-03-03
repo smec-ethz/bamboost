@@ -1,13 +1,15 @@
-"""SQLAlchemy ORM models for the bamboost index database.
+"""
+SQLAlchemy ORM models for the bamboost index database.
 
 The SQL model consists of three tables:
-- `collections`: Contains information about the collections, namely uids and corresponding paths.
-- `simulations`: Contains information about the simulations, including names, statuses, and
-  parameters.
+- `collections`: Contains information about the collections, namely uids and corresponding
+  paths.
+- `simulations`: Contains information about the simulations, including names, statuses,
+  and parameters.
 - `parameters`: Contains the parameters associated with the simulations.
 
-Simulations are linked to collections via a foreign key, and parameters are linked to simulations
-via foreign keys.
+Simulations are linked to collections via a foreign key, and parameters are linked to
+simulations via foreign keys.
 """
 
 from __future__ import annotations

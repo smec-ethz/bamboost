@@ -41,8 +41,9 @@ class HasComm(Protocol):
 
 
 class RootProcessMeta(type):
-    """A metaclass that makes classes MPI-safe by ensuring methods are only
-    executed on the root process.
+    """A metaclass that makes classes MPI-safe by ensuring methods are only executed on
+    the root process. The class implementing this metaclass must have a `_comm` attribute
+    that is an MPI communicator.
 
     This metaclass modifies class methods to either use broadcast communication
     (if decorated with @bcast) or to only execute on the root process (rank 0).
@@ -81,8 +82,7 @@ class RootProcessMeta(type):
 
     @staticmethod
     def _root_only_default(func):
-        """Decorator that ensures a method is only executed on the root process
-        (rank 0).
+        """Decorator that ensures a method is only executed on the root process (rank 0).
 
         Args:
             func (callable): The method to be decorated.

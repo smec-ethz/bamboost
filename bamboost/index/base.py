@@ -1,19 +1,23 @@
-"""Indexing of bamboost collections and their simulations/parameters. SQLAlchemy is used to interact
-with the SQLite database.
+"""
+Indexing of bamboost collections and their simulations/parameters. SQLAlchemy is used to
+interact with the SQLite database.
 
-The index is generated on the fly or can be explicitly created by scanning the `search_paths` for
-collections. The index is stored as a SQLite database that stores the path of collections
-(characterized with a unique UID), as well as the metadata and parameters of all simulations.
+The index is generated on the fly or can be explicitly created by scanning the
+`search_paths` for collections. The index is stored as a SQLite database that stores the
+path of collections (characterized with a unique UID), as well as the metadata and
+parameters of all simulations.
 
-The `bamboost.index.base.Index` class provides the public API for interacting with the index. This
-works in paralell execution, but the class is designed to execute any operations on the database on
-the root process only. Methods that return something use `bcast` to cast the result to all
-processes. Any SQL operation is executed only on the root process!
+The `bamboost.index.base.Index` class provides the public API for interacting with the
+index. This works in paralell execution, but the class is designed to execute any
+operations on the database on the root process only. Methods that return something use
+`bcast` to cast the result to all processes. Any SQL operation is executed only on the
+root process!
 
 Database schema:
-- `collections`: Contains information about the collections, namely uids and corresponding paths.
-- `simulations`: Contains information about the simulations, including names, statuses, and links to
-  the corresponding parameters.
+- `collections`: Contains information about the collections, namely uids and corresponding
+  paths.
+- `simulations`: Contains information about the simulations, including names, statuses,
+  and links to the corresponding parameters.
 - `parameters`: Contains the parameters associated with the simulations.
 """
 
@@ -59,7 +63,6 @@ from bamboost.index.sqlmodel import (
 )
 from bamboost.mpi import MPI
 from bamboost.mpi.utilities import RootProcessMeta
-from bamboost.mpi.utilities import on_root as on_root
 from bamboost.utilities import PathSet
 
 if TYPE_CHECKING:
