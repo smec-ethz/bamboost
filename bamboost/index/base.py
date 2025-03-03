@@ -1,3 +1,22 @@
+"""Indexing of bamboost collections and their simulations/parameters. SQLAlchemy is used to interact
+with the SQLite database.
+
+The index is generated on the fly or can be explicitly created by scanning the `search_paths` for
+collections. The index is stored as a SQLite database that stores the path of collections
+(characterized with a unique UID), as well as the metadata and parameters of all simulations.
+
+The `bamboost.index.base.Index` class provides the public API for interacting with the index. This
+works in paralell execution, but the class is designed to execute any operations on the database on
+the root process only. Methods that return something use `bcast` to cast the result to all
+processes. Any SQL operation is executed only on the root process!
+
+Database schema:
+- `collections`: Contains information about the collections, namely uids and corresponding paths.
+- `simulations`: Contains information about the simulations, including names, statuses, and links to
+  the corresponding parameters.
+- `parameters`: Contains the parameters associated with the simulations.
+"""
+
 from __future__ import annotations
 
 import subprocess
@@ -53,7 +72,7 @@ IDENTIFIER_SEPARATOR = "-"
 
 
 class CollectionUID(str):
-    """UID of a collection."""
+    """UID of a collection. If no UID is provided, a new one is generated."""
 
     def __new__(cls, uid: Optional[str] = None, length: int = 10):
         uid = uid or cls.generate_uid(length)
@@ -666,9 +685,9 @@ def _find_collection(uid: str, root_dir: Path) -> tuple[Path, ...]:
 def _find_posix(iname: str, root_dir: str) -> tuple[str, ...]:
     """Find function using system `find` on linux."""
     # assert that "find" is available
-    assert (
-        subprocess.run(["which", "find"], capture_output=True).returncode == 0
-    ), "command `find` not available"
+    assert subprocess.run(["which", "find"], capture_output=True).returncode == 0, (
+        "command `find` not available"
+    )
 
     completed_process = subprocess.run(
         [
