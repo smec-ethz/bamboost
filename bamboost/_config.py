@@ -78,16 +78,16 @@ ROOT_DIR = _find_root_dir()
 
 def _get_global_config(filepath: Path) -> dict[str, Any]:
     """Reads the configuration file and fills the configuration options."""
-    if not filepath.exists():
-        log.warning("Config file not found. Using default settings.")
+    try:
+        with filepath.open("rb") as f:
+            try:
+                return tomli.load(f)
+            except tomli.TOMLDecodeError as e:
+                log.error(f"Error reading config file: {e}")
+                return {}
+    except FileNotFoundError:
+        log.warning("Config file not found or unreadable. Using default settings.")
         return {}
-
-    with filepath.open("rb") as f:
-        try:
-            return tomli.load(f)
-        except tomli.TOMLDecodeError as e:
-            log.error(f"Error reading config file: {e}")
-            return {}
 
 
 def _get_project_config() -> dict[str, Any]:
