@@ -62,12 +62,15 @@ def _find_root_dir() -> Path:
     ]
 
     cwd = Path.cwd()
-    for path in chain([cwd], cwd.parents):
-        if any(path.joinpath(anchor).exists() for anchor in ANCHORS):
-            return path
-
-    log.warning("Root directory not found. Using current directory.")
-    return cwd
+    try:
+        return next(
+            path
+            for path in chain([cwd], cwd.parents)
+            if any(path.joinpath(anchor).exists() for anchor in ANCHORS)
+        )
+    except StopIteration:
+        log.warning("Root directory not found. Using current directory.")
+        return cwd
 
 
 ROOT_DIR = _find_root_dir()
