@@ -67,6 +67,19 @@ create_all = _Base.metadata.create_all
 _APIMethod = TypeVar("_APIMethod", bound=Callable[..., Any])
 
 
+class NumpyJSONEncoder(json.JSONEncoder):
+    """Custom JSON encoder for numpy types."""
+
+    def default(self, obj: Any) -> Any:
+        import numpy as np
+
+        if isinstance(obj, np.ndarray):
+            return obj.tolist()
+        if isinstance(obj, (np.generic, np.number)):
+            return obj.item()
+        return super().default(obj)
+
+
 def json_serializer(value: Any) -> str:
     """Convert a value to a JSON string.
 
@@ -76,16 +89,7 @@ def json_serializer(value: Any) -> str:
     Returns:
         str: JSON string
     """
-    import numpy as np
-
-    if isinstance(value, np.ndarray):
-        return json.dumps(value.tolist())
-
-    # Convert numpy scalar types to their item
-    if hasattr(value, "item"):
-        return json.dumps(value.item())
-
-    return json.dumps(value)
+    return json.dumps(value, cls=NumpyJSONEncoder)
 
 
 def json_deserializer(value: str) -> Any:
