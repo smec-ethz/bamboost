@@ -801,59 +801,59 @@ class ManagerCached(Manager):
         self.UID = uid or self._retrieve_uid()
 
 
-        def get_view(self, include_linked_sims: bool = False) -> pd.DataFrame:
-            """View of the database and its parametric space. Read from the sql
-            database. If `include_linked_sims` is True, the individual h5 files are
-            scanned.
+    def get_view(self, include_linked_sims: bool = False) -> pd.DataFrame:
+        """View of the database and its parametric space. Read from the sql
+        database. If `include_linked_sims` is True, the individual h5 files are
+        scanned.
 
-            Args:
-                include_linked_sims: if True, include the parameters of linked sims
+        Args:
+            include_linked_sims: if True, include the parameters of linked sims
 
-            Examples:
-                >>> db.get_view()
-                >>> db.get_view(include_linked_sims=True)
-            """
-            if include_linked_sims:
-                return self.get_view_from_hdf_files(include_linked_sims=include_linked_sims)
+        Examples:
+            >>> db.get_view()
+            >>> db.get_view(include_linked_sims=True)
+        """
+        if include_linked_sims:
+            return self.get_view_from_hdf_files(include_linked_sims=include_linked_sims)
 
-            try:
-                with self._table.open():
-                    df = self._table.read_table()
-            except index.Error as e:
-                log.warning(f"index error: {e}, trying again in 1s")
-                import time
-                time.sleep(1)
-                return self.get_view()
-                # return self.get_view_from_hdf_files(include_linked_sims=include_linked_sims)
+        try:
+            with self._table.open():
+                df = self._table.read_table()
+        except index.Error as e:
+            log.warning(f"index error: {e}, trying again in 1s")
+            import time
+            time.sleep(1)
+            return self.get_view()
+            # return self.get_view_from_hdf_files(include_linked_sims=include_linked_sims)
 
-            if df.empty:
-                return df
-            df["time_stamp"] = pd.to_datetime(df["time_stamp"])
+        if df.empty:
+            return df
+        df["time_stamp"] = pd.to_datetime(df["time_stamp"])
 
-            # Sort dataframe columns
-            columns_start = ["id", "notes", "status", "time_stamp"]
-            columns_start = [col for col in columns_start if col in df.columns]
-            self._dataframe = df[[*columns_start, *df.columns.difference(columns_start)]]
+        # Sort dataframe columns
+        columns_start = ["id", "notes", "status", "time_stamp"]
+        columns_start = [col for col in columns_start if col in df.columns]
+        self._dataframe = df[[*columns_start, *df.columns.difference(columns_start)]]
 
-            opts = config.get("options", {})
-            if "sort_table_key" in opts:
-                self._dataframe.sort_values(
-                    opts.get("sort_table_key", "id"),
-                    ascending=opts.get("sort_table_order", "asc") == "asc",
-                    inplace=True,
-                )
-            return self._dataframe
-        
-        def _get_uids(self) -> list:
-            """Get all simulation names in the database."""
-            # all_uids = list()
-            # for dir in os.listdir(self.path):
-            #     if not os.path.isdir(os.path.join(self.path, dir)):
-            #         continue
-            #     if any(
-            #         [i.endswith(".h5") for i in os.listdir(os.path.join(self.path, dir))]
-            #     ):
-            #         all_uids.append(dir)
-            return self.df['id'].tolist()
+        opts = config.get("options", {})
+        if "sort_table_key" in opts:
+            self._dataframe.sort_values(
+                opts.get("sort_table_key", "id"),
+                ascending=opts.get("sort_table_order", "asc") == "asc",
+                inplace=True,
+            )
+        return self._dataframe
+    
+    def _get_uids(self) -> list:
+        """Get all simulation names in the database."""
+        # all_uids = list()
+        # for dir in os.listdir(self.path):
+        #     if not os.path.isdir(os.path.join(self.path, dir)):
+        #         continue
+        #     if any(
+        #         [i.endswith(".h5") for i in os.listdir(os.path.join(self.path, dir))]
+        #     ):
+        #         all_uids.append(dir)
+        return self.df['id'].tolist()
 
-            # return all_uids
+        # return all_uids
