@@ -1,0 +1,169 @@
+import shutil
+import tempfile
+from pathlib import Path
+from unittest.mock import MagicMock, patch
+
+import pytest
+
+from bamboost.core.collection import Collection
+from bamboost.core.simulation.base import SimulationWriter
+from bamboost.index.base import Index
+
+# ------------------- Fixtures -------------------
+# also used:
+# fixture 'tmp_collection' from conftest.py
+
+
+@pytest.fixture(scope="module")
+def tmp_collection():
+    temp_dir = tempfile.mkdtemp()
+    db = Collection(path=temp_dir, index_instance=Index.default)
+    yield db
+    try:
+        shutil.rmtree(temp_dir)
+    except FileNotFoundError:
+        pass
+
+
+# @pytest.fixture(scope="module")
+# def collection_with_data(tmp_collection: Collection):
+#     tmp_collection.create_simulation(
+#         "testsim1",
+#         parameters={
+#             "first_name": "John",
+#             "age": 20,
+#             "list": [1, 2, 3],
+#             "dict": {"a": 1, "b": 2},
+#         },
+#     )
+#     tmp_collection.create_simulation(
+#         "testsim2",
+#         parameters={
+#             "first_name": "Jane",
+#             "age": 30,
+#             "list": [4, 5, 6],
+#             "dict": {"c": 3, "d": 4},
+#         },
+#     )
+#     tmp_collection.create_simulation(
+#         "testsim3",
+#         parameters={
+#             "first_name": "Jack",
+#             "age": 40,
+#             "list": [7, 8, 9],
+#             "dict": {"e": 5, "f": 6},
+#         },
+#     )
+#     import os
+#     shutil.copytree(tmp_collection.path, './tmp_collection')
+#     return tmp_collection
+
+
+# ------------------- Tests -------------------
+
+
+def test_if_new_collection_created(tmp_collection: Collection):
+    assert tmp_collection.path.exists()
+
+
+def test_length(test_collection: Collection):
+    assert len(test_collection) == 3
+
+
+def test_getitem(test_collection: Collection):
+    from bamboost.core.simulation import Simulation
+
+    sim1 = test_collection["testsim1"]
+    assert isinstance(sim1, Simulation)
+    assert sim1.name == "testsim1"
+
+
+def test_df(test_collection: Collection):
+    df = test_collection.df
+    # size matching?
+    assert df.index.size == 3
+    # parameters exist in dataframe?
+    assert {"first_name", "age", "list", "dict"}.issubset(set(df.columns))
+    # names correct?
+    assert set(df["name"].tolist()) == {"testsim1", "testsim2", "testsim3"}
+
+
+@pytest.mark.parametrize(
+    "name,parameters",
+    [("testsim1", {"param1": 1, "param2": "value"}), (None, {"param1": 1})],
+)
+def test_create_simulation_basic(tmp_collection: Collection, name, parameters):
+    sim_writer = tmp_collection.create_simulation(name=name, parameters=parameters)
+    assert isinstance(sim_writer, SimulationWriter)
+    assert sim_writer.parameters._dict == parameters
+
+    # assert that folder exists
+    assert sim_writer.path.exists()
+
+
+def test_create_simulation_with_description(tmp_collection: Collection):
+    description = "This is a test simulation."
+    sim_writer = tmp_collection.create_simulation(
+        name="described_sim",
+        parameters={"param": 1},
+        description=description,
+    )
+    assert sim_writer.metadata["description"] == description
+
+
+def test_create_simulation_with_files(tmp_collection: Collection, tmp_path: Path):
+    # Create a temp file to "copy" into simulation
+    temp_file = tmp_path / "testfile.txt"
+    temp_file.write_text("Test content")
+
+    sim_writer = tmp_collection.create_simulation(
+        name="sim_with_file", parameters={"param": 1}, files=[str(temp_file)]
+    )
+
+    # Check if file was copied
+    sim_folder = sim_writer.path
+    assert (sim_folder / "testfile.txt").exists()
+    assert (sim_folder / "testfile.txt").read_text() == "Test content"
+
+
+def test_create_simulation_with_links(tmp_collection: Collection):
+    links = {"linked_sim": "some/other/simulation"}
+    sim_writer = tmp_collection.create_simulation(
+        name="sim_with_links",
+        parameters={"param": 1},
+        links=links,
+    )
+    assert sim_writer.links == links
+
+
+def test_create_simulation_overrides_existing(tmp_collection: Collection):
+    with patch("shutil.rmtree", wraps=shutil.rmtree) as spy_rmtree:
+        # Create initial simulation
+        sim1 = tmp_collection.create_simulation(
+            name="override_test", parameters={"param": 1}
+        )
+
+        # Create it again with override=True
+        sim2 = tmp_collection.create_simulation(
+            name="override_test", parameters={"param": 2}, override=True
+        )
+
+        assert sim1.name == sim2.name  # Same name reused
+        assert sim2.parameters == {"param": 2}
+        spy_rmtree.assert_called_once()  # Ensure the old directory was deleted
+
+
+def test_create_simulation_error_handling(tmp_collection: Collection):
+    with patch("shutil.rmtree", wraps=shutil.rmtree) as spy_rmtree:
+        with patch(
+            "bamboost.core.simulation.base.SimulationWriter.initialize",
+            side_effect=OSError("Sim init failed"),
+        ):
+            with pytest.raises(OSError, match="Sim init failed"):
+                tmp_collection.create_simulation(
+                    name="error_sim", parameters={"param": 1}
+                )
+
+        # Ensure cleanup was attempted
+        spy_rmtree.assert_called_once()
+        assert not (tmp_collection.path / "error_sim").exists()
