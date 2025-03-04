@@ -2,13 +2,14 @@ from __future__ import annotations
 
 from datetime import datetime
 from functools import reduce
-from typing import TYPE_CHECKING, Any, Generator, cast
+from typing import TYPE_CHECKING, Any, Generator, Literal, TypeVar, cast, overload
 
 import h5py
 import numpy as np
+from typing_extensions import override
 
 from bamboost import constants
-from bamboost._typing import SimulationMetadataT, SimulationParameterT
+from bamboost._typing import _KT, _VT, SimulationMetadataT, SimulationParameterT
 from bamboost.core import utilities
 from bamboost.core.hdf5.attrs_dict import AttrsDict, mutable_only
 from bamboost.core.hdf5.file import (
@@ -157,9 +158,16 @@ class Metadata(AttrsDict[_MT]):
         for k, v in self._dict.items():
             if (
                 isinstance(v, str)
-                and SimulationMetadataT.__annotations__[k] == datetime
+                and SimulationMetadataT.__annotations__.get(k, None) == datetime
             ):
                 self._dict[k] = datetime.fromisoformat(v)
+
+    @overload
+    def __getitem__(self, key: Literal["created_at", "modified_at"]) -> datetime: ...
+    @overload
+    def __getitem__(self, key: str) -> Any: ...
+    def __getitem__(self, key):
+        return super().__getitem__(key)
 
     @mutable_only
     def __setitem__(self: Metadata[Mutable], key: str, value: Any) -> None:

@@ -218,7 +218,7 @@ class _Simulation(ABC, Generic[_MT]):
         """Open the xdmf file in paraview."""
         subprocess.call(["paraview", self._xdmf_file])
 
-    def open(self, mode: FileMode | str = "r", driver=None) -> h5py.File:
+    def open(self, mode: FileMode | str = "r", driver=None) -> HDF5File[_MT]:
         """Use this as a context manager in a `with` statement.
         Purpose: keeping the file open to directly access/edit something in the
         HDF5 file of this simulation.
@@ -251,29 +251,6 @@ class _Simulation(ABC, Generic[_MT]):
 
         mesh = self.meshes[mesh_name]
         return mesh.coordinates, mesh.connectivity
-
-    @property
-    @deprecated("Use `data.info` instead")
-    @with_file_open("r")
-    def data_info(self) -> pd.DataFrame:
-        """View the data stored.
-
-        Returns:
-            :class:`pd.DataFrame`
-        """
-        import pandas as pd
-
-        tmp_dictionary = dict()
-        for data in self.data:
-            steps = len(data)
-            shape = data.obj["0"].shape
-            dtype = data.obj["0"].dtype
-            tmp_dictionary[data._name] = {
-                "dtype": dtype,
-                "shape": shape,
-                "steps": steps,
-            }
-        return pd.DataFrame.from_dict(tmp_dictionary)
 
     @with_file_open()
     def show_h5tree(self) -> None:
