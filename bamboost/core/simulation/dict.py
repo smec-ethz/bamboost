@@ -113,7 +113,7 @@ class Parameters(AttrsDict[_MT]):
             update_dict: new parameters
         """
         # flatten dictionary
-        update_dict = utilities.flatten_dict(update_dict)
+        flattened_dict = utilities.flatten_dict(update_dict)
 
         # update dictionary in memory
         self._dict.update(update_dict)
@@ -124,11 +124,11 @@ class Parameters(AttrsDict[_MT]):
         # Filter out numpy arrays
         arrays = {}
         attributes = {}
-        for k, v in update_dict.items():
+        for k, v in flattened_dict.items():
             if isinstance(v, np.ndarray):
-                arrays[k] = update_dict.get(k)
+                arrays[k] = flattened_dict.get(k)
             else:
-                attributes[k] = update_dict.get(k)
+                attributes[k] = flattened_dict.get(k)
 
         with self._file.open(FileMode.APPEND):
             # write arrays as datasets
