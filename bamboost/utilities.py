@@ -2,8 +2,6 @@ from functools import reduce
 from pathlib import Path
 from typing import Any, Callable, Iterable, Optional, TypeVar, Union
 
-from typing_extensions import ParamSpec, TypeAlias
-
 from bamboost._typing import _P, _T, _U, StrPath
 
 
@@ -15,6 +13,7 @@ class PathSet(set[Path]):
         return super().add(Path(element).resolve().expanduser())
 
 
+# NOT USED
 def maybe_apply(func: Callable[[_T], _U]) -> Callable[[Optional[_T]], Optional[_U]]:
     def function(x: Optional[_T]) -> Optional[_U]:
         if x is not None:
@@ -26,6 +25,7 @@ def maybe_apply(func: Callable[[_T], _U]) -> Callable[[Optional[_T]], Optional[_
 _R = TypeVar("_R")
 
 
+# NOT USED
 def compose_while_not_none(
     first_func: Callable[_P, Any], *funcs: Callable
 ) -> Callable[_P, Optional[Any]]:

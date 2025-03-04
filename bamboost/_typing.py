@@ -1,6 +1,6 @@
 from datetime import datetime
 from pathlib import Path
-from typing import Any, Dict, Type, TypedDict, TypeVar, Union
+from typing import Any, Dict, TypedDict, TypeVar, Union
 
 from typing_extensions import ParamSpec, TypeAlias
 
@@ -9,16 +9,18 @@ _T = TypeVar("_T")
 _U = TypeVar("_U")
 _P = ParamSpec("_P")
 
-SimulationMetadataT = TypedDict(
-    "SimulationMetadataT",
-    {
-        "created_at": datetime,
-        "modified_at": datetime,
-        "description": str,
-        "status": str,
-    },
-    total=False,
-)
+# Key, value types
+_KT = TypeVar("_KT")
+_VT = TypeVar("_VT")
+
+
+class SimulationMetadataT(TypedDict, total=False):
+    created_at: datetime
+    modified_at: datetime
+    description: str
+    status: str
+
+
 SimulationParameterT: TypeAlias = Dict[str, Any]
 
 
