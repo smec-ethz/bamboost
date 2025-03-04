@@ -5,7 +5,7 @@ from pathlib import Path
 
 import pytest
 
-from bamboost import config
+from bamboost import Collection, Index, config
 
 
 def pytest_sessionstart(session):
@@ -36,13 +36,55 @@ def tmp_path():
     shutil.rmtree(tmp_path)
 
 
+def _create_tmp_collection():
+    temp_dir = tempfile.mkdtemp()
+    db = Collection(path=temp_dir, index_instance=Index.default)
+    try:
+        yield db
+    finally:
+        try:
+            shutil.rmtree(temp_dir)
+        except FileNotFoundError:
+            pass
+
+
+@pytest.fixture(scope="module")
+def tmp_collection():
+    yield from _create_tmp_collection()
+
+
 @pytest.fixture
-def test_collection(tmp_path: Path):
-    from bamboost.core.collection import Collection
+def tmp_collection_burn():
+    yield from _create_tmp_collection()
 
-    shutil.copytree(
-        f"{os.path.dirname(__file__)}/test_collection", tmp_path / "test_collection"
+
+@pytest.fixture(scope="module")
+def test_collection(tmp_collection: Collection):
+    tmp_collection.create_simulation(
+        "testsim1",
+        parameters={
+            "first_name": "John",
+            "age": 20,
+            "list": [1, 2, 3],
+            "dict": {"a": 1, "b": 2},
+        },
     )
-
-    coll = Collection(tmp_path / "test_collection")
-    return coll
+    tmp_collection.create_simulation(
+        "testsim2",
+        parameters={
+            "first_name": "Jane",
+            "age": 30,
+            "list": [4, 5, 6],
+            "dict": {"c": 3, "d": 4},
+        },
+    )
+    tmp_collection.create_simulation(
+        "testsim3",
+        parameters={
+            "first_name": "Jack",
+            "age": 40,
+            "list": [7, 8, 9],
+            "dict": {"e": 5, "f": 6},
+        },
+    )
+    yield tmp_collection

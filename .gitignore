@@ -9,12 +9,12 @@ make.bat
 Makefile
 
 # directories
+public/
 out*/
 database*/
 *.egg-info*
 *.vscode*
 dist/
-docs/
 tests/_out
 tests/*.ipynb
 

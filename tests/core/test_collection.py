@@ -14,51 +14,6 @@ from bamboost.index.base import Index
 # fixture 'tmp_collection' from conftest.py
 
 
-@pytest.fixture(scope="module")
-def tmp_collection():
-    temp_dir = tempfile.mkdtemp()
-    db = Collection(path=temp_dir, index_instance=Index.default)
-    yield db
-    try:
-        shutil.rmtree(temp_dir)
-    except FileNotFoundError:
-        pass
-
-
-# @pytest.fixture(scope="module")
-# def collection_with_data(tmp_collection: Collection):
-#     tmp_collection.create_simulation(
-#         "testsim1",
-#         parameters={
-#             "first_name": "John",
-#             "age": 20,
-#             "list": [1, 2, 3],
-#             "dict": {"a": 1, "b": 2},
-#         },
-#     )
-#     tmp_collection.create_simulation(
-#         "testsim2",
-#         parameters={
-#             "first_name": "Jane",
-#             "age": 30,
-#             "list": [4, 5, 6],
-#             "dict": {"c": 3, "d": 4},
-#         },
-#     )
-#     tmp_collection.create_simulation(
-#         "testsim3",
-#         parameters={
-#             "first_name": "Jack",
-#             "age": 40,
-#             "list": [7, 8, 9],
-#             "dict": {"e": 5, "f": 6},
-#         },
-#     )
-#     import os
-#     shutil.copytree(tmp_collection.path, './tmp_collection')
-#     return tmp_collection
-
-
 # ------------------- Tests -------------------
 
 
@@ -83,6 +38,7 @@ def test_df(test_collection: Collection):
     # size matching?
     assert df.index.size == 3
     # parameters exist in dataframe?
+    test_collection._index.upsert_simulation(test_collection.uid, "testsim1")
     assert {"first_name", "age", "list", "dict"}.issubset(set(df.columns))
     # names correct?
     assert set(df["name"].tolist()) == {"testsim1", "testsim2", "testsim3"}
@@ -92,8 +48,8 @@ def test_df(test_collection: Collection):
     "name,parameters",
     [("testsim1", {"param1": 1, "param2": "value"}), (None, {"param1": 1})],
 )
-def test_create_simulation_basic(tmp_collection: Collection, name, parameters):
-    sim_writer = tmp_collection.create_simulation(name=name, parameters=parameters)
+def test_create_simulation_basic(tmp_collection_burn: Collection, name, parameters):
+    sim_writer = tmp_collection_burn.create_simulation(name=name, parameters=parameters)
     assert isinstance(sim_writer, SimulationWriter)
     assert sim_writer.parameters._dict == parameters
 
