@@ -25,11 +25,10 @@ from bamboost._typing import StrPath
 from bamboost.core.simulation.base import Simulation, SimulationName, SimulationWriter
 from bamboost.core.utilities import flatten_dict
 from bamboost.index import (
-    DEFAULT_INDEX,
     CollectionUID,
     Index,
-    get_identifier_filename,
     create_identifier_file,
+    get_identifier_filename,
 )
 from bamboost.mpi import MPI
 
@@ -59,7 +58,7 @@ class _CollectionPicker:
         return Collection(uid=key)
 
     def _ipython_key_completions_(self):
-        return (f"{i.uid} - {i.path[-30:]}" for i in DEFAULT_INDEX.all_collections)
+        return (f"{i.uid} - {i.path[-30:]}" for i in Index.default.all_collections)
 
 
 class Collection:
@@ -99,8 +98,10 @@ class Collection:
         self._comm = comm or MPI.COMM_WORLD
         self._index = index_instance or Index(comm=self._comm)
 
-        # Resolve the path
+        # Resolve the path (this updates the index if necessary)
         self.path = Path(path or self._index.resolve_path(uid.upper())).absolute()
+
+        # Create the diretory for the collection if necessary
         if not self.path.is_dir():
             if not create_if_not_exist:
                 raise NotADirectoryError("Specified path does not exist.")
@@ -108,16 +109,17 @@ class Collection:
             self.path.mkdir(parents=True, exist_ok=False)  # create the directory
             log.info(f"Initialized directory for collection at {path}")
 
-        # Resolve or get an UID for the collection
+        # Resolve or get an UID for the collection (updates the index if necessary)
         self.uid = CollectionUID(uid or self._index.resolve_uid(self.path))
 
-        # Check if identifier file exists
+        # Check if identifier file exists (and create it if necessary)
         if not self.path.joinpath(get_identifier_filename(uid=self.uid)).exists():
             create_identifier_file(self.path, self.uid)
 
         # Sync the SQL table with the filesystem
         # Making sure the collection is up to date in the index
         self._index.sync_collection(self.uid, self.path)
+
         # Wait for root process to finish syncing
         self._comm.barrier()
 
