@@ -35,6 +35,12 @@ def tmp_path():
     yield Path(tmp_path)
     shutil.rmtree(tmp_path)
 
+@pytest.fixture(scope="module")
+def tmp_path_module():
+    tmp_path = tempfile.mkdtemp()
+    yield Path(tmp_path)
+    shutil.rmtree(tmp_path)
+
 
 def _create_tmp_collection():
     temp_dir = tempfile.mkdtemp()
