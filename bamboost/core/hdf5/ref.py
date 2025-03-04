@@ -168,7 +168,10 @@ class Group(H5Reference[_MT]):
         """Used to set an attribute.
         Will be written as an attribute to the group.
         """
-        self.add_numerical_dataset(key, np.array(newvalue))
+        if isinstance(newvalue, np.ndarray):
+            self.add_numerical_dataset(key, np.array(newvalue))
+        else:
+            self.attrs.__setitem__(key, newvalue)
 
     @mutable_only
     @with_file_open(FileMode.APPEND)
@@ -387,7 +390,7 @@ class Dataset(H5Reference[_MT]):
         return obj
 
     @with_file_open(FileMode.READ)
-    def __getitem__(self, key: tuple | slice) -> Any:
+    def __getitem__(self, key: tuple | slice | int) -> Any:
         return h5py.Dataset.__getitem__(self._obj, key)
 
     @property
