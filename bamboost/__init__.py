@@ -39,6 +39,6 @@ def set_log_level(
 
 from bamboost._config import config  # noqa: E402, F401
 from bamboost.extensions import extensions  # noqa: E402, F401
-from bamboost.manager import Manager  # noqa: E402, F401
+from bamboost.manager import Manager, ManagerCached  # noqa: E402, F401
 from bamboost.simulation import Simulation  # noqa: E402, F401
 from bamboost.simulation_writer import SimulationWriter  # noqa: E402, F401
