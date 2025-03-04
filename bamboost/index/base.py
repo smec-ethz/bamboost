@@ -691,7 +691,7 @@ def _validate_path(path: Path, uid: str) -> bool:
 
 def _find_uid_from_path(path: Path) -> Optional[str]:
     try:
-        return path.glob(f"{IDENTIFIER_PREFIX}*").__next__().name.split("-")[1]
+        return path.glob(f"{IDENTIFIER_PREFIX}*").__next__().name.rsplit("-", 1)[1]
     except StopIteration:
         return None
 
