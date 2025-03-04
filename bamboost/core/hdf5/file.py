@@ -57,7 +57,7 @@ from __future__ import annotations
 
 import time
 from collections import deque
-from collections.abc import KeysView, Mapping, MutableMapping
+from collections.abc import ItemsView, KeysView, Mapping, MutableMapping
 from enum import Enum
 from functools import total_ordering, wraps
 from pathlib import Path, PurePosixPath
@@ -220,9 +220,9 @@ class _FileMapMixin(Mapping[str, _VT_filemap]):
     def keys(self) -> KeysViewHDF5:
         return KeysViewHDF5(self)
 
-    def items(self, all: bool = False):
+    def items(self, all: bool = False) -> ItemsView[str, _VT_filemap]:
         if not all:
-            return ((k, v) for k, v in super().items() if "/" not in k)
+            return ItemsView({k: v for k, v in super().items() if "/" not in k})
         return super().items()
 
     def datasets(self):
@@ -243,14 +243,14 @@ class FileMap(MutableMapping[str, _VT_filemap], _FileMapMixin):
         self._dict: dict[HDF5Path, _VT_filemap] = {}
         self.valid = False
 
-    def __getitem__(self, key: HDF5Path, /) -> _VT_filemap:
-        return self._dict[key]
+    def __getitem__(self, key: str, /) -> _VT_filemap:
+        return self._dict[HDF5Path(key)]
 
-    def __setitem__(self, key: HDF5Path, value: _VT_filemap) -> None:
-        self._dict[key] = value
+    def __setitem__(self, key: str, value: _VT_filemap) -> None:
+        self._dict[HDF5Path(key)] = value
 
-    def __delitem__(self, key: HDF5Path) -> None:
-        self._dict.pop(key)
+    def __delitem__(self, key: str) -> None:
+        self._dict.pop(HDF5Path(key))
 
     def __iter__(self) -> Iterator[HDF5Path]:
         return iter(self._dict)
@@ -273,6 +273,9 @@ class FileMap(MutableMapping[str, _VT_filemap], _FileMapMixin):
 
     def invalidate(self) -> None:
         self.valid = False
+
+    def items(self) -> ItemsView[str, _VT_filemap]:
+        return super().items(all=True)
 
 
 class FilteredFileMap(MutableMapping[str, _VT_filemap], _FileMapMixin):
