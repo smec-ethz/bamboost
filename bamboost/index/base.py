@@ -33,11 +33,14 @@ from typing import (
     TYPE_CHECKING,
     Any,
     Callable,
+    ClassVar,
     Generator,
+    Iterable,
     Optional,
     Sequence,
     Set,
     Tuple,
+    Type,
 )
 
 from sqlalchemy import Engine, create_engine, delete, select
@@ -103,6 +106,28 @@ def _sql_transaction(
     return inner
 
 
+class LazyDefaultIndex:
+    def __init__(self) -> None:
+        self._instance = None
+
+    def __get__(self, instance: None, owner: Type[Index]) -> Index:
+        assert instance is None, (
+            "The default index is a class attribute! Use `Index.default` instead."
+        )
+        if self._instance is None:
+            self._instance = Index(
+                sql_file=config.index.databaseFile,
+                search_paths=config.index.searchPaths,
+            )
+        return self._instance
+
+    def __set__(self, instance: None, value: Index) -> None:
+        self._instance = value
+
+    def __delete__(self, instance: None) -> None:
+        raise AttributeError("Cannot delete LazyDefaultIndex descriptor.")
+
+
 class Index(metaclass=RootProcessMeta):
     """API for indexing BAMBOOST collections and simulations.
 
@@ -132,12 +157,16 @@ class Index(metaclass=RootProcessMeta):
     _s: Session
     search_paths: PathSet
 
+    default: ClassVar[LazyDefaultIndex] = LazyDefaultIndex()
+    """A default index instance. Uses the default SQLite database file and search paths
+    from the configuration."""
+
     def __init__(
         self,
         sql_file: Optional[StrPath] = None,
         comm: Optional[Comm] = None,
         *,
-        search_paths: Optional[Set[StrPath]] = None,
+        search_paths: Optional[Iterable[str | Path]] = None,
     ) -> None:
         self._comm = comm or MPI.COMM_WORLD
         self.search_paths = PathSet(search_paths or config.index.searchPaths)

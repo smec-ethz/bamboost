@@ -30,8 +30,3 @@ from .base import CollectionUID as CollectionUID
 from .base import Index as Index
 from .base import create_identifier_file as create_identifier_file
 from .base import get_identifier_filename as get_identifier_filename
-
-# Generate an instance of the index to be used as a default.
-# This uses the default SQLite database, either the global one or the project specific database in
-# the case the config says so.
-DEFAULT_INDEX = Index()
