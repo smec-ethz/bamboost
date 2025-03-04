@@ -15,10 +15,15 @@ classifiers = [
 keywords = ["hdf5", "database", "database-manager"]
 requires-python = ">=3.9"
 dependencies = [
+    "build>=1.2.2.post1",
+    "jinja2>=3.1.5",
+    "lazy-loader>=0.4",
+    "h5py",
     "numpy",
     "pandas",
-    "peewee>=3.17.8",
+    "toolz>=1.0.0",
     "typing-extensions>=4.12.2",
+    "sqlalchemy>=2.0.36",
 ]
 
 [project.urls]
@@ -36,15 +41,25 @@ build-backend = "hatchling.build"
 [tool.hatch.version]
 source = "versioningit"
 
-[tool.versioningit]
-
 [dependency-groups]
 dev = [
+    "mypy[mypyc]>=1.13.0",
     "ipykernel>=6.29.5",
     "ipython>=8.18.1",
     "pip>=24.3.1",
-    "sqlalchemy>=2.0.36",
+    "pytest>=8.3.4",
     "twine>=5.1.1",
+    "ipywidgets>=8.1.5",
+    "textual-dev>=1.7.0",
+]
+cli = [
+    "rich-argparse>=1.6.0",
+    "textual>=1.0.0",
+    "simple-parsing",
+]
+test = [
+    "pytest>=8.3.4",
+    "pytest-cov>=6.0.0",
 ]
 
 [tool.pyright]
@@ -52,3 +67,11 @@ pythonVersion = "3.9"
 pythonPlatform = "Linux"
 typeCheckingMode = "basic"
 reportOptionalMemberAccess = false
+reportOptionalSubscript = false
+
+[tool.bamboost.index]
+isolated = true
+
+[tool.bamboost.options]
+mpi = true
+sortTableKey = "created_at"
