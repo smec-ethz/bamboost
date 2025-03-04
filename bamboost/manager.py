@@ -824,7 +824,6 @@ class ManagerCached(Manager):
             import time
             time.sleep(1)
             return self.get_view()
-            # return self.get_view_from_hdf_files(include_linked_sims=include_linked_sims)
 
         if df.empty:
             return df
@@ -846,14 +845,4 @@ class ManagerCached(Manager):
     
     def _get_uids(self) -> list:
         """Get all simulation names in the database."""
-        # all_uids = list()
-        # for dir in os.listdir(self.path):
-        #     if not os.path.isdir(os.path.join(self.path, dir)):
-        #         continue
-        #     if any(
-        #         [i.endswith(".h5") for i in os.listdir(os.path.join(self.path, dir))]
-        #     ):
-        #         all_uids.append(dir)
         return self.df['id'].tolist()
-
-        # return all_uids
