@@ -1,6 +1,5 @@
 variables:
   GIT_DEPTH: 0 # Ensures all tags are fetched, needed for versioningit
-  PIP_CACHE_DIR: "$CI_PROJECT_DIR/.pip_cache"
 
 stages:
   - test
@@ -24,7 +23,6 @@ test:
     key: "$CI_JOB_NAME-$PYTHON_VERSION"
     paths:
       - .venv/
-      - .pip_cache/
   parallel:
     matrix:
       - PYTHON_VERSION: ["3.10", "3.13"]
