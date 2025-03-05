@@ -506,6 +506,18 @@ class HDF5File(h5py.File, Generic[_MT]):
         super().close()
         self._context_stack = 0
 
+    def delete_object(self, path: Union[HDF5Path, str]) -> None:
+        """Deletes an object in the file. In addition to deleting the object, revoking
+        this method also removes the object from the file map.
+
+        Args:
+            path: The path to the object to delete.
+        """
+        # call h5py's delete method
+        super().__delitem__(str(path))
+        # remove from file map
+        del self.file_map[str(path)]
+
     @property
     def is_open(self) -> bool:
         return bool(hasattr(self, "id") and self.id.valid)
