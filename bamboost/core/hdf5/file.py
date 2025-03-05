@@ -319,9 +319,11 @@ class ProcessQueue(metaclass=RootProcessMeta):
             if self._file._comm.rank == 0:
                 with self._file.open(FileMode.APPEND):
                     func(*args)
+                    return
         # if file is open and not using mpio, apply the function immediately
         elif self._file.driver != "mpio":
             func(*args)
+            return
         # else, the file is open with mpio, so we add the function to the queue
         self.deque.append((func, args))
         log.debug(
