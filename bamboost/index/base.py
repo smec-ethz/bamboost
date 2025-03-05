@@ -531,6 +531,7 @@ class Index(metaclass=RootProcessMeta):
             # if neither metadata nor parameters are provided, read them from the HDF5 file
             # temp change the communicator to MPI.COMM_SELF -> because here is only
             # executed on rank 0
+            # 04.03.25: unclear whether passing comm=MPI.COMM_SELF is sufficient in itself
             with self.comm_self():
                 sim = Simulation(
                     simulation_name,
