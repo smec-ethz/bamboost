@@ -111,10 +111,12 @@ class AttrsDict(Mapping, Generic[_MT]):
 
     @mutable_only
     def __delitem__(self: AttrsDict[Mutable], key: str) -> None:
-        if self._file._comm.rank == 0:
-            with self._file.open(FileMode.APPEND):
-                del self._obj.attrs[key]
         del self._dict[key]
+
+        self._file.single_process_queue.add(
+            lambda self: self._obj.attrs.__delitem__(key),
+            (self,),
+        )
 
     @mutable_only
     def update(self: AttrsDict[Mutable], update_dict: dict) -> None:
