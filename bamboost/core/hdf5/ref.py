@@ -180,7 +180,7 @@ class Group(H5Reference[_MT]):
         if key in self.attrs.keys():
             del self._obj.attrs[key]
         else:
-            del self._obj[key]
+            self._file.delete_object(self._path / key)
 
     def _ipython_key_completions_(self):
         return self.keys()
@@ -337,9 +337,18 @@ class Group(H5Reference[_MT]):
             dataset = self._obj.require_dataset(
                 name, shape=vec_shape, dtype=dtype if dtype else vector.dtype
             )
+            self._path.joinpath(name)
             dataset[idx_start:idx_end] = vector
 
-        self.attrs.update(attrs)
+            # This is a hack for now
+            # TODO: make cleaner
+            self._file.single_process_queue.add(
+                lambda self: Dataset(
+                    self._path.joinpath(name), self._file
+                )._obj.attrs.update(attrs),
+                (self,),
+            )
+
         log.info(f'Written dataset to "{self._path}/{name}"')
 
         # update file_map
