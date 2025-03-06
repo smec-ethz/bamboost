@@ -29,17 +29,10 @@ def pytest_sessionfinish(session, exitstatus):
     shutil.rmtree(config.paths.localDir)
 
 
-@pytest.fixture
-def tmp_path():
-    tmp_path = tempfile.mkdtemp()
-    yield Path(tmp_path)
-    shutil.rmtree(tmp_path)
-
 @pytest.fixture(scope="module")
-def tmp_path_module():
-    tmp_path = tempfile.mkdtemp()
-    yield Path(tmp_path)
-    shutil.rmtree(tmp_path)
+def tmp_path_module(tmp_path_factory):
+    tmp_path = tmp_path_factory.mktemp("data")
+    yield tmp_path
 
 
 def _create_tmp_collection():
