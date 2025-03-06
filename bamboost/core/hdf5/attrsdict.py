@@ -13,26 +13,22 @@ Key features:
 
 from __future__ import annotations
 
-from dataclasses import dataclass
-from pickletools import string1
-from typing import Any, Generic, Mapping
+from typing import Any, Mapping
 
 import h5py
-from typing_extensions import override
 
 from bamboost._typing import _MT, Mutable
 from bamboost.core.hdf5.file import (
     FileMode,
     H5Object,
     HDF5File,
-    HDF5Path,
-    WriteInstruction,
     mutable_only,
     with_file_open,
 )
+from bamboost.core.hdf5.hdf5path import HDF5Path
 
 
-class AttrsDict(Mapping, H5Object[_MT]):
+class AttrsDict(H5Object[_MT], Mapping):
     """A dictionary-like object for the attributes of a group in the HDF5
     file.
 
@@ -46,7 +42,6 @@ class AttrsDict(Mapping, H5Object[_MT]):
     """
 
     mutable: bool = False
-    _file: HDF5File[_MT]
     _path: str
     _dict: dict
 

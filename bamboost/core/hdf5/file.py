@@ -55,23 +55,19 @@ Decorators:
 
 from __future__ import annotations
 
-import inspect
 import time
-from abc import ABC, abstractmethod
+from abc import ABC
 from collections import deque
-from collections.abc import ItemsView, KeysView, Mapping, MutableMapping
 from enum import Enum
 from functools import total_ordering, wraps
-from pathlib import Path, PurePosixPath
+from pathlib import Path
 from typing import (
     TYPE_CHECKING,
     Callable,
     Generic,
-    Iterator,
     Literal,
     Optional,
     Protocol,
-    Type,
     TypeVar,
     Union,
     overload,
@@ -82,28 +78,30 @@ from typing_extensions import Concatenate, Self
 
 from bamboost import BAMBOOST_LOGGER
 from bamboost._typing import _MT, _P, _T, Immutable, Mutable
+from bamboost.core.hdf5.filemap import FileMap
+from bamboost.core.hdf5.hdf5path import HDF5Path
 from bamboost.mpi import MPI, MPI_ON
 from bamboost.mpi.utilities import RootProcessMeta
 from bamboost.utilities import StrPath
 
 if TYPE_CHECKING:
+    from bamboost.core.hdf5.attrsdict import AttrsDict
+    from bamboost.core.hdf5.ref import Group
     from bamboost.mpi import Comm
-
-    from .attrs_dict import AttrsDict
-    from .ref import Group
 
     class HasFile(Protocol[_MT]):
         _file: HDF5File[_MT]
 
-    HasFileSubtype = TypeVar("HasFileSubtype", bound=HasFile)
+    _T_HasFile = TypeVar("_T_HasFile", bound=HasFile)
 
 
 log = BAMBOOST_LOGGER.getChild("hdf5")
+"""Logger instance for this module."""
 
-MPI_ACTIVE = "mpio" in h5py.registered_drivers() and h5py.get_config().mpi and MPI_ON
-
-
-_VT_filemap = Type[Union[h5py.Group, h5py.Dataset]]
+HDF_MPI_ACTIVE = (
+    "mpio" in h5py.registered_drivers() and h5py.get_config().mpi and MPI_ON
+)
+"""Indicates whether MPI support is available for HDF5."""
 
 
 @total_ordering
@@ -124,74 +122,13 @@ class FileMode(Enum):
         return self.__hirarchy__[self.value] == self.__hirarchy__[other.value]
 
 
-class HDF5Path(str):
-    def __new__(cls, path: str, absolute: bool = True):
-        if isinstance(path, HDF5Path):
-            return path
-        prefix = "/" if absolute else ""
-        return super().__new__(cls, prefix + "/".join(filter(None, path.split("/"))))
-
-    def __truediv__(self, other: str) -> HDF5Path:
-        return self.joinpath(other)
-
-    def joinpath(self, *other: str) -> HDF5Path:
-        return HDF5Path("/".join([self, *other]))
-
-    def relative_to(self, other: Union[HDF5Path, str]) -> HDF5Path:
-        other = HDF5Path(other)
-        if not self.startswith(other):
-            raise ValueError(f"{self} is not a subpath of {other}")
-        return HDF5Path(self[len(other) :], absolute=False)
-
-    @property
-    def parent(self) -> HDF5Path:
-        return HDF5Path(self.rsplit("/", 1)[0] or "/")
-
-    @property
-    def basename(self) -> str:
-        return self.rsplit("/", 1)[-1]
-
-    @property
-    def path(self) -> PurePosixPath:
-        return PurePosixPath(self)
-
-
-class WriteInstruction(ABC):
-    def __init__(self): ...
-    def __call__(self) -> None: ...
-
-
-class H5Object(Generic[_MT]):
-    _file: HDF5File[_MT]
-
-    def __init__(self, file: HDF5File[_MT]) -> None:
-        self._file = file
-
-    def post_write_instruction(self, instruction: Callable[[], None]) -> None:
-        if self._file.available_for_single_process():
-            # call immediately
-            instruction()
-            self._file._comm.barrier()
-            return
-
-        self._file.single_process_queue.add(instruction)
-
-    @overload
-    def mutable(self: H5Object[Mutable]) -> Literal[True]: ...
-    @overload
-    def mutable(self: H5Object[Immutable]) -> Literal[False]: ...
-    @property
-    def mutable(self) -> bool:
-        return self._file.mutable
-
-
 def mutable_only(
-    method: Callable[Concatenate[HasFileSubtype, _P], _T],
-) -> Callable[Concatenate[HasFileSubtype, _P], _T]:
+    method: Callable[Concatenate[_T_HasFile, _P], _T],
+) -> Callable[Concatenate[_T_HasFile, _P], _T]:
     """Decorator to raise an error if the file is not mutable."""
 
     @wraps(method)
-    def inner(self: HasFileSubtype, *args: _P.args, **kwargs: _P.kwargs) -> _T:
+    def inner(self: _T_HasFile, *args: _P.args, **kwargs: _P.kwargs) -> _T:
         if not self._file.mutable:
             raise PermissionError("Simulation file is read-only.")
         return method(self, *args, **kwargs)
@@ -204,8 +141,8 @@ def with_file_open(
     mode: FileMode = FileMode.READ,
     driver: Optional[Literal["mpio"]] = None,
 ) -> Callable[
-    [Callable[Concatenate[HasFileSubtype, _P], _T]],
-    Callable[Concatenate[HasFileSubtype, _P], _T],
+    [Callable[Concatenate[_T_HasFile, _P], _T]],
+    Callable[Concatenate[_T_HasFile, _P], _T],
 ]:
     """Decorator for context manager to open and close the file for a method of a class
     with a file attribute (self._file).
@@ -217,10 +154,10 @@ def with_file_open(
     """
 
     def decorator(
-        method: Callable[Concatenate[HasFileSubtype, _P], _T],
-    ) -> Callable[Concatenate[HasFileSubtype, _P], _T]:
+        method: Callable[Concatenate[_T_HasFile, _P], _T],
+    ) -> Callable[Concatenate[_T_HasFile, _P], _T]:
         @wraps(method)
-        def inner(self: HasFileSubtype, *args: _P.args, **kwargs: _P.kwargs) -> _T:
+        def inner(self: _T_HasFile, *args: _P.args, **kwargs: _P.kwargs) -> _T:
             with self._file.open(mode, driver):
                 return method(self, *args, **kwargs)
 
@@ -230,137 +167,105 @@ def with_file_open(
 
 
 def add_to_file_queue(
-    method: Callable[Concatenate[HasFileSubtype, _P], None],
-) -> Callable[Concatenate[HasFileSubtype, _P], None]:
+    method: Callable[Concatenate[_T_H5Object, _P], None],
+) -> Callable[Concatenate[_T_H5Object, _P], None]:
+    """Decorator to add a method call to the single process queue of the file object
+    instead of executing it immediately.
+    """
+
     @wraps(method)
-    def inner(self: HasFileSubtype, *args: _P.args, **kwargs: _P.kwargs) -> None:
-        self._file.single_process_queue.add(method, (self, *args, *kwargs))
+    def inner(self: _T_H5Object, *args: _P.args, **kwargs: _P.kwargs) -> None:
+        self.post_write_instruction(lambda: method(self, *args, **kwargs))
 
     return inner
 
 
-class KeysViewHDF5(KeysView):
-    def __str__(self) -> str:
-        return "<KeysViewHDF5 {}>".format(list(self))
+class H5Object(Generic[_MT]):
+    _file: HDF5File[_MT]
 
-    __repr__ = __str__
-
-
-class _FileMapMixin(Mapping[str, _VT_filemap]):
-    def keys(self) -> KeysViewHDF5:
-        return KeysViewHDF5(self)
-
-    def items(self, all: bool = False) -> ItemsView[str, _VT_filemap]:
-        if not all:
-            return ItemsView({k: v for k, v in super().items() if "/" not in k})
-        return super().items()
-
-    def datasets(self):
-        return tuple(k for k, v in self.items() if v is h5py.Dataset)
-
-    def groups(self):
-        return tuple(k for k, v in self.items() if v is h5py.Group)
-
-    def _ipython_key_completions_(self):
-        return self.keys()
-
-
-class FileMap(MutableMapping[str, _VT_filemap], _FileMapMixin):
-    _valid: bool
-
-    def __init__(self, file: HDF5File):
+    def __init__(self, file: HDF5File[_MT]) -> None:
         self._file = file
-        self._dict: dict[HDF5Path, _VT_filemap] = {}
-        self.valid = False
 
-    def __getitem__(self, key: str, /) -> _VT_filemap:
-        return self._dict[HDF5Path(key)]
+    @overload
+    def mutable(self: H5Object[Mutable]) -> Literal[True]: ...
+    @overload
+    def mutable(self: H5Object[Immutable]) -> Literal[False]: ...
+    @property
+    def mutable(self) -> bool:
+        return self._file.mutable
 
-    def __setitem__(self, key: str, value: _VT_filemap) -> None:
-        self._dict[HDF5Path(key)] = value
+    def open(self, *args, **kwargs) -> HDF5File[_MT]:
+        """Convenience context manager to open the file of this object. Wraps
+        `HDF5File.open`."""
+        return self._file.open(*args, **kwargs)
 
-    def __delitem__(self, key: str) -> None:
-        self._dict.pop(HDF5Path(key))
+    @mutable_only
+    def post_write_instruction(self, instruction: Callable[[], None]) -> None:
+        if self._file.available_for_single_process_write():
+            # call instruction immediately
+            return self._file.single_process_queue.apply_instruction(instruction)
 
-    def __iter__(self) -> Iterator[HDF5Path]:
-        return iter(self._dict)
-
-    def __len__(self) -> int:
-        return len(self._dict)
-
-    def populate(self, *, exclude_numeric: bool = True) -> None:
-        """Assumes the file is open."""
-
-        # visit all groups and datasets to cache them
-        def cache_items(name, _obj):
-            path = HDF5Path(name)
-            if exclude_numeric and path.basename.isdigit():
-                return
-            self._dict[path] = type(_obj)
-
-        self._file.visititems(cache_items)
-        self.valid = True
-
-    def invalidate(self) -> None:
-        self.valid = False
-
-    def items(self) -> ItemsView[str, _VT_filemap]:
-        return super().items(all=True)
+        self._file.single_process_queue.add_instruction(instruction)
 
 
-class FilteredFileMap(MutableMapping[str, _VT_filemap], _FileMapMixin):
-    def __init__(self, file_map: FileMap, parent: str) -> None:
-        self.parent = HDF5Path(parent)
-        self.file_map = file_map
-        self.valid = self.file_map.valid
-
-    def __getitem__(self, key, /):
-        return self.file_map[self.parent.joinpath(key)]
-
-    def __setitem__(self, key: str, value):
-        self.file_map[self.parent.joinpath(key)] = value
-
-    def __delitem__(self, key):
-        del self.file_map[self.parent.joinpath(key)]
-
-    def __iter__(self):
-        return map(
-            lambda x: HDF5Path(x).relative_to(self.parent),
-            filter(
-                lambda x: x.startswith(self.parent) and not x == self.parent,
-                self.file_map,
-            ),
-        )
-
-    def __len__(self):
-        return sum(1 for _ in self.__iter__())
+_T_H5Object = TypeVar("_T_H5Object", bound=H5Object)
 
 
-class ProcessQueue:
+class SingleProcessQueue(deque[Callable[[], None]], metaclass=RootProcessMeta):
+    """A queue to defer execution of write operations that need to be executed on the root
+    only. Only relevant for parallelized code.
+
+    This class is a deque of instructions that are to be executed in order when the file is
+    available for writing (i.e., not open with MPI I/O OR closed). We append instructions
+    to the right and pop them from the left.
+
+    This class uses the RootProcessMeta metaclass to ensure that all methods are only
+    executed on the root process.
+    """
+
     def __init__(self, file: HDF5File):
         self._file = file
         self._comm = file._comm  # needed for MPISafeMeta to work
-        self.deque = deque[Callable[[], None]]()
+        super().__init__()
 
-    def add(self, instruction: Callable[[], None]) -> None:
-        self.deque.append(instruction)
+    def add_instruction(self, instruction: Callable[[], None]) -> None:
+        self.append(instruction)
         log.debug(f"Added {type(instruction).__name__} to process queue")
 
+    @with_file_open(FileMode.APPEND)
+    def apply_instruction(self, instruction: Callable[[], None]) -> None:
+        log.debug(f"Applying {type(instruction).__name__}")
+        instruction()
+
     def apply(self) -> None:
-        if not self.deque:
-            log.debug("Process queue is empty")
+        if not self:
+            log.debug("SingleProcessQueue is empty")
             return
 
         log.debug("Applying process queue")
         with self._file.open(FileMode.APPEND):
-            while self.deque:
-                instruction = self.deque.popleft()
+            while self:
+                instruction = self.popleft()
                 log.debug(f"Applying {type(instruction).__name__}")
                 instruction()
 
 
+class WriteInstruction(ABC):
+    """Abstract base class for write instructions. Not useful currently, but could be
+    extended in the future (e.g. provide logging)."""
+
+    def __init__(self): ...
+    def __call__(self) -> None: ...
+
+
 class HDF5File(h5py.File, Generic[_MT]):
-    """Wrapper for h5py.File to add some functionality"""
+    """Lazy `h5py.File` wrapper with deferred process execution and file map caching.
+
+    Args:
+        file: The path to the HDF5 file.
+        comm: The MPI communicator. Defaults to MPI.COMM_WORLD.
+        mutable: Whether the file is mutable. Defaults to False.
+    """
 
     _filename: str
     _comm: Comm
@@ -395,11 +300,6 @@ class HDF5File(h5py.File, Generic[_MT]):
         self._path = Path(self._filename).absolute()
         self.file_map = FileMap(self)
         self.mutable = mutable
-
-        # Single process queue: Stuff in here is applied when the file is closed (at
-        # latest)
-        if self.mutable:
-            self.single_process_queue = ProcessQueue(self)
 
     def __repr__(self) -> str:
         mode_info = self.mode if self.is_open else "proxy"
@@ -480,7 +380,7 @@ class HDF5File(h5py.File, Generic[_MT]):
         # try to open the file until it is available
         while True:
             try:
-                if MPI_ACTIVE and mode > FileMode.READ and driver == "mpio":
+                if HDF_MPI_ACTIVE and mode > FileMode.READ and driver == "mpio":
                     h5py.File.__init__(
                         self, self._filename, mode.value, driver=driver, comm=self._comm
                     )
@@ -536,11 +436,24 @@ class HDF5File(h5py.File, Generic[_MT]):
     def is_open(self) -> bool:
         return bool(hasattr(self, "id") and self.id.valid)
 
-    def available_for_single_process(self) -> bool:
+    @property
+    def single_process_queue(self) -> SingleProcessQueue:
+        """The single process queue of this file object. See `SingleProcessQueue` for
+        details.
+        """
+        try:
+            return self._single_process_queue
+        except AttributeError:
+            self._single_process_queue = SingleProcessQueue(self)
+            return self._single_process_queue
+
+    def available_for_single_process_write(self) -> bool:
+        """Whether single process write instructions can be executed immediately."""
         return (not self.is_open) or (self.driver != "mpio")
 
     @property
     def root(self) -> Group[_MT]:
+        """Returns the root group of the file. Same as `Group("/", file)`"""
         from .ref import Group
 
         return Group("/", self)

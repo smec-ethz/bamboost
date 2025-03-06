@@ -43,16 +43,16 @@ from typing_extensions import Self
 import bamboost
 from bamboost import BAMBOOST_LOGGER
 from bamboost._typing import _MT, Mutable
-from bamboost.core.hdf5.attrs_dict import AttrsDict
+from bamboost.core.hdf5.attrsdict import AttrsDict
 from bamboost.core.hdf5.file import (
     FileMode,
-    FilteredFileMap,
     H5Object,
     HDF5File,
-    HDF5Path,
     mutable_only,
     with_file_open,
 )
+from bamboost.core.hdf5.filemap import FilteredFileMap
+from bamboost.core.hdf5.hdf5path import HDF5Path
 from bamboost.mpi import MPI_ON
 
 log = BAMBOOST_LOGGER.getChild("hdf5")
@@ -121,12 +121,6 @@ class H5Reference(H5Object[_MT]):
         else:
             name, _type = cast(str, value), None
         return self.new(self._path / name, self._file, _type)
-
-    def open(self, *args, **kwargs) -> HDF5File[_MT]:
-        """Convenience context manager to open the file of this object (see
-        HDF5File.open).
-        """
-        return self._file.open(*args, **kwargs)
 
     @classmethod
     def new(

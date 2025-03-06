@@ -11,7 +11,7 @@ from typing_extensions import override
 from bamboost import constants
 from bamboost._typing import _KT, _VT, SimulationMetadataT, SimulationParameterT
 from bamboost.core import utilities
-from bamboost.core.hdf5.attrs_dict import AttrsDict, mutable_only
+from bamboost.core.hdf5.attrsdict import AttrsDict, mutable_only
 from bamboost.core.hdf5.file import (
     _MT,
     FileMode,
