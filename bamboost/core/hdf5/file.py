@@ -351,11 +351,11 @@ class HDF5File(h5py.File, Generic[_MT]):
         """
         mode = FileMode(mode)
 
-        if not self.mutable and mode > FileMode.READ:
-            log.error(
-                f"File is read-only, cannot open in mode {mode.value} (open in read-only mode)"
+        if (mode > FileMode.READ) and (not self.mutable):
+            log.error(f"File is read-only, cannot open with mode {mode.value}")
+            raise PermissionError(
+                "Attempted to open read-only file with illegal file mode."
             )
-            mode = FileMode.READ
 
         self._context_stack += 1
         log.debug(f"[{id(self)}] context stack + ({self._context_stack})")

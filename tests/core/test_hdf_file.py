@@ -186,9 +186,7 @@ def test_hdf5_file_open(hdf5_file: HDF5File):
 def test_hdf5_file_mutability(tmp_path: Path):
     # create an immutable file
     f = HDF5File(tmp_path.joinpath("test.h5"), mutable=False)
-    # opening it in write mode does not raise an error
-    # but the file is opened in read-only mode -> file does not exist yet and cannot be created
-    with pytest.raises(FileNotFoundError):
+    with pytest.raises(PermissionError):
         with f.open("w"):
             pass
 
