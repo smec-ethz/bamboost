@@ -720,3 +720,129 @@ class Manager:
         return dict(
             sorted(parameters.items(), key=lambda x: x[1]["count"], reverse=True)
         )
+
+
+
+class ManagerCachedFromUID(object):
+    """Get a database by its UID. This is used for autocompletion in ipython."""
+
+    def __init__(self) -> None:
+        # or [] to circumvent Null type (MPI)
+        ids = IndexAPI().fetch(f"SELECT id, path FROM dbindex") or []
+        self.completion_keys = tuple(
+            [f'{key} - {"..."+val[-25:] if len(val)>=25 else val}' for key, val in ids]
+        )
+
+    def _ipython_key_completions_(self):
+        return self.completion_keys
+
+    def __getitem__(self, key) -> ManagerCached:
+        key = key.split()[0]  # take only uid
+        return ManagerCached(uid=key)
+
+
+class ManagerCachedFromName(object):
+    """Get a database by its path/name. This is used for autocompletion in ipython."""
+
+    def __init__(self) -> None:
+        paths = IndexAPI().fetch("SELECT path FROM dbindex") or []
+        self.completion_keys = tuple(paths)
+
+    def _ipython_key_completions_(self):
+        return self.completion_keys
+
+    def __getitem__(self, key) -> ManagerCached:
+        return ManagerCached(key)
+
+
+class ManagerCached(Manager):
+    """View of database that retrieves data from sql databases without updating it.
+
+    Args:
+        path (`str`): path to the directory of the database. If doesn't exist,
+            a new database will be created.
+        comm (`MPI.Comm`): MPI communicator
+        uid: UID of the database
+
+    Attributes:
+        FIX_DF: If False, the dataframe of the database is reconstructed every
+            time it is accessed.
+        fromUID: Access a database by its UID
+        fromName: Access a database by its path/name
+
+    Example:
+        >>> db = Manager("path/to/db")
+        >>> db.df # DataFrame of the database
+    """
+
+    FIX_DF = True
+    fromUID: ManagerCachedFromUID = ManagerCachedFromUID()
+    fromName: ManagerCachedFromName = ManagerCachedFromName()
+
+    def __init__(
+        self,
+        path: str = None,
+        comm: MPI.Comm = MPI.COMM_WORLD,
+        uid: str = None,
+    ):
+        # provided uid has precedence
+        if uid is not None:
+            path = self._index.get_path(uid.upper())
+            path = comm.bcast(path, root=0)
+        self.path = path
+        self.comm = comm
+
+        # check if path exists
+        if not os.path.isdir(path):
+            raise ValueError(f"path {path} does not exist")
+
+        # retrieve the UID of the database from the id file
+        # if not found, a new one is generated
+        self.UID = uid or self._retrieve_uid()
+
+
+    def get_view(self, include_linked_sims: bool = False) -> pd.DataFrame:
+        """View of the database and its parametric space. Read from the sql
+        database. If `include_linked_sims` is True, the individual h5 files are
+        scanned.
+
+        Args:
+            include_linked_sims: if True, include the parameters of linked sims
+
+        Examples:
+            >>> db.get_view()
+            >>> db.get_view(include_linked_sims=True)
+        """
+        if include_linked_sims:
+            return self.get_view_from_hdf_files(include_linked_sims=include_linked_sims)
+
+        try:
+            with self._table.open():
+                df = self._table.read_table()
+        except index.Error as e:
+            log.warning(f"index error: {e}, trying again in 1s")
+            import time
+            time.sleep(1)
+            return self.get_view()
+
+        if df.empty:
+            return df
+        df["time_stamp"] = pd.to_datetime(df["time_stamp"])
+
+        # Sort dataframe columns
+        columns_start = ["id", "notes", "status", "time_stamp"]
+        columns_start = [col for col in columns_start if col in df.columns]
+        self._dataframe = df[[*columns_start, *df.columns.difference(columns_start)]]
+
+        opts = config.get("options", {})
+        if "sort_table_key" in opts:
+            self._dataframe.sort_values(
+                opts.get("sort_table_key", "id"),
+                ascending=opts.get("sort_table_order", "asc") == "asc",
+                inplace=True,
+            )
+        return self._dataframe
+    
+    def _get_uids(self) -> list:
+        """Get all simulation names in the database."""
+        return self.df['id'].tolist()
