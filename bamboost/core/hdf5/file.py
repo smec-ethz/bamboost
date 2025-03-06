@@ -168,6 +168,12 @@ class H5Object(Generic[_MT]):
         self._file = file
 
     def post_write_instruction(self, instruction: Callable[[], None]) -> None:
+        if self._file.available_for_single_process():
+            # call immediately
+            instruction()
+            self._file._comm.barrier()
+            return
+
         self._file.single_process_queue.add(instruction)
 
     @overload
@@ -330,24 +336,13 @@ class FilteredFileMap(MutableMapping[str, _VT_filemap], _FileMapMixin):
         return sum(1 for _ in self.__iter__())
 
 
-class ProcessQueue(metaclass=RootProcessMeta):
+class ProcessQueue:
     def __init__(self, file: HDF5File):
         self._file = file
         self._comm = file._comm  # needed for MPISafeMeta to work
         self.deque = deque[Callable[[], None]]()
 
-    @with_file_open(mode=FileMode.APPEND)
-    def _call_immediately(self, instruction: Callable[[], None]) -> None:
-        instruction()
-
-    @RootProcessMeta.exclude
     def add(self, instruction: Callable[[], None]) -> None:
-        # if file is not open, open it and apply the function immediately
-        # if file is open and not using mpio, apply the function immediately
-        if self._file.available_for_single_process():
-            return self._call_immediately(instruction)
-
-        # otherwise add to the queue
         self.deque.append(instruction)
         log.debug(f"Added {type(instruction).__name__} to process queue")
 

@@ -21,15 +21,12 @@ Classes:
 from __future__ import annotations
 
 import pkgutil
-from dataclasses import dataclass
 from functools import cached_property
 from pathlib import Path
-from pickletools import string1
 from typing import (
     Any,
     Dict,
     Generator,
-    Generic,
     Optional,
     Tuple,
     Type,
@@ -53,7 +50,6 @@ from bamboost.core.hdf5.file import (
     H5Object,
     HDF5File,
     HDF5Path,
-    WriteInstruction,
     mutable_only,
     with_file_open,
 )
@@ -80,6 +76,12 @@ class H5Reference(H5Object[_MT]):
 
     @property
     def _obj(self) -> Union[h5py.Group, h5py.Dataset, h5py.Datatype]:
+        """Returns the h5py object bound at the path of this reference.
+
+        Raises:
+            KeyError: 'Unable to synchronously open object (invalid identifier type to function)'
+                If the file is not open.
+        """
         _obj = self._file[self._path]
         self._valid = True
         return _obj
@@ -155,10 +157,6 @@ class H5Reference(H5Object[_MT]):
     def parent(self) -> Group[_MT]:
         return Group(self._obj.parent.name or "", self._file)
 
-    @property
-    def mutable(self) -> bool:
-        return self._file.mutable
-
 
 class Group(H5Reference[_MT]):
     def __init__(self, path, file):
@@ -182,7 +180,7 @@ class Group(H5Reference[_MT]):
     def __delitem__(self: Group[Mutable], key) -> None:
         """Deletes an item."""
         if key in self.attrs.keys():
-            del self._obj.attrs[key]
+            del self.attrs[key]
         else:
             self._file.delete_object(self._path / key)
 
@@ -343,12 +341,10 @@ class Group(H5Reference[_MT]):
             )
             dataset[idx_start:idx_end] = vector
 
-            class WriteAttrs(WriteInstruction):
-                @staticmethod
-                def __call__():
-                    self._obj[name].attrs.update(attrs)
+            def _write_attrs():
+                self._obj[name].attrs.update(attrs)
 
-            self.post_write_instruction(WriteAttrs())
+            self.post_write_instruction(_write_attrs)
 
         log.info(f'Written dataset to "{self._path}/{name}"')
 
