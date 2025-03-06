@@ -5,7 +5,7 @@ import h5py
 import pytest
 
 from bamboost.core.hdf5 import HDF5File, HDF5Path
-from bamboost.core.hdf5.file import FileMap, FilteredFileMap
+from bamboost.core.hdf5.filemap import FileMap, FilteredFileMap
 
 
 @pytest.fixture

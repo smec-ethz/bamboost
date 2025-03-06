@@ -1,13 +1,9 @@
-import time
 from unittest.mock import patch
 
-import attrs
 import h5py
 import numpy as np
 import pytest
 
-import bamboost
-from bamboost.core.hdf5.attrs_dict import AttrsDict
 from bamboost.core.hdf5.file import HDF5File
 from bamboost.core.hdf5.ref import Dataset, Group, H5Reference
 
