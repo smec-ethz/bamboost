@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from dataclasses import dataclass
 from functools import cached_property
 from typing import (
     TYPE_CHECKING,
@@ -24,7 +25,9 @@ from bamboost.constants import (
 )
 from bamboost.core.hdf5.file import (
     FileMode,
+    H5Object,
     HDF5Path,
+    WriteInstruction,
     add_to_file_queue,
     mutable_only,
 )
@@ -111,20 +114,21 @@ class GroupData(Group[_MT]):
 
         fields = self.fields[field_names] if field_names else self.fields[()]
         filename = filename or self._simulation.path.joinpath(constants.XDMF_FILE_NAME)
+        timesteps = timesteps or self.timesteps
 
-        def _create_xdmf(group: GroupData, timesteps: Optional[Iterable[float]]):
-            timesteps = timesteps or self.timesteps
-            xdmf = XDMFWriter(group._file)
-            xdmf.add_mesh(group._simulation.meshes[mesh_name])
+        def _create_xdmf():
+            xdmf = XDMFWriter(self._file)
+            xdmf.add_mesh(self._simulation.meshes[mesh_name])
             xdmf.add_timeseries(timesteps, fields, mesh_name)
             xdmf.write_file(filename)
             log.debug(f"produced XDMF file at {filename}")
 
-        self._file.single_process_queue.add(_create_xdmf, (self, timesteps))
+        self.post_write_instruction(_create_xdmf)
 
 
-class StepWriter:
+class StepWriter(H5Object[Mutable]):
     def __init__(self, data_group: GroupData[Mutable], step: int):
+        super().__init__(data_group._file)
         self._data_group = data_group
         self._step = step
 
@@ -159,25 +163,29 @@ class StepWriter:
             self.add_field(name, data, mesh_name=mesh_name, field_type=field_type)
 
     def add_scalar(self, name: str, data: Union[int, float, Iterable]) -> None:
-        data_arr = np.array(data)
+        @dataclass
+        class AddScalarInstruction(WriteInstruction):
+            group: GroupData
+            name: str
+            data_arr: np.ndarray
+            step: int
 
-        # with self._data_group._file.open(FileMode.APPEND):
-        def _write_scalar(group: GroupData, name: str, data_arr, step: int):
-            dataset = group.scalars.require_dataset(
-                name,
-                shape=(1, *data_arr.shape),
-                dtype=data_arr.dtype,
-                maxshape=(None, *data_arr.shape),
-                chunks=True,
-                fillvalue=np.full_like(data_arr, np.nan),
-            )
-            dataset.resize(step + 1, axis=0)
-            dataset[step] = data_arr
+            def __call__(self):
+                log.debug(f"Adding scalar {self.name} for step {self.step}")
+                dataset = self.group.scalars.require_dataset(
+                    self.name,
+                    shape=(1, *self.data_arr.shape),
+                    dtype=self.data_arr.dtype,
+                    maxshape=(None, *self.data_arr.shape),
+                    chunks=True,
+                    fillvalue=np.full_like(self.data_arr, np.nan),
+                )
+                dataset.resize(self.step + 1, axis=0)
+                dataset[self.step] = self.data_arr
 
-        self._data_group._file.single_process_queue.add(
-            _write_scalar, (self._data_group, name, data_arr, self._step)
+        self.post_write_instruction(
+            AddScalarInstruction(self._data_group, name, np.array(data), self._step)
         )
-        log.debug(f"Added scalar {name} for step {self._step}")
 
     def add_scalars(self, scalars: dict[str, Union[int, float, Iterable]]) -> None:
         for name, data in scalars.items():

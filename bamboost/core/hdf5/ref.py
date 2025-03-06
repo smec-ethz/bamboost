@@ -21,8 +21,10 @@ Classes:
 from __future__ import annotations
 
 import pkgutil
+from dataclasses import dataclass
 from functools import cached_property
 from pathlib import Path
+from pickletools import string1
 from typing import (
     Any,
     Dict,
@@ -48,8 +50,10 @@ from bamboost.core.hdf5.attrs_dict import AttrsDict
 from bamboost.core.hdf5.file import (
     FileMode,
     FilteredFileMap,
+    H5Object,
     HDF5File,
     HDF5Path,
+    WriteInstruction,
     mutable_only,
     with_file_open,
 )
@@ -62,7 +66,7 @@ MPI_ACTIVE = "mpio" in h5py.registered_drivers() and h5py.get_config().mpi and M
 _RT_group = TypeVar("_RT_group", bound=Union["Group", "Dataset"])
 
 
-class H5Reference(Generic[_MT]):
+class H5Reference(H5Object[_MT]):
     _valid: bool | None = None
 
     def __init__(self, path: str, file: HDF5File[_MT]):
@@ -337,17 +341,14 @@ class Group(H5Reference[_MT]):
             dataset = self._obj.require_dataset(
                 name, shape=vec_shape, dtype=dtype if dtype else vector.dtype
             )
-            self._path.joinpath(name)
             dataset[idx_start:idx_end] = vector
 
-            # This is a hack for now
-            # TODO: make cleaner
-            self._file.single_process_queue.add(
-                lambda self: Dataset(
-                    self._path.joinpath(name), self._file
-                )._obj.attrs.update(attrs),
-                (self,),
-            )
+            class WriteAttrs(WriteInstruction):
+                @staticmethod
+                def __call__():
+                    self._obj[name].attrs.update(attrs)
+
+            self.post_write_instruction(WriteAttrs())
 
         log.info(f'Written dataset to "{self._path}/{name}"')
 

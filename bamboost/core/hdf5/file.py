@@ -55,7 +55,9 @@ Decorators:
 
 from __future__ import annotations
 
+import inspect
 import time
+from abc import ABC, abstractmethod
 from collections import deque
 from collections.abc import ItemsView, KeysView, Mapping, MutableMapping
 from enum import Enum
@@ -89,6 +91,12 @@ if TYPE_CHECKING:
 
     from .attrs_dict import AttrsDict
     from .ref import Group
+
+    class HasFile(Protocol[_MT]):
+        _file: HDF5File[_MT]
+
+    HasFileSubtype = TypeVar("HasFileSubtype", bound=HasFile)
+
 
 log = BAMBOOST_LOGGER.getChild("hdf5")
 
@@ -148,11 +156,27 @@ class HDF5Path(str):
         return PurePosixPath(self)
 
 
-class HasFile(Protocol[_MT]):
+class WriteInstruction(ABC):
+    def __init__(self): ...
+    def __call__(self) -> None: ...
+
+
+class H5Object(Generic[_MT]):
     _file: HDF5File[_MT]
 
+    def __init__(self, file: HDF5File[_MT]) -> None:
+        self._file = file
 
-HasFileSubtype = TypeVar("HasFileSubtype", bound=HasFile)
+    def post_write_instruction(self, instruction: Callable[[], None]) -> None:
+        self._file.single_process_queue.add(instruction)
+
+    @overload
+    def mutable(self: H5Object[Mutable]) -> Literal[True]: ...
+    @overload
+    def mutable(self: H5Object[Immutable]) -> Literal[False]: ...
+    @property
+    def mutable(self) -> bool:
+        return self._file.mutable
 
 
 def mutable_only(
@@ -310,39 +334,34 @@ class ProcessQueue(metaclass=RootProcessMeta):
     def __init__(self, file: HDF5File):
         self._file = file
         self._comm = file._comm  # needed for MPISafeMeta to work
-        self.deque = deque[tuple[Callable, tuple]]()
+        self.deque = deque[Callable[[], None]]()
+
+    @with_file_open(mode=FileMode.APPEND)
+    def _call_immediately(self, instruction: Callable[[], None]) -> None:
+        instruction()
 
     @RootProcessMeta.exclude
-    def add(self, func: Callable, args: tuple) -> None:
+    def add(self, instruction: Callable[[], None]) -> None:
         # if file is not open, open it and apply the function immediately
-        if not self._file.is_open:
-            if self._file._comm.rank == 0:
-                with self._file.open(FileMode.APPEND):
-                    func(*args)
-                    return
         # if file is open and not using mpio, apply the function immediately
-        elif self._file.driver != "mpio":
-            func(*args)
-            return
-        # else, the file is open with mpio, so we add the function to the queue
-        self.deque.append((func, args))
-        log.debug(
-            f"Added {func.__qualname__} to process queue (args: {','.join(map(str, args))})"
-        )
+        if self._file.available_for_single_process():
+            return self._call_immediately(instruction)
 
-    def apply(self):
+        # otherwise add to the queue
+        self.deque.append(instruction)
+        log.debug(f"Added {type(instruction).__name__} to process queue")
+
+    def apply(self) -> None:
         if not self.deque:
             log.debug("Process queue is empty")
             return
 
+        log.debug("Applying process queue")
         with self._file.open(FileMode.APPEND):
-            log.debug("Applying process queue...")
             while self.deque:
-                func, args = self.deque.popleft()
-                func(*args)
-                log.debug(
-                    f"Applied {func.__qualname__} (args: {','.join(map(str, args))})"
-                )
+                instruction = self.deque.popleft()
+                log.debug(f"Applying {type(instruction).__name__}")
+                instruction()
 
 
 class HDF5File(h5py.File, Generic[_MT]):
@@ -521,6 +540,9 @@ class HDF5File(h5py.File, Generic[_MT]):
     @property
     def is_open(self) -> bool:
         return bool(hasattr(self, "id") and self.id.valid)
+
+    def available_for_single_process(self) -> bool:
+        return (not self.is_open) or (self.driver != "mpio")
 
     @property
     def root(self) -> Group[_MT]:

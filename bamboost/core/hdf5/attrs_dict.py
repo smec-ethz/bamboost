@@ -13,21 +13,26 @@ Key features:
 
 from __future__ import annotations
 
+from dataclasses import dataclass
+from pickletools import string1
 from typing import Any, Generic, Mapping
 
 import h5py
+from typing_extensions import override
 
 from bamboost._typing import _MT, Mutable
 from bamboost.core.hdf5.file import (
     FileMode,
+    H5Object,
     HDF5File,
     HDF5Path,
+    WriteInstruction,
     mutable_only,
     with_file_open,
 )
 
 
-class AttrsDict(Mapping, Generic[_MT]):
+class AttrsDict(Mapping, H5Object[_MT]):
     """A dictionary-like object for the attributes of a group in the HDF5
     file.
 
@@ -60,10 +65,9 @@ class AttrsDict(Mapping, Generic[_MT]):
         return instances[path]
 
     def __init__(self, file: HDF5File[_MT], path: str):
-        self._file = file
+        super().__init__(file)
         self._path = path
         self._dict = self.read()
-        self.mutable = file.mutable
 
     @with_file_open(FileMode.READ)
     def read(self) -> dict:
@@ -103,20 +107,12 @@ class AttrsDict(Mapping, Generic[_MT]):
     @mutable_only
     def __setitem__(self: AttrsDict[Mutable], key: str, value: Any) -> None:
         self._dict[key] = value
-
-        self._file.single_process_queue.add(
-            lambda self: self._obj.attrs.__setitem__(key, value),
-            (self,),
-        )
+        self.post_write_instruction(lambda: self._obj.attrs.__setitem__(key, value))
 
     @mutable_only
     def __delitem__(self: AttrsDict[Mutable], key: str) -> None:
         del self._dict[key]
-
-        self._file.single_process_queue.add(
-            lambda self: self._obj.attrs.__delitem__(key),
-            (self,),
-        )
+        self.post_write_instruction(lambda: self._obj.attrs.__delitem__(key))
 
     @mutable_only
     def update(self: AttrsDict[Mutable], update_dict: dict) -> None:
@@ -127,8 +123,4 @@ class AttrsDict(Mapping, Generic[_MT]):
             update_dict: new dictionary
         """
         self._dict.update(update_dict)
-
-        self._file.single_process_queue.add(
-            lambda self: self._obj.attrs.update(update_dict),
-            (self,),
-        )
+        self.post_write_instruction(lambda: self._obj.attrs.update(update_dict))
