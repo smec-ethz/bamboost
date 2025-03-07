@@ -103,7 +103,7 @@ class Parameters(AttrsDict[_MT]):
         self.post_write_instruction(_write_item)
 
         # also send the updated parameter to the SQL database
-        self._simulation.update_index(parameters={key: value})
+        self._simulation.update_database(parameters={key: value})
 
     @mutable_only
     def update(self: Parameters[Mutable], update_dict: dict) -> None:
@@ -120,7 +120,7 @@ class Parameters(AttrsDict[_MT]):
         self._dict.update(update_dict)
 
         # try update the sql database
-        self._simulation.update_index(parameters=update_dict)
+        self._simulation.update_database(parameters=update_dict)
 
         # Filter out numpy arrays
         arrays = {}
@@ -181,7 +181,7 @@ class Metadata(AttrsDict[_MT]):
         self.post_write_instruction(_write)
 
         # also send the updated parameter to the SQL database
-        self._simulation.update_index(metadata={key: value})  # type: ignore
+        self._simulation.update_database(metadata={key: value})  # type: ignore
 
     @mutable_only
     def update(self: Metadata[Mutable], update_dict: SimulationMetadataT) -> None:
@@ -201,4 +201,4 @@ class Metadata(AttrsDict[_MT]):
         AttrsDict.update(self, dict_stringified)  # type: ignore
 
         # try update the sql database
-        self._simulation.update_index(metadata=update_dict)
+        self._simulation.update_database(metadata=update_dict)

@@ -1,12 +1,3 @@
-# This file is part of bamboost, a Python library built for datamanagement
-# using the HDF5 file format.
-#
-# https://gitlab.ethz.ch/compmechmat/research/libs/dbmanager
-#
-# Copyright 2023 Flavio Lorez and contributors
-#
-# There is no warranty for this code
-
 from __future__ import annotations
 
 import os
@@ -14,7 +5,9 @@ import subprocess
 import uuid
 from abc import ABC, abstractmethod
 from contextlib import contextmanager
+from dataclasses import dataclass
 from datetime import datetime
+from enum import Enum
 from functools import cached_property
 from pathlib import Path
 from typing import (
@@ -26,9 +19,8 @@ from typing import (
     Tuple,
 )
 
-import h5py
 import numpy as np
-from typing_extensions import Self, deprecated
+from typing_extensions import Self
 
 import bamboost.core.simulation._repr as reprs
 from bamboost import BAMBOOST_LOGGER, config, constants
@@ -53,7 +45,6 @@ from bamboost.core.simulation.groups import (
     GroupMesh,
     GroupMeshes,
 )
-from bamboost.core.simulation.xdmf import XDMFWriter
 from bamboost.index import (
     CollectionUID,
     Index,
@@ -62,12 +53,20 @@ from bamboost.mpi import MPI, MPI_ON
 from bamboost.utilities import StrPath
 
 if TYPE_CHECKING:
-    import pandas as pd
-
     from bamboost.mpi import Comm
 
 
 log = BAMBOOST_LOGGER.getChild("simulation")
+
+
+class Status(Enum):
+    """Status of a simulation."""
+
+    INITIALIZED = "initialized"
+    STARTED = "started"
+    FINISHED = "finished"
+    FAILED = "failed"
+    UNKNOWN = "unknown"
 
 
 class SimulationName(str):
@@ -83,7 +82,7 @@ class SimulationName(str):
 
 
 class _Simulation(ABC, Generic[_MT]):
-    """Simulation accessor.
+    """Abstract simulation base class. Use `Simulation` or `SimulationWriter` instead.
 
     Args:
         name: Name for the simulation.
@@ -118,6 +117,8 @@ class _Simulation(ABC, Generic[_MT]):
         self._prank: int = self._comm.rank
         self._ranks = np.array([i for i in range(self._psize)])
 
+        # Reference to the database
+        # 06.03.2025: Maybe use the default index instance instead of a new one...
         self._index: Index = index or Index(comm=self._comm)
 
         # Shortcut to collection uid if available, otherwise resolve it
@@ -129,13 +130,14 @@ class _Simulation(ABC, Generic[_MT]):
         self._xdmf_file: Path = self.path.joinpath(constants.XDMF_FILE_NAME)
         self._bash_file: Path = self.path.joinpath(constants.RUN_FILE_NAME)
 
-        # Alias attributes
-        self.root: Group[_MT] = self._file.root
-        """Access to HDF5 file root group."""
-
     @property
     @abstractmethod
     def _file(self) -> HDF5File[_MT]: ...
+
+    @property
+    def root(self) -> Group[_MT]:
+        """Access to HDF5 file root group."""
+        return self._file.root
 
     @classmethod
     def from_uid(cls, uid: str, **kwargs) -> Self:
@@ -159,7 +161,7 @@ class _Simulation(ABC, Generic[_MT]):
         """Return an object with writing rights to edit the simulation."""
         return SimulationWriter(self.name, self.path.parent, self._comm, self._index)
 
-    def update_index(
+    def update_database(
         self,
         *,
         metadata: Optional[SimulationMetadataT] = None,
@@ -168,7 +170,8 @@ class _Simulation(ABC, Generic[_MT]):
         """Push update to sqlite database.
 
         Args:
-            - update_dict (dict): key value pair to push
+            metadata: metadata dictionary to insert
+            parameters: parameter dictionary to insert
         """
         if not config.index.syncTables:
             return
@@ -329,6 +332,10 @@ class SimulationWriter(_Simulation[Mutable]):
             f.create_group(constants.PATH_MESH)
 
         self._comm.barrier()
+
+    def status(self) -> Status:
+        """Return the status of the simulation."""
+        return Status(self.metadata["status"])
 
     def change_status(self, status: str) -> None:
         """Change status of simulation.
