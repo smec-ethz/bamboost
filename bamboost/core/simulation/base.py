@@ -234,34 +234,6 @@ class _Simulation(ABC, Generic[_MT]):
         mode = FileMode(mode)
         return self._file.open(mode, driver)
 
-    @with_file_open("r")
-    def get_mesh(self, mesh_name: str = None) -> Tuple[np.ndarray, np.ndarray]:
-        """Return coordinates and connectivity. Currently returns numpy arrays.
-
-        Args:
-            mesh_name (`str`): optional, name of mesh to read (default = mesh)
-        Returns:
-            Tuple of np.arrays (coordinates, connectivity)
-        """
-        if mesh_name is None:
-            mesh_name = self._default_mesh
-
-        # Raise an error if the mesh is not found
-        if (self._mesh_location.split("/")[0] not in self._file.keys()) or (
-            mesh_name not in self._file[self._mesh_location].keys()
-        ):
-            raise KeyError(f"Mesh location {self._mesh_location} not found in file.")
-
-        mesh = self.meshes[mesh_name]
-        return mesh.coordinates, mesh.connectivity
-
-    @with_file_open()
-    def show_h5tree(self) -> None:
-        """Print the tree inside the h5 file."""
-        # print('\U00002B57 ' + os.path.basename(self.h5file))
-        print("\U0001f43c " + os.path.basename(self._data_file))
-        utilities.h5_tree(self._file.root._obj)
-
     @contextmanager
     def enter_path(self):
         """A context manager for changing the working directory to this simulations' path.
