@@ -370,7 +370,7 @@ def get_git_status(repo_path) -> _GitStatus:
 
 
 class GroupGit(Group[_MT]):
-    def __init__(self, simulation: "_Simulation"):
+    def __init__(self, simulation: "_Simulation[_MT]"):
         super().__init__(".git", simulation._file)
 
     def add(self: GroupGit[Mutable], repo_path: StrPath) -> None:

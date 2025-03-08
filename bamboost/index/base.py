@@ -511,8 +511,8 @@ class Index(metaclass=RootProcessMeta):
         self,
         collection_uid: str,
         simulation_name: str,
-        parameters: Optional[SimulationParameterT] = None,
-        metadata: Optional[SimulationMetadataT] = None,
+        parameters: Optional[dict[Any, Any]] = None,
+        metadata: Optional[dict[Any, Any]] = None,
         *,
         collection_path: Optional[StrPath] = None,
     ) -> None:
@@ -568,7 +568,7 @@ class Index(metaclass=RootProcessMeta):
 
     @_sql_transaction
     def update_simulation_metadata(
-        self, collection_uid: str, simulation_name: str, data: SimulationMetadataT
+        self, collection_uid: str, simulation_name: str, data: dict
     ) -> None:
         """Update the metadata of a simulation by passing it as a dict.
 

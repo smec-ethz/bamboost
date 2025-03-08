@@ -195,8 +195,8 @@ class _Simulation(ABC, Generic[_MT]):
     def update_database(
         self,
         *,
-        metadata: Optional[SimulationMetadataT] = None,
-        parameters: Optional[SimulationParameterT] = None,
+        metadata: Optional[dict] = None,
+        parameters: Optional[dict] = None,
     ) -> None:
         """Push update to sqlite database.
 

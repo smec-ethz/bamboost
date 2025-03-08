@@ -203,7 +203,7 @@ class SimulationORM(_Base):
         DateTime, nullable=False, default=datetime.now
     )
     description: Mapped[Optional[str]] = mapped_column(String)
-    status: Mapped[str] = mapped_column(String, nullable=False, default="pending")
+    status: Mapped[str] = mapped_column(String, nullable=False, default="initialized")
     submitted: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
 
     # Relationships
@@ -218,7 +218,7 @@ class SimulationORM(_Base):
         return f"Simulation {self.collection_uid}+{self.name} [id: {self.id}]"
 
     @classmethod
-    def upsert(cls, data: Sequence[_dataT] | _dataT) -> ReturningInsert[Tuple[int]]:
+    def upsert(cls, data: Sequence[dict] | dict) -> ReturningInsert[Tuple[int]]:
         """Generate an upsert (insert or update) statement.
 
         Args:
@@ -227,13 +227,28 @@ class SimulationORM(_Base):
         Returns:
             SQLAlchemy insert statement with conflict resolution. Returning the simulation ID.
         """
-        stmt = insert(cls).values(data)
+        valid_columns = cls.__table__.columns
+
+        def filter_data(record: dict) -> dict:
+            return {k: v for k, v in record.items() if k in valid_columns}
+
+        if isinstance(data, dict):
+            filtered_data = filter_data(data)
+        else:
+            filtered_data = [filter_data(record) for record in data]
+
+        stmt = insert(cls).values(filtered_data)
+
         # Get keys to update. Do not touch keys that are not in the data.
-        # Assumes: for the sequence case, all dictionaries have the same keys
-        keys_to_update = data.keys() if isinstance(data, dict) else data[0].keys()
+        all_keys = (
+            filtered_data.keys()
+            if isinstance(filtered_data, dict)
+            else filtered_data[0].keys()
+        )
+
         stmt = stmt.on_conflict_do_update(
             ["collection_uid", "name"],
-            set_={k: v for k, v in stmt.excluded.items() if k in keys_to_update},
+            set_={k: v for k, v in stmt.excluded.items() if k in all_keys},
         )
         stmt = stmt.returning(cls.id)
         return stmt
