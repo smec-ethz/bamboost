@@ -15,9 +15,10 @@ from __future__ import annotations
 
 import json
 from datetime import datetime
-from typing import Any, Callable, Dict, Mapping, Sequence, Type
+from typing import Any, Callable, Dict, Mapping, Sequence, Type, Union
 
 import h5py
+import numpy as np
 
 from bamboost._typing import _MT, Mutable
 from bamboost.core.hdf5.file import (
@@ -35,11 +36,19 @@ class _AttrsEncoder:
         self._encoders: Dict[Type, Callable[[Any], Any]] = {}
         self._decoders: Dict[Type, Callable[[Any], Any]] = {}
 
-    def register(
-        self, typ: Type, encode: Callable[[Any], Any], decode: Callable[[Any], Any]
-    ):
-        self._encoders[typ] = encode
-        self._decoders[typ] = decode
+    def register_encoder(self, typ: Union[Type, Sequence[Type]], encode: Callable):
+        if isinstance(typ, Sequence):
+            for t in typ:
+                self._encoders[t] = encode
+        else:
+            self._encoders[typ] = encode
+
+    def register_decoder(self, typ: Union[Type, Sequence[Type]], decode: Callable):
+        if isinstance(typ, Sequence):
+            for t in typ:
+                self._decoders[t] = decode
+        else:
+            self._decoders[typ] = decode
 
     def encode(self, obj: Any) -> Any:
         if isinstance(obj, dict):
@@ -72,15 +81,17 @@ class _AttrsEncoder:
             return {k: self.decode(v) for k, v in obj.items()}
         elif isinstance(obj, Sequence):
             return [self.decode(v) for v in obj]
+        else:
+            for typ, decoder in self._decoders.items():
+                if isinstance(obj, typ):
+                    return decoder(obj)
         return obj
 
 
 AttrsEncoder = _AttrsEncoder()
-AttrsEncoder.register(
-    datetime,
-    encode=lambda dt: dt.isoformat(),
-    decode=lambda s: datetime.fromisoformat(s),
-)
+AttrsEncoder.register_encoder(datetime, lambda dt: dt.isoformat())
+AttrsEncoder.register_decoder(np.generic, lambda x: x.item())
+AttrsEncoder.register_decoder(datetime, lambda s: datetime.fromisoformat(s))
 
 
 class AttrsDict(H5Object[_MT], Mapping):
