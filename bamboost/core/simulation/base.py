@@ -16,7 +16,6 @@ from typing import (
     Generic,
     Iterable,
     Optional,
-    Tuple,
     Union,
 )
 
@@ -29,14 +28,11 @@ from bamboost._typing import (
     _MT,
     Immutable,
     Mutable,
-    SimulationMetadataT,
-    SimulationParameterT,
 )
 from bamboost.core import utilities
 from bamboost.core.hdf5.file import (
     FileMode,
     HDF5File,
-    with_file_open,
 )
 from bamboost.core.hdf5.ref import Group
 from bamboost.core.simulation.dict import Links, Metadata, Parameters
@@ -68,6 +64,9 @@ class Status(Enum):
     FINISHED = "finished"
     FAILED = "failed"
     UNKNOWN = "unknown"
+
+    def format(self) -> str:
+        return self.value
 
 
 @dataclass
@@ -315,16 +314,17 @@ class SimulationWriter(_Simulation[Mutable]):
         super().__init__(name, parent, comm, index, **kwargs)
 
     def __enter__(self) -> SimulationWriter:
-        self.metadata["status"] = "started"
+        self.status = Status.STARTED
         return self
 
     def __exit__(self, exc_type, exc_val, exc_tb):
         if exc_type:
-            self.change_status(f"failed [{exc_type.__name__}]")
+            # self.change_status(f"failed [{exc_type.__name__}]")
+            self.status = StatusInfo(Status.FAILED, str(exc_val))
             log.error(
                 f"Simulation failed with {exc_type.__name__}: {exc_val}\nTraceback: {exc_tb}"
             )
-        self.metadata["status"] = "finished"
+        self.status = Status.FINISHED
         self._comm.barrier()
 
     @cached_property
@@ -337,7 +337,7 @@ class SimulationWriter(_Simulation[Mutable]):
         with self._file.open(FileMode.APPEND, driver="mpio") as f:
             self.metadata.update(
                 {
-                    "status": "initialized",
+                    "status": Status.INITIALIZED.value,
                     "created_at": datetime.now(),
                 }
             )
@@ -354,21 +354,12 @@ class SimulationWriter(_Simulation[Mutable]):
 
     @_Simulation.status.setter
     def status(self, value: Union[StatusInfo, Status]) -> None:
-        if isinstance(value, Status):
-            value = StatusInfo(value)
         self.metadata.__setitem__("status", value.format())
 
     @_Simulation.description.setter
     def description(self, value: str) -> None:
         self.metadata.__setitem__("description", value)
 
-    def change_status(self, status: str) -> None:
-        """Change status of simulation.
-
-        Args:
-            status (str): new status
-        """
-        self.metadata["status"] = status
 
     def copy_files(self, files: Iterable[StrPath]) -> None:
         """Copy files to the simulation folder.
