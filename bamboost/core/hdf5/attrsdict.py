@@ -19,7 +19,6 @@ from typing import Any, Callable, Dict, Mapping, Sequence, Type
 
 import h5py
 
-from bamboost import BAMBOOST_LOGGER
 from bamboost._typing import _MT, Mutable
 from bamboost.core.hdf5.file import (
     FileMode,
