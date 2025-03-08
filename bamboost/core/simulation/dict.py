@@ -1,23 +1,19 @@
 from __future__ import annotations
 
-from datetime import datetime
 from functools import reduce
-from typing import TYPE_CHECKING, Any, Generator, Literal, TypeVar, cast, overload
+from typing import TYPE_CHECKING, Any, Generator, cast
 
 import h5py
 import numpy as np
-from typing_extensions import override
 
 from bamboost import constants
-from bamboost._typing import _KT, _VT, SimulationMetadataT, SimulationParameterT
+from bamboost._typing import SimulationMetadataT, SimulationParameterT
 from bamboost.core import utilities
-from bamboost.core.hdf5.attrsdict import AttrsDict, mutable_only
+from bamboost.core.hdf5.attrsdict import AttrsDict, AttrsEncoder, mutable_only
 from bamboost.core.hdf5.file import (
     _MT,
     FileMode,
-    HDF5File,
     Mutable,
-    WriteInstruction,
     with_file_open,
 )
 
@@ -56,7 +52,7 @@ class Parameters(AttrsDict[_MT]):
             )
 
         # Read in attributes
-        tmp_dict.update(grp.attrs)
+        tmp_dict.update(AttrsEncoder.decode(grp.attrs))
 
         # Read in datasets
         for key, value in grp.items():
@@ -139,66 +135,51 @@ class Parameters(AttrsDict[_MT]):
                 self._obj.create_dataset(k, data=v)
 
             # write the rest
-            self._obj.attrs.update(attributes)
+            self.post_write_instruction(
+                lambda: self._obj.attrs.update(AttrsEncoder.encode(attributes))
+            )
 
 
 class Links(AttrsDict[_MT]):
-    def __init__(self, simulation: _Simulation) -> None:
-        super().__init__(cast(HDF5File[_MT], simulation._file), constants.PATH_LINKS)
+    def __init__(self, simulation: _Simulation[_MT]) -> None:
+        super().__init__(simulation._file, constants.PATH_LINKS)
 
 
 class Metadata(AttrsDict[_MT]):
+    """The metadata of a simulation are the attributes of the root group.
+
+    Special metadata that is handled by bamboost:
+        status: Status of the simulation
+        created_at: Creation date of the simulation
+        description: Optional description of the simulation
+
+    Args:
+        simulation: the simulation object
+    """
+
     _simulation: _Simulation
-    _dict: SimulationMetadataT
 
     def __init__(self, simulation: _Simulation[_MT]) -> None:
         super().__init__(simulation._file, "/")
         self._simulation = simulation
 
-        # transform strings to datetime if type should be datetime
-        for k, v in self._dict.items():
-            if (
-                isinstance(v, str)
-                and SimulationMetadataT.__annotations__.get(k, None) == datetime
-            ):
-                self._dict[k] = datetime.fromisoformat(v)
-
-    @overload
-    def __getitem__(self, key: Literal["created_at", "modified_at"]) -> datetime: ...
-    @overload
-    def __getitem__(self, key: str) -> Any: ...
-    def __getitem__(self, key):
-        return super().__getitem__(key)
-
     @mutable_only
     def __setitem__(self: Metadata[Mutable], key: str, value: Any) -> None:
-        self._dict[key] = value
-
-        def _write():
-            self._obj.attrs[key] = (
-                value.isoformat() if isinstance(value, datetime) else value
-            )
-        self.post_write_instruction(_write)
+        super().__setitem__(key, value)
 
         # also send the updated parameter to the SQL database
         self._simulation.update_database(metadata={key: value})  # type: ignore
 
     @mutable_only
-    def update(self: Metadata[Mutable], update_dict: SimulationMetadataT) -> None:
+    def update(self: Metadata[Mutable], update_dict: dict) -> None:
         """Update the metadata dictionary. This method pushes the update to the
         HDF5 file, and the SQL database.
 
         Args:
             update_dict: new metadata
         """
-        from datetime import datetime
-
         # update dictionary in memory and hdf5 file
-        dict_stringified = {
-            k: v.isoformat() if isinstance(v, datetime) else v
-            for k, v in update_dict.items()
-        }
-        AttrsDict.update(self, dict_stringified)  # type: ignore
+        super().update(update_dict)
 
         # try update the sql database
         self._simulation.update_database(metadata=update_dict)

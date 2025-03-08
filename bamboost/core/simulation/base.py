@@ -17,6 +17,7 @@ from typing import (
     Iterable,
     Optional,
     Tuple,
+    Union,
 )
 
 import numpy as np
@@ -32,6 +33,7 @@ from bamboost._typing import (
     SimulationParameterT,
 )
 from bamboost.core import utilities
+from bamboost.core.hdf5.attrsdict import AttrsDict
 from bamboost.core.hdf5.file import (
     FileMode,
     HDF5File,
@@ -67,6 +69,36 @@ class Status(Enum):
     FINISHED = "finished"
     FAILED = "failed"
     UNKNOWN = "unknown"
+
+
+@dataclass
+class StatusInfo:
+    status: Status
+    message: Optional[str] = None
+
+    @classmethod
+    def parse(cls, status: str) -> StatusInfo:
+        import re
+
+        pattern = r"^(?P<status>\w+)(?:\s*\[(?P<message>.+)\])?$"
+        match = re.match(pattern, status.strip())
+
+        if match:
+            status_str = match.group("status").lower()
+            message = match.group("message")
+            try:
+                return cls(Status(status_str), message)
+            except ValueError:
+                return cls(Status.UNKNOWN, status)
+        else:
+            return cls(Status.UNKNOWN, status)
+
+    def format(self) -> str:
+        return (
+            f"{self.status.value} [{self.message}]"
+            if self.message
+            else self.status.value
+        )
 
 
 class SimulationName(str):
@@ -192,6 +224,33 @@ class _Simulation(ABC, Generic[_MT]):
     @cached_property
     def metadata(self) -> Metadata[_MT]:
         return Metadata(self)
+
+    @property
+    def status(self) -> StatusInfo:
+        return StatusInfo.parse(self.metadata.__getitem__("status"))
+
+    @status.setter
+    def status(self, value: Union[StatusInfo, Status]) -> None:
+        if isinstance(value, Status):
+            value = StatusInfo(value)
+        self.metadata.__setitem__("status", value.format())
+
+    @property
+    def created_at(self) -> datetime:
+        date_iso = self.metadata.__getitem__("created_at")
+        return datetime.fromisoformat(date_iso)
+
+    @created_at.setter
+    def created_at(self, value: datetime) -> None:
+        self.metadata.__setitem__("created_at", value.isoformat())
+
+    @property
+    def description(self) -> str:
+        return self.metadata.__getitem__("description")
+
+    @description.setter
+    def description(self, value: str) -> None:
+        self.metadata.__setitem__("description", value)
 
     @cached_property
     def links(self) -> Links[_MT]:

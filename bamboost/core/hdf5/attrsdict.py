@@ -13,10 +13,13 @@ Key features:
 
 from __future__ import annotations
 
-from typing import Any, Mapping
+import json
+from datetime import datetime
+from typing import Any, Callable, Dict, Mapping, Sequence, Type
 
 import h5py
 
+from bamboost import BAMBOOST_LOGGER
 from bamboost._typing import _MT, Mutable
 from bamboost.core.hdf5.file import (
     FileMode,
@@ -26,6 +29,59 @@ from bamboost.core.hdf5.file import (
     with_file_open,
 )
 from bamboost.core.hdf5.hdf5path import HDF5Path
+
+
+class _AttrsEncoder:
+    def __init__(self):
+        self._encoders: Dict[Type, Callable[[Any], Any]] = {}
+        self._decoders: Dict[Type, Callable[[Any], Any]] = {}
+
+    def register(
+        self, typ: Type, encode: Callable[[Any], Any], decode: Callable[[Any], Any]
+    ):
+        self._encoders[typ] = encode
+        self._decoders[typ] = decode
+
+    def encode(self, obj: Any) -> Any:
+        if isinstance(obj, dict):
+            return {k: self.encode(v) for k, v in obj.items()}
+        elif isinstance(obj, list):
+            return [self.encode(v) for v in obj]
+        else:
+            for typ, encoder in self._encoders.items():
+                if isinstance(obj, typ):
+                    encoded = encoder(obj)
+                    return json.dumps({"__type__": typ.__name__, "__value__": encoded})
+            return obj
+
+    def decode(self, obj: Any) -> Any:
+        if isinstance(obj, str):
+            try:
+                decoded_json = json.loads(obj)
+                if (
+                    isinstance(decoded_json, dict)
+                    and "__type__" in decoded_json
+                    and "__value__" in decoded_json
+                ):
+                    typ_name = decoded_json["__type__"]
+                    for typ, decoder in self._decoders.items():
+                        if typ.__name__ == typ_name:
+                            return decoder(decoded_json["__value__"])
+            except json.JSONDecodeError:
+                return obj  # Return the original string if not a special encoded type
+        elif isinstance(obj, Mapping):
+            return {k: self.decode(v) for k, v in obj.items()}
+        elif isinstance(obj, Sequence):
+            return [self.decode(v) for v in obj]
+        return obj
+
+
+AttrsEncoder = _AttrsEncoder()
+AttrsEncoder.register(
+    datetime,
+    encode=lambda dt: dt.isoformat(),
+    decode=lambda s: datetime.fromisoformat(s),
+)
 
 
 class AttrsDict(H5Object[_MT], Mapping):
@@ -66,7 +122,7 @@ class AttrsDict(H5Object[_MT], Mapping):
 
     @with_file_open(FileMode.READ)
     def read(self) -> dict:
-        return dict(self._obj.attrs)
+        return dict(AttrsEncoder.decode(self._obj.attrs))
 
     def __getitem__(self, key: str) -> Any:
         return self._dict[key]
@@ -102,7 +158,9 @@ class AttrsDict(H5Object[_MT], Mapping):
     @mutable_only
     def __setitem__(self: AttrsDict[Mutable], key: str, value: Any) -> None:
         self._dict[key] = value
-        self.post_write_instruction(lambda: self._obj.attrs.__setitem__(key, value))
+        self.post_write_instruction(
+            lambda: self._obj.attrs.__setitem__(key, AttrsEncoder.encode(value))
+        )
 
     @mutable_only
     def __delitem__(self: AttrsDict[Mutable], key: str) -> None:
@@ -118,4 +176,6 @@ class AttrsDict(H5Object[_MT], Mapping):
             update_dict: new dictionary
         """
         self._dict.update(update_dict)
-        self.post_write_instruction(lambda: self._obj.attrs.update(update_dict))
+        self.post_write_instruction(
+            lambda: self._obj.attrs.update(AttrsEncoder.encode(update_dict))
+        )
