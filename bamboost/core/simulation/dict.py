@@ -7,7 +7,7 @@ import h5py
 import numpy as np
 
 from bamboost import constants
-from bamboost._typing import SimulationMetadataT, SimulationParameterT
+from bamboost._typing import SimulationParameterT
 from bamboost.core import utilities
 from bamboost.core.hdf5.attrsdict import AttrsDict, AttrsEncoder, mutable_only
 from bamboost.core.hdf5.file import (
@@ -168,7 +168,7 @@ class Metadata(AttrsDict[_MT]):
         super().__setitem__(key, value)
 
         # also send the updated parameter to the SQL database
-        self._simulation.update_database(metadata={key: value})  # type: ignore
+        self._simulation.update_database(metadata={key: value})
 
     @mutable_only
     def update(self: Metadata[Mutable], update_dict: dict) -> None:

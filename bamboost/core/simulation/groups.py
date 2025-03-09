@@ -19,16 +19,15 @@ from bamboost._typing import _MT, Mutable, StrPath
 from bamboost.constants import (
     DEFAULT_MESH_NAME,
     PATH_DATA,
-    PATH_FIELD_DATA,
     PATH_MESH,
-    PATH_SCALAR_DATA,
+    RELATIVE_PATH_FIELD_DATA,
+    RELATIVE_PATH_SCALAR_DATA,
 )
 from bamboost.core.hdf5.file import (
     FileMode,
     H5Object,
     HDF5Path,
     WriteInstruction,
-    add_to_file_queue,
     mutable_only,
 )
 from bamboost.core.hdf5.ref import Dataset, Group
@@ -43,8 +42,8 @@ log = BAMBOOST_LOGGER.getChild(__name__)
 
 
 class Series(Group[_MT]):
-    def __init__(self, simulation: "_Simulation", *, path: str = PATH_DATA):
-        super().__init__(PATH_DATA, simulation._file)
+    def __init__(self, simulation: _Simulation[_MT], *, path: str = PATH_DATA):
+        super().__init__(path, simulation._file)
         self._simulation = simulation
 
     @property
@@ -81,6 +80,14 @@ class Series(Group[_MT]):
             value: The value of the step. This is typically the time value.
             step: The step number. If not given, a step is appended after the last one.
         """
+        # add the series to the list of series in the simulation metadata
+        _all_existing_series = self._simulation.metadata.get(".series_list", set())
+        _all_existing_series.add(self._path)
+        self._simulation.metadata[".series_list"] = _all_existing_series
+
+        # make sure the group exists in the file
+        self.require_self()
+
         if step is None:
             step = self.last_step + 1 if self.last_step is not None else 0
 
@@ -92,8 +99,6 @@ class Series(Group[_MT]):
 
     @mutable_only
     def _store_value(self: Series[Mutable], step: int, time: float) -> None:
-        self.require_self()
-
         def _write_instruction():
             # require the dataset for the timesteps
             dataset = self.require_dataset(
@@ -172,6 +177,7 @@ class StepWriter(H5Object[Mutable]):
                 relevant for XDMF writing.
         """
         field = self._series.fields[name]
+        print(field._path)
         field.require_self()
         field.add_numerical_dataset(
             str(self._step),
@@ -250,7 +256,8 @@ class StepWriter(H5Object[Mutable]):
 
 class GroupFieldData(Group[_MT]):
     def __init__(self, series: Series[_MT]):
-        super().__init__(PATH_FIELD_DATA, series._file)
+        super().__init__(series._path.joinpath(RELATIVE_PATH_FIELD_DATA), series._file)
+        print(self._path)
 
         self._series = series
         self._field_instances: dict[str, FieldData[_MT]] = {}
@@ -281,9 +288,7 @@ class FieldData(Group[_MT]):
             instance = super().__new__(cls)
 
             # Initialize the instance
-            super(FieldData, instance).__init__(
-                HDF5Path(PATH_FIELD_DATA).joinpath(name), field._file
-            )
+            super(FieldData, instance).__init__(field._path.joinpath(name), field._file)
             instance._parent = field
             instance.name = name
 
@@ -335,8 +340,8 @@ class FieldData(Group[_MT]):
 
 
 class GroupScalarData(Group[_MT]):
-    def __init__(self, data_group: Series[_MT]):
-        super().__init__(PATH_SCALAR_DATA, data_group._file)
+    def __init__(self, series: Series[_MT]):
+        super().__init__(series._path.joinpath(RELATIVE_PATH_SCALAR_DATA), series._file)
 
     def __getitem__(self, key: str) -> Dataset[_MT]:
         return super().__getitem__((key, Dataset[_MT]))

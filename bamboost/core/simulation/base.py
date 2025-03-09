@@ -124,6 +124,16 @@ class _Simulation(ABC, Generic[_MT]):
         FileNotFoundError: If the simulation doesn't exist.
     """
 
+    class SeriesPicker:
+        def __init__(self, simulation: _Simulation[_MT]):
+            self._simulation = simulation
+
+        def __getitem__(self, key) -> Series[_MT]:
+            return Series(self._simulation, path=key)
+
+        def _ipython_key_completions_(self):
+            return self._simulation.metadata.get(".series_list", [])
+
     _repr_html_ = reprs.simulation_html_repr
 
     def __init__(
@@ -159,6 +169,11 @@ class _Simulation(ABC, Generic[_MT]):
         self._data_file: Path = self.path.joinpath(constants.HDF_DATA_FILE_NAME)
         self._xdmf_file: Path = self.path.joinpath(constants.XDMF_FILE_NAME)
         self._bash_file: Path = self.path.joinpath(constants.RUN_FILE_NAME)
+
+        # series picker
+        self.series = self.SeriesPicker(self)
+        """Use square brackets to access series in the simulation. Should autocomplete in
+        IPython."""
 
     @property
     @abstractmethod
@@ -232,8 +247,7 @@ class _Simulation(ABC, Generic[_MT]):
 
     @property
     def created_at(self) -> datetime:
-        date_iso = self.metadata.__getitem__("created_at")
-        return datetime.fromisoformat(date_iso)
+        return self.metadata.__getitem__("created_at")
 
     @property
     def description(self) -> str:
@@ -253,6 +267,7 @@ class _Simulation(ABC, Generic[_MT]):
 
     @cached_property
     def data(self) -> Series[_MT]:
+        """Return the default data series."""
         return Series(self)
 
     @cached_property
@@ -346,8 +361,6 @@ class SimulationWriter(_Simulation[Mutable]):
             f.create_group(constants.PATH_LINKS)
             f.create_group(constants.PATH_USERDATA)
             f.create_group(constants.PATH_DATA)
-            f.create_group(constants.PATH_FIELD_DATA)
-            f.create_group(constants.PATH_SCALAR_DATA)
             f.create_group(constants.PATH_MESH)
 
         self._comm.barrier()

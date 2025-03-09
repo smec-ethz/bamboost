@@ -90,8 +90,10 @@ class _AttrsEncoder:
 
 AttrsEncoder = _AttrsEncoder()
 AttrsEncoder.register_encoder(datetime, lambda dt: dt.isoformat())
+AttrsEncoder.register_encoder(set, lambda s: list(s))
 AttrsEncoder.register_decoder(np.generic, lambda x: x.item())
 AttrsEncoder.register_decoder(datetime, lambda s: datetime.fromisoformat(s))
+AttrsEncoder.register_decoder(set, lambda x: set(x))
 
 
 class AttrsDict(H5Object[_MT], Mapping):
