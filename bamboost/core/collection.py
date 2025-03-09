@@ -231,14 +231,20 @@ class Collection:
         name = SimulationName(name)  # Generates a unique id as name if not provided
         directory = self.path.joinpath(name)
 
-        try:
-            # Check if name is already in use, otherwise create a new directory
-            if self._comm.rank == 0:
-                if override and directory.exists():
-                    shutil.rmtree(directory)
-                directory.mkdir(exist_ok=False)
-            self._comm.barrier()
+        if directory.exists():
+            if override:
+                shutil.rmtree(directory)
+            else:
+                raise FileExistsError(
+                    f"Simulation {name} already exists in {self.path}"
+                )
 
+        # Check if name is already in use, otherwise create a new directory
+        if self._comm.rank == 0:
+            directory.mkdir(exist_ok=False)
+        self._comm.barrier()
+
+        try:
             # Create the simulation instance
             sim = SimulationWriter(
                 name, self.path, self._comm, self._index, collection_uid=self.uid
@@ -255,7 +261,7 @@ class Collection:
 
             log.info(f"Created simulation {name} in {self.path}")
             return sim
-        except (OSError, ValueError, PermissionError):
+        except (ValueError, PermissionError):
             log.error(
                 f"Error occurred while creating simulation {name} at path {self.path}"
             )
