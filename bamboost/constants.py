@@ -12,7 +12,7 @@ PATH_MESH = ".mesh"
 PATH_LINKS = ".links"
 PATH_USERDATA = ".userdata"
 
-DS_NAME_TIMESTEPS = ".timesteps"
+DS_NAME_TIMESTEPS = ".map"
 
 DEFAULT_MESH_NAME = "default"
 

@@ -395,7 +395,7 @@ class Dataset(H5Reference[_MT]):
 
     @property
     @with_file_open(FileMode.READ)
-    def shape(self):
+    def shape(self) -> tuple[int, ...]:
         return self._obj.shape
 
     @property

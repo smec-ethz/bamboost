@@ -42,14 +42,18 @@ if TYPE_CHECKING:
 log = BAMBOOST_LOGGER.getChild(__name__)
 
 
-class GroupData(Group[_MT]):
-    def __init__(self, simulation: "_Simulation"):
+class Series(Group[_MT]):
+    def __init__(self, simulation: "_Simulation", *, path: str = PATH_DATA):
         super().__init__(PATH_DATA, simulation._file)
         self._simulation = simulation
 
     @property
-    def last_step(self) -> int:
-        return self.attrs.get("last_step", -1)
+    def last_step(self) -> Union[int, None]:
+        # return self.attrs.get("last_step", -1)
+        try:
+            return self[constants.DS_NAME_TIMESTEPS, Dataset].shape[0] - 1
+        except KeyError:
+            return None
 
     @cached_property
     def fields(self) -> GroupFieldData[_MT]:
@@ -60,47 +64,56 @@ class GroupData(Group[_MT]):
         return GroupScalarData(self)
 
     @property
-    def timesteps(self) -> np.ndarray:
+    def values(self) -> np.ndarray:
+        """Return the values of the series. In the default time series, this returns the
+        time values of the steps."""
         return self[constants.DS_NAME_TIMESTEPS][:]
 
     @mutable_only
     def create_step(
-        self: GroupData[Mutable],
-        time: float = np.nan,
+        self: Series[Mutable],
+        value: float = np.nan,
         step: Optional[int] = None,
     ) -> StepWriter:
-        self._file._comm.barrier()
+        """Create a new step in the series. If the step is not given, we append one.
+
+        Args:
+            value: The value of the step. This is typically the time value.
+            step: The step number. If not given, a step is appended after the last one.
+        """
         if step is None:
-            step = self.last_step + 1
-        self.attrs["last_step"] = step
+            step = self.last_step + 1 if self.last_step is not None else 0
 
         # store the timestep if given
-        self._store_time(step, time)
+        self._store_value(step, value)
+        self._file._comm.barrier()
 
         return StepWriter(self, step)
 
     @mutable_only
-    @add_to_file_queue
-    def _store_time(self: GroupData[Mutable], step: int, time: float) -> None:
+    def _store_value(self: Series[Mutable], step: int, time: float) -> None:
         self.require_self()
 
-        # require the dataset for the timesteps
-        dataset = self.require_dataset(
-            constants.DS_NAME_TIMESTEPS,
-            shape=(step + 1,),
-            dtype=np.float64,
-            chunks=True,
-            maxshape=(None,),
-            fillvalue=np.nan,
-        )
+        def _write_instruction():
+            # require the dataset for the timesteps
+            dataset = self.require_dataset(
+                constants.DS_NAME_TIMESTEPS,
+                shape=(step + 1,),
+                dtype=np.float64,
+                chunks=True,
+                maxshape=(None,),
+                fillvalue=np.nan,
+            )
 
-        # resize the dataset and store the time
-        new_size = max(step + 1, dataset.shape[0])
-        log.debug(f"Resizing dataset {dataset.name} to {new_size}")
-        dataset.resize(new_size, axis=0)
+            # resize the dataset and store the time
+            new_size = max(step + 1, dataset.shape[0])
+            log.debug(f"Resizing dataset {dataset.name} to {new_size}")
+            dataset.resize(new_size, axis=0)
 
-        log.debug(f"Storing timestep {time} for step {step}")
-        dataset[step] = time
+            log.debug(f"Storing timestep {time} for step {step}")
+            dataset[step] = time
+
+        self.post_write_instruction(_write_instruction)
 
     def create_xdmf(
         self,
@@ -114,7 +127,7 @@ class GroupData(Group[_MT]):
 
         fields = self.fields[field_names] if field_names else self.fields[()]
         filename = filename or self._simulation.path.joinpath(constants.XDMF_FILE_NAME)
-        timesteps = timesteps or self.timesteps
+        timesteps = timesteps or self.values
 
         def _create_xdmf():
             xdmf = XDMFWriter(self._file)
@@ -127,13 +140,19 @@ class GroupData(Group[_MT]):
 
 
 class StepWriter(H5Object[Mutable]):
-    def __init__(self, data_group: GroupData[Mutable], step: int):
-        super().__init__(data_group._file)
-        self._data_group = data_group
-        self._step = step
+    """A class to write data for a specific step in a series.
 
-        self.fields = data_group.fields
-        self.scalars = data_group.scalars
+    Args:
+        series: The series to which the step belongs.
+        step: The step number.
+    """
+
+    def __init__(self, series: Series[Mutable], step: int):
+        super().__init__(series._file)
+        self._series = series
+        """The series to which the step belongs."""
+        self._step = step
+        """The step number."""
 
     def add_field(
         self,
@@ -143,7 +162,16 @@ class StepWriter(H5Object[Mutable]):
         mesh_name: str = DEFAULT_MESH_NAME,
         field_type: FieldType = FieldType.NODE,
     ) -> None:
-        field = self.fields[name]
+        """Add a field to the step.
+
+        Args:
+            name: The name of the field.
+            data: The data for the field.
+            mesh_name: The name of the mesh to which the field belongs.
+            field_type: The type of the field (default: FieldType.NODE). This is only
+                relevant for XDMF writing.
+        """
+        field = self._series.fields[name]
         field.require_self()
         field.add_numerical_dataset(
             str(self._step),
@@ -159,13 +187,33 @@ class StepWriter(H5Object[Mutable]):
         mesh_name: str = DEFAULT_MESH_NAME,
         field_type: FieldType = FieldType.NODE,
     ) -> None:
-        for name, data in fields.items():
-            self.add_field(name, data, mesh_name=mesh_name, field_type=field_type)
+        """Add multiple fields to the step.
+
+        Args:
+            fields: A dictionary of field names and their data.
+            mesh_name: The name of the mesh to which the fields belong.
+            field_type: The type of the fields (default: FieldType.NODE). This is only
+                relevant for XDMF writing.
+        """
+        with self._file.open(FileMode.APPEND, driver="mpio"):
+            for name, data in fields.items():
+                self.add_field(name, data, mesh_name=mesh_name, field_type=field_type)
 
     def add_scalar(self, name: str, data: Union[int, float, Iterable]) -> None:
+        """Add a scalar to the step. Scalar data is typically a single value or a small
+        array. The shape must be consistent across all steps.
+
+        Args:
+            name: The name of the scalar.
+            data: The data for the scalar.
+
+        Raises:
+            ValueError: If the shape of the data is not consistent with the existing data.
+        """
+
         @dataclass
         class AddScalarInstruction(WriteInstruction):
-            group: GroupData
+            group: Series
             name: str
             data_arr: np.ndarray
             step: int
@@ -184,19 +232,27 @@ class StepWriter(H5Object[Mutable]):
                 dataset[self.step] = self.data_arr
 
         self.post_write_instruction(
-            AddScalarInstruction(self._data_group, name, np.array(data), self._step)
+            AddScalarInstruction(self._series, name, np.array(data), self._step)
         )
 
     def add_scalars(self, scalars: dict[str, Union[int, float, Iterable]]) -> None:
-        for name, data in scalars.items():
-            self.add_scalar(name, data)
+        """Add multiple scalars to the step. See `add_scalar` for more information.
+
+        Args:
+            scalars: A dictionary of scalar names and their data.
+        """
+        with self.suspend_immediate_write():
+            for name, data in scalars.items():
+                self.add_scalar(name, data)
+
+        self._file.single_process_queue.apply()
 
 
 class GroupFieldData(Group[_MT]):
-    def __init__(self, data_group: GroupData[_MT]):
-        super().__init__(PATH_FIELD_DATA, data_group._file)
+    def __init__(self, series: Series[_MT]):
+        super().__init__(PATH_FIELD_DATA, series._file)
 
-        self._data_group = data_group
+        self._series = series
         self._field_instances: dict[str, FieldData[_MT]] = {}
 
     @overload
@@ -217,7 +273,7 @@ class GroupFieldData(Group[_MT]):
 
 
 class FieldData(Group[_MT]):
-    _field: GroupFieldData[_MT]
+    _parent: GroupFieldData[_MT]
     name: str
 
     def __new__(cls, field: GroupFieldData[_MT], name: str):
@@ -228,7 +284,7 @@ class FieldData(Group[_MT]):
             super(FieldData, instance).__init__(
                 HDF5Path(PATH_FIELD_DATA).joinpath(name), field._file
             )
-            instance._field = field
+            instance._parent = field
             instance.name = name
 
             # Store the instance and return
@@ -243,6 +299,9 @@ class FieldData(Group[_MT]):
     def __getitem__(
         self, key: Union[int, slice, tuple[slice | int, ...]]
     ) -> np.ndarray:
+        """Get data of the field for a specific step or steps using standard slice
+        notation. First index is the step number.
+        """
         if isinstance(key, Iterable):
             step = key[0]
             rest = key[1:]
@@ -257,26 +316,26 @@ class FieldData(Group[_MT]):
                     return self._obj[str(step_positive)][rest]  # type: ignore
                 except KeyError:
                     raise IndexError(
-                        f"Index ({step_positive}) out of range for (0-{self._field._data_group.last_step})"
+                        f"Index ({step_positive}) out of range for (0-{self._parent._series.last_step})"
                     )
             else:
                 return np.array([self._obj[i][rest] for i in self._slice_step(step)])  # type: ignore
 
     def _handle_negative_index(self, index: int) -> int:
         if index < 0:
-            return (self._field._data_group.last_step or 0) + index + 1
+            return (self._parent._series.last_step or 0) + index + 1
         return index
 
     def _slice_step(self, step: slice) -> list[str]:
         indices = [
             str(i)
-            for i in range(*step.indices((self._field._data_group.last_step or 0) + 1))
+            for i in range(*step.indices((self._parent._series.last_step or 0) + 1))
         ]
         return indices
 
 
 class GroupScalarData(Group[_MT]):
-    def __init__(self, data_group: GroupData[_MT]):
+    def __init__(self, data_group: Series[_MT]):
         super().__init__(PATH_SCALAR_DATA, data_group._file)
 
     def __getitem__(self, key: str) -> Dataset[_MT]:

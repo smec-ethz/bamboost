@@ -37,10 +37,10 @@ from bamboost.core.hdf5.file import (
 from bamboost.core.hdf5.ref import Group
 from bamboost.core.simulation.dict import Links, Metadata, Parameters
 from bamboost.core.simulation.groups import (
-    GroupData,
     GroupGit,
     GroupMesh,
     GroupMeshes,
+    Series,
 )
 from bamboost.index import (
     CollectionUID,
@@ -252,8 +252,8 @@ class _Simulation(ABC, Generic[_MT]):
         return GroupGit(self)
 
     @cached_property
-    def data(self) -> GroupData[_MT]:
-        return GroupData(self)
+    def data(self) -> Series[_MT]:
+        return Series(self)
 
     @cached_property
     def meshes(self) -> GroupMeshes[_MT]:
@@ -360,6 +360,8 @@ class SimulationWriter(_Simulation[Mutable]):
     def description(self, value: str) -> None:
         self.metadata.__setitem__("description", value)
 
+    def create_series(self, path: str) -> Series[Mutable]:
+        return Series(self, path=path)
 
     def copy_files(self, files: Iterable[StrPath]) -> None:
         """Copy files to the simulation folder.

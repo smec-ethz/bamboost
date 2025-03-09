@@ -58,12 +58,14 @@ from __future__ import annotations
 import time
 from abc import ABC
 from collections import deque
+from contextlib import contextmanager
 from enum import Enum
 from functools import total_ordering, wraps
 from pathlib import Path
 from typing import (
     TYPE_CHECKING,
     Callable,
+    Generator,
     Generic,
     Literal,
     Optional,
@@ -207,6 +209,15 @@ class H5Object(Generic[_MT]):
 
         self._file.single_process_queue.add_instruction(instruction)
 
+    @contextmanager
+    def suspend_immediate_write(self) -> Generator[None, None, None]:
+        """Context manager to suspend immediate write operations. Patches
+        self._file.available_for_single_process_write to return False."""
+        original_method = self._file.available_for_single_process_write
+        self._file.available_for_single_process_write = lambda: False
+        yield
+        self._file.available_for_single_process_write = original_method
+
 
 _T_H5Object = TypeVar("_T_H5Object", bound=H5Object)
 
@@ -238,6 +249,7 @@ class SingleProcessQueue(deque[Callable[[], None]], metaclass=RootProcessMeta):
         instruction()
 
     def apply(self) -> None:
+        """Applies all write instructions in the queue."""
         if not self:
             log.debug("SingleProcessQueue is empty")
             return
