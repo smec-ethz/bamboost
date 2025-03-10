@@ -4,6 +4,7 @@ from unittest.mock import patch
 import h5py
 import pytest
 
+from bamboost._typing import Mutable
 from bamboost.core.hdf5 import HDF5File, HDF5Path
 from bamboost.core.hdf5.filemap import FileMap, FilteredFileMap
 
@@ -163,7 +164,6 @@ def test_filtered_filemap(filemap: FileMap):
     "name, mutable",
     [
         ("test.h5", True),
-        (".test.h5", False),
         ("....++.h5", True),  # aweful names are not forbidden
     ],
 )
@@ -177,18 +177,26 @@ def test_hdf5_file_init(tmp_path: Path, name: str, mutable: bool):
     assert f.mutable == mutable
 
 
+def test_hdf5_file_init_error(tmp_path: Path):
+    """Test that we immediately raise an exception if the file is immutable and does not exist."""
+    with pytest.raises(FileNotFoundError):
+        HDF5File(tmp_path.joinpath("not_existing.h5"), mutable=False)
+
+
 def test_hdf5_file_open(hdf5_file: HDF5File):
     with hdf5_file.open("w") as f:
         assert f.file.mode == "r+"
         assert f.file.id.valid
 
 
-def test_hdf5_file_mutability(tmp_path: Path):
-    # create an immutable file
-    f = HDF5File(tmp_path.joinpath("test.h5"), mutable=False)
+def test_hdf5_file_mutability(hdf5_file: HDF5File[Mutable]):
+    hdf5_file._create_file()
+
+    # create an immutable file object and try to open it
+    f_immutable = HDF5File(hdf5_file._path, mutable=False)
+
     with pytest.raises(PermissionError):
-        with f.open("w"):
-            pass
+        f_immutable.open("w")
 
 
 def test_hdf5_file_context(hdf5_file: HDF5File):

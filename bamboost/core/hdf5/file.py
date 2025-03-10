@@ -315,6 +315,11 @@ class HDF5File(h5py.File, Generic[_MT]):
         self.file_map = FileMap(self)
         self.mutable = mutable
 
+        # if the file is immutable, we immediately check if it exists.
+        # if it doesn't, we raise an exception
+        if not mutable and not self._path.exists():
+            raise FileNotFoundError(f"File {self._filename} does not exist.")
+
     def __repr__(self) -> str:
         mode_info = self.mode if self.is_open else "proxy"
         status = "open" if self.is_open else "closed"
@@ -322,6 +327,12 @@ class HDF5File(h5py.File, Generic[_MT]):
         return (
             f'<{mutability} HDF5 file "{self._filename}" (mode {mode_info}, {status})>'
         )
+
+    def _create_file(self: HDF5File[Mutable]) -> HDF5File[Mutable]:
+        """Opens and closes the file to create it while doing nothing to it."""
+        with self.open("a"):
+            pass
+        return self
 
     @overload
     def open(
@@ -362,6 +373,7 @@ class HDF5File(h5py.File, Generic[_MT]):
 
         Raises:
             BlockingIOError: If the file is locked (handled internally with retries).
+            FileNotFoundError: If the file does not exist and you're trying to open it read-only.
         """
         mode = FileMode(mode)
 

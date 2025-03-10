@@ -21,6 +21,7 @@ Classes:
 from __future__ import annotations
 
 import pkgutil
+from enum import IntEnum
 from functools import cached_property
 from pathlib import Path
 from typing import (
@@ -68,8 +69,14 @@ class InvalidReferenceError(KeyError):
         super().__init__(f"Object {path} not found in file {filename}")
 
 
+class RefStatus(IntEnum):
+    INVALID = 0
+    VALID = 1
+    NOT_CHECKED = 2
+
+
 class H5Reference(H5Object[_MT]):
-    _valid: bool = False
+    _status: RefStatus = RefStatus.NOT_CHECKED
 
     def __init__(self, path: str, file: HDF5File[_MT]):
         self._file = file
@@ -77,14 +84,17 @@ class H5Reference(H5Object[_MT]):
 
         # We validate the existance of the object in the file by first, checking the file
         # map (avoiding a file operation), and if it is not there, we check the file.
-        if self._path in file.file_map:
-            self._valid = True
-        else:
-            with file.open(FileMode.READ):
-                self._valid = self._is_valid()
+        if self._path in self._file.file_map:
+            self._status = RefStatus.VALID
+            return
 
-        if (not self._file.mutable) and (not self._valid):
-            raise InvalidReferenceError(self._path, file._filename)
+        # If we deal with an immutable file, we can't create a new reference.
+        # We decide to immediately check the validity of the reference and raise an
+        # Exception if it is invalid.
+        if not self._file.mutable:
+            if not self._is_valid():
+                raise InvalidReferenceError(self._path, self._file._filename)
+            self._status = RefStatus.VALID
 
     @property
     def _obj(self) -> Union[h5py.Group, h5py.Dataset, h5py.Datatype]:
@@ -95,7 +105,7 @@ class H5Reference(H5Object[_MT]):
                 If the file is not open. Or if the object at the path does not exist.
         """
         _obj = self._file[self._path]
-        self._valid = True
+        self._status = RefStatus.VALID
         return _obj
 
     @with_file_open(FileMode.READ)
@@ -108,11 +118,11 @@ class H5Reference(H5Object[_MT]):
 
     def __repr__(self) -> str:
         valid_str = (
-            "validity not checked"
-            if self._valid is None
-            else "valid"
-            if self._valid
-            else "invalid"
+            "NOT_CHECKED"
+            if self._status == RefStatus.NOT_CHECKED
+            else "VALID"
+            if self._status == RefStatus.VALID
+            else "INVALID"
         )
         return f'<HDF5 {type(self).__name__} "{self._path}" ({valid_str}, file {self._file._filename})>'
 
@@ -179,6 +189,15 @@ class Group(H5Reference[_MT]):
         # Create a subset view of the file map with all objects
         self._group_map = FilteredFileMap(file.file_map, path)
 
+        # In addition to the base class, we test if the object is not a group
+        # first check by file map, fallback: check with file operation
+        # Try except for edge case where the file is not created yet.
+        try:
+            _valid = (file.file_map.get(self._path) is h5py.Group) or self._is_valid()
+        except FileNotFoundError:
+            _valid = True
+        self._status = RefStatus(_valid)
+
     @mutable_only
     def __setitem__(self: Group[Mutable], key, newvalue):
         """Used to set an attribute.
@@ -211,6 +230,14 @@ class Group(H5Reference[_MT]):
             raise ValueError(f"Object {self._path} is not a group")
         return _obj
 
+    @with_file_open(FileMode.READ)
+    def _is_valid(self):
+        try:
+            obj = self._obj
+            return isinstance(obj, h5py.Group)
+        except KeyError:
+            return False
+
     def __iter__(self):
         for key in self.keys():
             yield self.__getitem__(key)
@@ -226,11 +253,11 @@ class Group(H5Reference[_MT]):
 
     def groups(self):
         self._assert_file_map_is_valid()
-        return self._group_map.groups()
+        return self._group_map.children_groups()
 
     def datasets(self):
         self._assert_file_map_is_valid()
-        return self._group_map.datasets()
+        return self._group_map.children_datasets()
 
     def items(
         self,
@@ -238,9 +265,13 @@ class Group(H5Reference[_MT]):
         filter: Optional[Literal["groups", "datasets"]] = None,
     ) -> Generator[Tuple[str, Union[Group[_MT], Dataset[_MT]]], None, None]:
         if filter:
-            keys = self.groups() if filter == "groups" else self.datasets()
+            keys = (
+                self._group_map.children_groups()
+                if filter == "groups"
+                else self._group_map.children_datasets()
+            )
         else:
-            keys = self.keys()
+            keys = self._group_map.children()
 
         for key in keys:
             yield key, self.__getitem__(key)
@@ -252,10 +283,10 @@ class Group(H5Reference[_MT]):
         try:
             _obj = self._obj
         except ValueError:
-            self._valid = False
+            self._status = RefStatus.INVALID
             return f"Invalid HDF5 object: <b>{self._path}</b> is not a group"
         except KeyError:
-            self._valid = False
+            self._status = RefStatus.INVALID
             return f"Invalid HDF5 object: <b>{self._path}</b> not found in file"
 
         from jinja2 import Template
@@ -292,7 +323,7 @@ class Group(H5Reference[_MT]):
         """Create the group if it doesn't exist yet."""
         self._file.require_group(self._path)
         self._file.file_map[self._path] = h5py.Group
-        self._valid = True
+        self._status = RefStatus.VALID
 
     @overload
     def require_group(
@@ -394,22 +425,6 @@ class Group(H5Reference[_MT]):
 
         # update file_map
         self._group_map[name] = h5py.Dataset
-
-
-class MutableGroup(Group[Mutable]):
-    @overload
-    def __getitem__(self, key: str): ...
-    @overload
-    def __getitem__(self, key: tuple[str, Type[_RT_group]]) -> _RT_group: ...
-    @with_file_open(FileMode.READ)
-    def __getitem__(self, key):
-        """Used to access datasets (:class:`~bamboost.common.hdf_pointer.Dataset`)
-        or groups inside this group (:class:`~bamboost.common.hdf_pointer.MutableGroup`)
-        """
-        if key in self.attrs:
-            return self.attrs[key]
-
-        return super().__getitem__(key)
 
 
 class Dataset(H5Reference[_MT]):

@@ -1,8 +1,7 @@
 from __future__ import annotations
 
 from collections.abc import ItemsView, KeysView, Mapping, MutableMapping
-from pathlib import Path
-from typing import TYPE_CHECKING, Iterator, Type, Union
+from typing import TYPE_CHECKING, Callable, Generator, Iterator, Type, Union
 
 import h5py
 
@@ -21,14 +20,9 @@ class KeysViewHDF5(KeysView):
     __repr__ = __str__
 
 
-class _FileMapMixin(Mapping[str, _VT_filemap]):
+class _FileMapMixin(Mapping[HDF5Path, _VT_filemap]):
     def keys(self) -> KeysViewHDF5:
         return KeysViewHDF5(self)
-
-    def items(self, all: bool = False) -> ItemsView[str, _VT_filemap]:
-        if not all:
-            return ItemsView({k: v for k, v in super().items() if "/" not in k})
-        return super().items()
 
     def datasets(self) -> tuple[str, ...]:
         return tuple(k for k, v in self.items() if v is h5py.Dataset)
@@ -46,7 +40,7 @@ class _FileMapMixin(Mapping[str, _VT_filemap]):
         return f"{type(self).__name__}({dict(self)})"
 
 
-class FileMap(MutableMapping[str, _VT_filemap], _FileMapMixin):
+class FileMap(MutableMapping[HDF5Path, _VT_filemap], _FileMapMixin):
     _valid: bool
 
     def __init__(self, file: HDF5File):
@@ -86,13 +80,20 @@ class FileMap(MutableMapping[str, _VT_filemap], _FileMapMixin):
         self.valid = False
 
 
-class FilteredFileMap(MutableMapping[str, _VT_filemap], _FileMapMixin):
+class FilteredFileMap(MutableMapping[HDF5Path, _VT_filemap], _FileMapMixin):
     def __init__(self, file_map: FileMap, parent: str) -> None:
         self.parent = HDF5Path(parent)
         self.file_map = file_map
-        self.valid = self.file_map.valid
 
-    def __getitem__(self, key, /):
+    @property
+    def valid(self) -> bool:
+        return self.file_map.valid
+
+    @valid.setter
+    def valid(self, value: bool) -> None:
+        self.file_map.valid = value
+
+    def __getitem__(self, key: str, /):
         return self.file_map[self.parent.joinpath(key)]
 
     def __setitem__(self, key: str, value):
@@ -100,6 +101,15 @@ class FilteredFileMap(MutableMapping[str, _VT_filemap], _FileMapMixin):
 
     def __delitem__(self, key):
         del self.file_map[self.parent.joinpath(key)]
+
+    def children(self) -> Iterator[HDF5Path]:
+        return filter(lambda path: "/" not in path, self)
+
+    def children_groups(self) -> Iterator[HDF5Path]:
+        return filter(lambda path: self[path] is h5py.Group, self.children())
+
+    def children_datasets(self) -> Iterator[HDF5Path]:
+        return filter(lambda path: self[path] is h5py.Dataset, self.children())
 
     def __iter__(self):
         return map(

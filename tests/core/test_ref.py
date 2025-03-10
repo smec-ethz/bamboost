@@ -4,8 +4,9 @@ import h5py
 import numpy as np
 import pytest
 
+from bamboost._typing import Mutable
 from bamboost.core.hdf5.file import HDF5File
-from bamboost.core.hdf5.ref import Dataset, Group, H5Reference
+from bamboost.core.hdf5.ref import Dataset, Group, H5Reference, RefStatus
 
 DATASET1_DATA = np.array([1, 2, 3])
 DATASET2_DATA = np.array([4.2, 5.1, 6.0])
@@ -32,6 +33,8 @@ def hdf5_file_populated(tmp_path_module):
         grp2.create_dataset("dataset2", data=DATASET2_DATA)
         grp2.create_group("group3")
 
+    file.file_map.invalidate()
+
     return file
 
 
@@ -44,9 +47,8 @@ def test_h5ref_init(hdf5_file):
 def test_h5ref_obj(hdf5_file_populated: HDF5File):
     ref = H5Reference("/group1", hdf5_file_populated)
     with ref.open("r"):
-        obj = ref._obj
-        assert isinstance(obj, h5py.Group)
-        assert ref._valid is True
+        assert isinstance(ref._obj, h5py.Group)
+        assert ref._status == RefStatus.VALID
 
 
 def test_h5ref_obj_error_file_not_open(hdf5_file_populated: HDF5File):
@@ -218,12 +220,11 @@ def test_group_delitem_array(group: Group, value):
         assert "data" not in group.keys()
 
 
-def test_group_obj_error(hdf5_file_populated: HDF5File):
+def test_group_obj_error(hdf5_file_populated: HDF5File[Mutable]):
     """test that an error is raised when trying to access group object when its not a group"""
-    group = Group("/dataset1", hdf5_file_populated)
     with pytest.raises(ValueError):
-        with group.open("r"):
-            group._obj
+        group = Group("/dataset1", hdf5_file_populated)
+        print(group)
 
 
 def test_group_keys(tmp_path):
