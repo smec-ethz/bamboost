@@ -174,6 +174,14 @@ class AttrsDict(H5Object[_MT], Mapping):
             lambda: self._obj.attrs.__setitem__(key, AttrsEncoder.encode(value))
         )
 
+    set = __setitem__
+    """Set an attribute. This method is a an alias for `__setitem__`.
+
+    Args:
+        key: attribute name
+        value: attribute value
+    """
+
     @mutable_only
     def __delitem__(self: AttrsDict[Mutable], key: str) -> None:
         del self._dict[key]

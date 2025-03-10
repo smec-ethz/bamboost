@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from pathlib import PurePosixPath
-from typing import Union
+from typing import Generator, Union
 
 
 class HDF5Path(str):
@@ -28,9 +28,19 @@ class HDF5Path(str):
         return HDF5Path(self.rsplit("/", 1)[0] or "/")
 
     @property
+    def parents(self) -> Generator[HDF5Path, None, None]:
+        current = self
+        while current != "/":
+            current = current.parent
+            yield current
+
+    @property
     def basename(self) -> str:
         return self.rsplit("/", 1)[-1]
 
     @property
     def path(self) -> PurePosixPath:
         return PurePosixPath(self)
+
+    def is_child_of(self, other: HDF5Path) -> bool:
+        return other in self.parents

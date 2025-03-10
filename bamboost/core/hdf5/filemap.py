@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from collections.abc import ItemsView, KeysView, Mapping, MutableMapping
+from pathlib import Path
 from typing import TYPE_CHECKING, Iterator, Type, Union
 
 import h5py
@@ -101,7 +102,7 @@ class FilteredFileMap(MutableMapping[str, _VT_filemap], _FileMapMixin):
         return map(
             lambda x: HDF5Path(x).relative_to(self.parent),
             filter(
-                lambda x: x.startswith(self.parent) and not x == self.parent,
+                lambda x: HDF5Path(x).is_child_of(self.parent),
                 self.file_map,
             ),
         )
