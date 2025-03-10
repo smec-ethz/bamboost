@@ -63,17 +63,28 @@ MPI_ACTIVE = "mpio" in h5py.registered_drivers() and h5py.get_config().mpi and M
 _RT_group = TypeVar("_RT_group", bound=Union["Group", "Dataset"])
 
 
+class InvalidReferenceError(KeyError):
+    def __init__(self, path: HDF5Path, filename: str):
+        super().__init__(f"Object {path} not found in file {filename}")
+
+
 class H5Reference(H5Object[_MT]):
-    _valid: bool | None = None
+    _valid: bool = False
 
     def __init__(self, path: str, file: HDF5File[_MT]):
         self._file = file
         self._path = HDF5Path(path)
 
-        # if the file is open, we check if the object exists
-        # Otherwise, we assume it exists and check when the file is opened
-        if file.is_open:
-            self._valid = self._path in file
+        # We validate the existance of the object in the file by first, checking the file
+        # map (avoiding a file operation), and if it is not there, we check the file.
+        if self._path in file.file_map:
+            self._valid = True
+        else:
+            with file.open(FileMode.READ):
+                self._valid = self._is_valid()
+
+        if (not self._file.mutable) and (not self._valid):
+            raise InvalidReferenceError(self._path, file._filename)
 
     @property
     def _obj(self) -> Union[h5py.Group, h5py.Dataset, h5py.Datatype]:
@@ -81,15 +92,23 @@ class H5Reference(H5Object[_MT]):
 
         Raises:
             KeyError: 'Unable to synchronously open object (invalid identifier type to function)'
-                If the file is not open.
+                If the file is not open. Or if the object at the path does not exist.
         """
         _obj = self._file[self._path]
         self._valid = True
         return _obj
 
+    @with_file_open(FileMode.READ)
+    def _is_valid(self):
+        try:
+            _ = self._obj
+            return True
+        except KeyError:
+            return False
+
     def __repr__(self) -> str:
         valid_str = (
-            "not checked"
+            "validity not checked"
             if self._valid is None
             else "valid"
             if self._valid
@@ -179,6 +198,9 @@ class Group(H5Reference[_MT]):
         else:
             self._file.delete_object(self._path / key)
 
+    def __contains__(self, key: str) -> bool:
+        return key in self._group_map
+
     def _ipython_key_completions_(self):
         return self.keys()
 
@@ -238,7 +260,7 @@ class Group(H5Reference[_MT]):
 
         from jinja2 import Template
 
-        attrs = dict(_obj.attrs)
+        attrs = self.attrs
         groups = {key: len(_obj[self._path / key]) for key in self.groups()}  # type: ignore
         datasets = {
             key: (_obj[self._path / key].dtype, _obj[self._path / key].shape)  # type: ignore
@@ -270,6 +292,7 @@ class Group(H5Reference[_MT]):
         """Create the group if it doesn't exist yet."""
         self._file.require_group(self._path)
         self._file.file_map[self._path] = h5py.Group
+        self._valid = True
 
     @overload
     def require_group(

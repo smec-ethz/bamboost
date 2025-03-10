@@ -34,6 +34,7 @@ from bamboost.core.hdf5.file import (
     FileMode,
     HDF5File,
 )
+from bamboost.core.hdf5.hdf5path import HDF5Path
 from bamboost.core.hdf5.ref import Group
 from bamboost.core.simulation.dict import Links, Metadata, Parameters
 from bamboost.core.simulation.groups import (
@@ -124,16 +125,6 @@ class _Simulation(ABC, Generic[_MT]):
         FileNotFoundError: If the simulation doesn't exist.
     """
 
-    class SeriesPicker:
-        def __init__(self, simulation: _Simulation[_MT]):
-            self._simulation = simulation
-
-        def __getitem__(self, key) -> Series[_MT]:
-            return Series(self._simulation, path=key)
-
-        def _ipython_key_completions_(self):
-            return self._simulation.metadata.get(".series_list", [])
-
     _repr_html_ = reprs.simulation_html_repr
 
     def __init__(
@@ -170,17 +161,20 @@ class _Simulation(ABC, Generic[_MT]):
         self._xdmf_file: Path = self.path.joinpath(constants.XDMF_FILE_NAME)
         self._bash_file: Path = self.path.joinpath(constants.RUN_FILE_NAME)
 
-        # series picker
-        self.series = self.SeriesPicker(self)
-        """Use square brackets to access series in the simulation. Should autocomplete in
-        IPython."""
+        # self.root = Group("/", self._file)
+        # """Access to HDF5 file root group."""
 
-        self.root = Group("/", self._file)
-        """Access to HDF5 file root group."""
+    @cached_property
+    def root(self) -> Group[_MT]:
+        return Group("/", self._file)
 
     @property
     @abstractmethod
     def _file(self) -> HDF5File[_MT]: ...
+
+    @property
+    def mutable(self) -> bool:
+        return self._file.mutable
 
     @classmethod
     def from_uid(cls, uid: str, **kwargs) -> Self:
@@ -266,7 +260,7 @@ class _Simulation(ABC, Generic[_MT]):
     @cached_property
     def data(self) -> Series[_MT]:
         """Return the default data series."""
-        return Series(self)
+        return Series(self, path=constants.PATH_DATA)
 
     @cached_property
     def meshes(self) -> GroupMeshes[_MT]:
@@ -307,6 +301,14 @@ class _Simulation(ABC, Generic[_MT]):
             yield
         finally:
             os.chdir(current_dir)
+
+    def require_series(self, path: str) -> Series[_MT]:
+        """Return a series object for the given path.
+
+        Args:
+            path: path to the series
+        """
+        return Series(self, path=path)
 
 
 class Simulation(_Simulation[Immutable]):
@@ -357,11 +359,29 @@ class SimulationWriter(_Simulation[Mutable]):
             # create groups
             f.create_group(constants.PATH_PARAMETERS)
             f.create_group(constants.PATH_LINKS)
-            f.create_group(constants.PATH_USERDATA)
-            f.create_group(constants.PATH_DATA)
             f.create_group(constants.PATH_MESH)
 
+            # create default series ('data')
+            self._initialize_series(constants.PATH_DATA)
+
         self._comm.barrier()
+
+    def _initialize_series(self, path: str) -> None:
+        """Create the groups for a series. Does not manage file state.
+
+        Args:
+            path: path of the series
+        """
+        # add series to metadata for easier retrieval
+        all_series = set(self.metadata.get(".series_paths", []))
+        all_series.add(str(path))
+        self.metadata.set(".series_paths", list(all_series))
+
+        f = self._file
+        grp = f.require_group(path)
+        grp.attrs[".series"] = True
+        grp.require_group(constants.RELATIVE_PATH_FIELD_DATA)
+        grp.require_group(constants.RELATIVE_PATH_SCALAR_DATA)
 
     @_Simulation.status.setter
     def status(self, value: Union[StatusInfo, Status]) -> None:
@@ -371,8 +391,12 @@ class SimulationWriter(_Simulation[Mutable]):
     def description(self, value: str) -> None:
         self.metadata.__setitem__("description", value)
 
-    def create_series(self, path: str) -> Series[Mutable]:
-        return Series(self, path=path)
+    def require_series(self, path: str) -> Series[Mutable]:
+        # require the group in the HDF5 file
+        with self._file.open(FileMode.APPEND, driver="mpio"):
+            if not path in self.root.keys():
+                self._initialize_series(path)
+        return super().require_series(path)
 
     def copy_files(self, files: Iterable[StrPath]) -> None:
         """Copy files to the simulation folder.

@@ -217,6 +217,8 @@ class H5Object(Generic[_MT]):
         self._file.available_for_single_process_write = lambda: False
         yield
         self._file.available_for_single_process_write = original_method
+        # apply the queue now
+        self._file.single_process_queue.apply()
 
 
 _T_H5Object = TypeVar("_T_H5Object", bound=H5Object)

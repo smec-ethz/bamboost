@@ -30,7 +30,7 @@ from bamboost.core.hdf5.file import (
     WriteInstruction,
     mutable_only,
 )
-from bamboost.core.hdf5.ref import Dataset, Group
+from bamboost.core.hdf5.ref import Dataset, Group, H5Reference
 from bamboost.core.simulation import CellType, FieldType
 
 if TYPE_CHECKING:
@@ -41,27 +41,20 @@ if TYPE_CHECKING:
 log = BAMBOOST_LOGGER.getChild(__name__)
 
 
-class Series(Group[_MT]):
-    def __init__(self, simulation: _Simulation[_MT], *, path: str = PATH_DATA):
-        super().__init__(path, simulation._file)
-        self._simulation = simulation
-        self._field_instances: dict[str, FieldData[_MT]] = {}
+class NotASeriesError(ValueError):
+    def __init__(self, obj: H5Reference):
+        super().__init__(f"Path {obj._path} exists, but is not a Series.")
 
-    @overload
-    def __getitem__(self, key: tuple[()]) -> list[FieldData[_MT]]: ...
-    @overload
-    def __getitem__(
-        self, key: Union[list[str], tuple[str], set[str]]
-    ) -> list[FieldData[_MT]]: ...
-    @overload
-    def __getitem__(self, key: str) -> FieldData[_MT]: ...
-    def __getitem__(self, key):
-        if isinstance(key, str):
-            return FieldData(self, key)
-        if isinstance(key, tuple) and len(key) == 0:
-            return [FieldData(self, k) for k in self.keys()]
-        # else the key is a iterable of strings
-        return [FieldData(self, k) for k in key]
+
+class Series(Group[_MT]):
+    def __init__(self, simulation: _Simulation[_MT], path: str = PATH_DATA):
+        super().__init__(path, simulation._file)
+
+        # if this is not tagged a series, we raise an error
+        if not self.attrs.get(".series"):
+            raise NotASeriesError(self)
+
+        self._simulation = simulation
 
     @override
     def _ipython_key_completions_(self):
@@ -69,20 +62,26 @@ class Series(Group[_MT]):
 
     @property
     def last_step(self) -> Union[int, None]:
-        # return self.attrs.get("last_step", -1)
-        try:
-            return (
-                super().__getitem__((constants.DS_NAME_TIMESTEPS, Dataset)).shape[0] - 1
-            )
-        except KeyError:
-            return None
+        if not hasattr(self, "_last_step"):
+            try:
+                self._last_step = (
+                    super().__getitem__((constants.DS_NAME_TIMESTEPS, Dataset)).shape[0]
+                    - 1
+                )
+            except KeyError:
+                self._last_step = None
+        return self._last_step
+
+    @last_step.setter
+    def last_step(self, value: int):
+        self._last_step = value
 
     @cached_property
     def fields(self) -> GroupFieldData[_MT]:
         return GroupFieldData(self)
 
     @cached_property
-    def scalars(self) -> GroupScalarData[_MT]:
+    def globals(self) -> GroupScalarData[_MT]:
         return GroupScalarData(self)
 
     @property
@@ -92,7 +91,7 @@ class Series(Group[_MT]):
         return self[constants.DS_NAME_TIMESTEPS][:]
 
     @mutable_only
-    def create_step(
+    def require_step(
         self: Series[Mutable],
         value: float = np.nan,
         step: Optional[int] = None,
@@ -103,19 +102,15 @@ class Series(Group[_MT]):
             value: The value of the step. This is typically the time value.
             step: The step number. If not given, a step is appended after the last one.
         """
-        # add the series to the list of series in the simulation metadata
-        _all_existing_series = self._simulation.metadata.get(".series_list", set())
-        _all_existing_series.add(self._path)
-        self._simulation.metadata[".series_list"] = _all_existing_series
-
-        # make sure the group exists in the file
-        self.require_self()
-
         if step is None:
             step = self.last_step + 1 if self.last_step is not None else 0
 
         # store the timestep if given
-        self._store_value(step, value)
+        with self.suspend_immediate_write():
+            self._store_value(step, value)
+            self.last_step = step
+
+        # wait for root process to finish writing
         self._file._comm.barrier()
 
         return StepWriter(self, step)
@@ -199,7 +194,7 @@ class StepWriter(H5Object[Mutable]):
             field_type: The type of the field (default: FieldType.NODE). This is only
                 relevant for XDMF writing.
         """
-        field = self._series[name]
+        field = self._series.fields[name]
         field.require_self()
         field.add_numerical_dataset(
             str(self._step),
@@ -248,13 +243,13 @@ class StepWriter(H5Object[Mutable]):
 
             def __call__(self):
                 log.debug(f"Adding scalar {self.name} for step {self.step}")
-                dataset = self.group.scalars.require_dataset(
+                dataset = self.group.globals.require_dataset(
                     self.name,
                     shape=(1, *self.data_arr.shape),
-                    dtype=self.data_arr.dtype,
+                    dtype=float,
                     maxshape=(None, *self.data_arr.shape),
                     chunks=True,
-                    fillvalue=np.full_like(self.data_arr, np.nan),
+                    fillvalue=np.nan,
                 )
                 dataset.resize(self.step + 1, axis=0)
                 dataset[self.step] = self.data_arr
@@ -279,7 +274,6 @@ class StepWriter(H5Object[Mutable]):
 class GroupFieldData(Group[_MT]):
     def __init__(self, series: Series[_MT]):
         super().__init__(series._path.joinpath(RELATIVE_PATH_FIELD_DATA), series._file)
-        print(self._path)
 
         self._series = series
         self._field_instances: dict[str, FieldData[_MT]] = {}
@@ -302,10 +296,10 @@ class GroupFieldData(Group[_MT]):
 
 
 class FieldData(Group[_MT]):
-    _parent: Series[_MT]
+    _parent: GroupFieldData[_MT]
     name: str
 
-    def __new__(cls, field: Series[_MT], name: str):
+    def __new__(cls, field: GroupFieldData[_MT], name: str):
         if name not in field._field_instances:
             instance = super().__new__(cls)
 
@@ -319,7 +313,7 @@ class FieldData(Group[_MT]):
 
         return field._field_instances[name]
 
-    def __init__(self, field: Series[_MT], name: str):
+    def __init__(self, field: GroupFieldData[_MT], name: str):
         # initialization is done in __new__ for simplicity
         pass
 
@@ -343,40 +337,44 @@ class FieldData(Group[_MT]):
                     return self._obj[str(step_positive)][rest]  # type: ignore
                 except KeyError:
                     raise IndexError(
-                        f"Index ({step_positive}) out of range for (0-{self._parent.last_step})"
+                        f"Index ({step_positive}) out of range for (0-{self._parent._series.last_step})"
                     )
             else:
-                return np.array([self._obj[i][rest] for i in self._slice_step(step)])  # type: ignore
+                try:
+                    return np.array(
+                        [self._obj[i][rest] for i in self._slice_step(step)]  # pyright: ignore[reportIndexIssue]
+                    )
+                except ValueError:  # The data has an inhomogeneous shape (different shape at different steps)
+                    return np.array(
+                        [self._obj[i][rest] for i in self._slice_step(step)],  # pyright: ignore[reportIndexIssue]
+                        dtype=object,
+                    )
 
     def _handle_negative_index(self, index: int) -> int:
         if index < 0:
-            return (self._parent.last_step or 0) + index + 1
+            return (self._parent._series.last_step or 0) + index + 1
         return index
 
     def _slice_step(self, step: slice) -> list[str]:
         indices = [
-            str(i) for i in range(*step.indices((self._parent.last_step or 0) + 1))
+            str(i)
+            for i in range(*step.indices((self._parent._series.last_step or 0) + 1))
         ]
         return indices
 
 
 class GroupScalarData(Group[_MT]):
     def __init__(self, series: Series[_MT]):
-        # This basically creates a shallow clone of the series group object
-        self.__dict__ = series.__dict__
+        super().__init__(series._path.joinpath(RELATIVE_PATH_SCALAR_DATA), series._file)
 
     def __getitem__(self, key: str) -> Dataset[_MT]:
         return super().__getitem__((key, Dataset[_MT]))
-
-    @override
-    def _ipython_key_completions_(self):
-        return self.datasets()
 
     @property
     def df(self) -> pd.DataFrame:
         from pandas import DataFrame
 
-        return DataFrame({k: list(v[:]) for k, v in self.items(filter="datasets")})
+        return DataFrame({k: list(v[:]) for k, v in self.items()})
 
 
 class GroupMeshes(Group[_MT]):

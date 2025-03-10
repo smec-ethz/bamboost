@@ -231,6 +231,7 @@ class Collection:
         name = SimulationName(name)  # Generates a unique id as name if not provided
         directory = self.path.joinpath(name)
 
+        # Check if name is already in use, otherwise create a new directory
         if directory.exists():
             if override:
                 shutil.rmtree(directory)
@@ -239,7 +240,6 @@ class Collection:
                     f"Simulation {name} already exists in {self.path}"
                 )
 
-        # Check if name is already in use, otherwise create a new directory
         if self._comm.rank == 0:
             directory.mkdir(exist_ok=False)
         self._comm.barrier()
