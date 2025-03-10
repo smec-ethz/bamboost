@@ -39,6 +39,12 @@ class _FileMapMixin(Mapping[str, _VT_filemap]):
     def _ipython_key_completions_(self):
         return self.keys()
 
+    def _repr_pretty_(self, p, _cycle):
+        p.pretty(dict(self))
+
+    def __repr__(self):
+        return f"{type(self).__name__}({dict(self)})"
+
 
 class FileMap(MutableMapping[str, _VT_filemap], _FileMapMixin):
     _valid: bool
