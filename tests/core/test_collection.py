@@ -113,9 +113,9 @@ def test_create_simulation_error_handling(tmp_collection: Collection):
     with patch("shutil.rmtree", wraps=shutil.rmtree) as spy_rmtree:
         with patch(
             "bamboost.core.simulation.base.SimulationWriter.initialize",
-            side_effect=OSError("Sim init failed"),
+            side_effect=PermissionError("Sim init failed"),
         ):
-            with pytest.raises(OSError, match="Sim init failed"):
+            with pytest.raises(PermissionError, match="Sim init failed"):
                 tmp_collection.create_simulation(
                     name="error_sim", parameters={"param": 1}
                 )
