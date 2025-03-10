@@ -175,14 +175,12 @@ class _Simulation(ABC, Generic[_MT]):
         """Use square brackets to access series in the simulation. Should autocomplete in
         IPython."""
 
+        self.root = Group("/", self._file)
+        """Access to HDF5 file root group."""
+
     @property
     @abstractmethod
     def _file(self) -> HDF5File[_MT]: ...
-
-    @property
-    def root(self) -> Group[_MT]:
-        """Access to HDF5 file root group."""
-        return self._file.root
 
     @classmethod
     def from_uid(cls, uid: str, **kwargs) -> Self:

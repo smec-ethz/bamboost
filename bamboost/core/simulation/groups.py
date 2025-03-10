@@ -13,6 +13,7 @@ from typing import (
 )
 
 import numpy as np
+from typing_extensions import override
 
 from bamboost import BAMBOOST_LOGGER, constants
 from bamboost._typing import _MT, Mutable, StrPath
@@ -26,7 +27,6 @@ from bamboost.constants import (
 from bamboost.core.hdf5.file import (
     FileMode,
     H5Object,
-    HDF5Path,
     WriteInstruction,
     mutable_only,
 )
@@ -45,12 +45,35 @@ class Series(Group[_MT]):
     def __init__(self, simulation: _Simulation[_MT], *, path: str = PATH_DATA):
         super().__init__(path, simulation._file)
         self._simulation = simulation
+        self._field_instances: dict[str, FieldData[_MT]] = {}
+
+    @overload
+    def __getitem__(self, key: tuple[()]) -> list[FieldData[_MT]]: ...
+    @overload
+    def __getitem__(
+        self, key: Union[list[str], tuple[str], set[str]]
+    ) -> list[FieldData[_MT]]: ...
+    @overload
+    def __getitem__(self, key: str) -> FieldData[_MT]: ...
+    def __getitem__(self, key):
+        if isinstance(key, str):
+            return FieldData(self, key)
+        if isinstance(key, tuple) and len(key) == 0:
+            return [FieldData(self, k) for k in self.keys()]
+        # else the key is a iterable of strings
+        return [FieldData(self, k) for k in key]
+
+    @override
+    def _ipython_key_completions_(self):
+        return self.groups()
 
     @property
     def last_step(self) -> Union[int, None]:
         # return self.attrs.get("last_step", -1)
         try:
-            return self[constants.DS_NAME_TIMESTEPS, Dataset].shape[0] - 1
+            return (
+                super().__getitem__((constants.DS_NAME_TIMESTEPS, Dataset)).shape[0] - 1
+            )
         except KeyError:
             return None
 
@@ -176,13 +199,12 @@ class StepWriter(H5Object[Mutable]):
             field_type: The type of the field (default: FieldType.NODE). This is only
                 relevant for XDMF writing.
         """
-        field = self._series.fields[name]
-        print(field._path)
+        field = self._series[name]
         field.require_self()
         field.add_numerical_dataset(
             str(self._step),
             data,
-            file_map=False,
+            file_map=True,
             attrs={"mesh": mesh_name, "type": field_type.value},
         )
         log.debug(f"Added field {name} for step {self._step}")
@@ -280,10 +302,10 @@ class GroupFieldData(Group[_MT]):
 
 
 class FieldData(Group[_MT]):
-    _parent: GroupFieldData[_MT]
+    _parent: Series[_MT]
     name: str
 
-    def __new__(cls, field: GroupFieldData[_MT], name: str):
+    def __new__(cls, field: Series[_MT], name: str):
         if name not in field._field_instances:
             instance = super().__new__(cls)
 
@@ -297,7 +319,7 @@ class FieldData(Group[_MT]):
 
         return field._field_instances[name]
 
-    def __init__(self, field: GroupFieldData[_MT], name: str):
+    def __init__(self, field: Series[_MT], name: str):
         # initialization is done in __new__ for simplicity
         pass
 
@@ -321,36 +343,40 @@ class FieldData(Group[_MT]):
                     return self._obj[str(step_positive)][rest]  # type: ignore
                 except KeyError:
                     raise IndexError(
-                        f"Index ({step_positive}) out of range for (0-{self._parent._series.last_step})"
+                        f"Index ({step_positive}) out of range for (0-{self._parent.last_step})"
                     )
             else:
                 return np.array([self._obj[i][rest] for i in self._slice_step(step)])  # type: ignore
 
     def _handle_negative_index(self, index: int) -> int:
         if index < 0:
-            return (self._parent._series.last_step or 0) + index + 1
+            return (self._parent.last_step or 0) + index + 1
         return index
 
     def _slice_step(self, step: slice) -> list[str]:
         indices = [
-            str(i)
-            for i in range(*step.indices((self._parent._series.last_step or 0) + 1))
+            str(i) for i in range(*step.indices((self._parent.last_step or 0) + 1))
         ]
         return indices
 
 
 class GroupScalarData(Group[_MT]):
     def __init__(self, series: Series[_MT]):
-        super().__init__(series._path.joinpath(RELATIVE_PATH_SCALAR_DATA), series._file)
+        # This basically creates a shallow clone of the series group object
+        self.__dict__ = series.__dict__
 
     def __getitem__(self, key: str) -> Dataset[_MT]:
         return super().__getitem__((key, Dataset[_MT]))
+
+    @override
+    def _ipython_key_completions_(self):
+        return self.datasets()
 
     @property
     def df(self) -> pd.DataFrame:
         from pandas import DataFrame
 
-        return DataFrame({k: list(v[:]) for k, v in self.items()})
+        return DataFrame({k: list(v[:]) for k, v in self.items(filter="datasets")})
 
 
 class GroupMeshes(Group[_MT]):

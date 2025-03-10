@@ -62,7 +62,7 @@ class FileMap(MutableMapping[str, _VT_filemap], _FileMapMixin):
     def __len__(self) -> int:
         return len(self._dict)
 
-    def populate(self, *, exclude_numeric: bool = True) -> None:
+    def populate(self, *, exclude_numeric: bool = False) -> None:
         """Assumes the file is open."""
 
         # visit all groups and datasets to cache them

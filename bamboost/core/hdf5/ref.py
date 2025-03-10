@@ -27,6 +27,7 @@ from typing import (
     Any,
     Dict,
     Generator,
+    Literal,
     Optional,
     Tuple,
     Type,
@@ -211,8 +212,15 @@ class Group(H5Reference[_MT]):
 
     def items(
         self,
+        *,
+        filter: Optional[Literal["groups", "datasets"]] = None,
     ) -> Generator[Tuple[str, Union[Group[_MT], Dataset[_MT]]], None, None]:
-        for key in self.keys():
+        if filter:
+            keys = self.groups() if filter == "groups" else self.datasets()
+        else:
+            keys = self.keys()
+
+        for key in keys:
             yield key, self.__getitem__(key)
 
     @with_file_open(FileMode.READ)
