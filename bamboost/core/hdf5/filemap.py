@@ -30,10 +30,10 @@ class _FileMapMixin(Mapping[str, _VT_filemap]):
             return ItemsView({k: v for k, v in super().items() if "/" not in k})
         return super().items()
 
-    def datasets(self):
+    def datasets(self) -> tuple[str, ...]:
         return tuple(k for k, v in self.items() if v is h5py.Dataset)
 
-    def groups(self):
+    def groups(self) -> tuple[str, ...]:
         return tuple(k for k, v in self.items() if v is h5py.Group)
 
     def _ipython_key_completions_(self):
@@ -84,9 +84,6 @@ class FileMap(MutableMapping[str, _VT_filemap], _FileMapMixin):
 
     def invalidate(self) -> None:
         self.valid = False
-
-    def items(self) -> ItemsView[str, _VT_filemap]:
-        return super().items(all=True)
 
 
 class FilteredFileMap(MutableMapping[str, _VT_filemap], _FileMapMixin):

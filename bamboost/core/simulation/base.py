@@ -34,15 +34,14 @@ from bamboost.core.hdf5.file import (
     FileMode,
     HDF5File,
 )
-from bamboost.core.hdf5.hdf5path import HDF5Path
 from bamboost.core.hdf5.ref import Group
 from bamboost.core.simulation.dict import Links, Metadata, Parameters
 from bamboost.core.simulation.groups import (
     GroupGit,
     GroupMesh,
     GroupMeshes,
-    Series,
 )
+from bamboost.core.simulation.series import Series
 from bamboost.index import (
     CollectionUID,
     Index,
@@ -394,7 +393,7 @@ class SimulationWriter(_Simulation[Mutable]):
     def require_series(self, path: str) -> Series[Mutable]:
         # require the group in the HDF5 file
         with self._file.open(FileMode.APPEND, driver="mpio"):
-            if not path in self.root.keys():
+            if path not in self.root.keys():
                 self._initialize_series(path)
         return super().require_series(path)
 
