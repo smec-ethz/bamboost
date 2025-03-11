@@ -32,6 +32,7 @@ from bamboost.core.hdf5.file import (
     mutable_only,
     with_file_open,
 )
+from bamboost.core.hdf5.hdf5path import HDF5Path
 from bamboost.core.hdf5.ref import Dataset, Group, H5Reference
 from bamboost.core.simulation import FieldType
 
@@ -58,9 +59,29 @@ class Series(H5Reference[_MT]):
         self.attrs = AttrsDict(self._file, path)
         if not self.attrs.get(".series"):
             raise NotASeriesError(path)
+        self._field_instances: dict[str, FieldData[_MT]] = {}
 
     def __len__(self) -> int:
         return self._values().shape[0]
+
+    @overload
+    def __getitem__(self, key: tuple[()]) -> list[FieldData[_MT]]: ...
+    @overload
+    def __getitem__(
+        self, key: Union[list[str], tuple[str], set[str]]
+    ) -> list[FieldData[_MT]]: ...
+    @overload
+    def __getitem__(self, key: str) -> FieldData[_MT]: ...
+    def __getitem__(self, key):
+        if isinstance(key, str):
+            return self.get_field(key)
+        if isinstance(key, tuple) and len(key) == 0:
+            return self.get_fields()
+        # else the key is a iterable of strings
+        return [self.get_field(k) for k in key]
+
+    def _ipython_key_completions_(self) -> list[HDF5Path]:
+        return self.get_field_names()
 
     @with_file_open(FileMode.READ)
     def _repr_html_(self):
@@ -81,7 +102,7 @@ class Series(H5Reference[_MT]):
             version=bamboost.__version__,
             attrs=self.attrs,
             globals=[(k, self.globals[k].shape) for k in self.globals.keys()],
-            fields=self.fields.keys(),
+            fields=self.get_field_names(),
             size=len(self),
         )
 
@@ -98,9 +119,38 @@ class Series(H5Reference[_MT]):
     def last_step(self, value: int):
         self._last_step = value
 
-    @cached_property
-    def fields(self) -> SeriesFields[_MT]:
-        return SeriesFields(self)
+    def get_field_names(self) -> list[HDF5Path]:
+        """Return all the name of the fields in the series."""
+        if not hasattr(self, "__fields_group"):
+            self.__fields_group = Group(
+                self._path.joinpath(RELATIVE_PATH_FIELD_DATA), self._file
+            )
+        return list(self.__fields_group._group_map.children())
+
+    def get_field(self, name: str) -> FieldData[_MT]:
+        """Get a field by name.
+
+        Args:
+            name: The name of the field.
+        """
+        return FieldData(self, name)
+
+    def get_fields(self, *glob: str) -> list[FieldData[_MT]]:
+        """Get multiple fields by name or glob pattern. If no arguments are given, all
+        fields are returned.
+
+        Args:
+            glob: A list of glob patterns to filter the field names.
+        """
+        if not glob:
+            return [self.get_field(name) for name in self.get_field_names()]
+
+        import fnmatch
+
+        matching_fields = set()
+        for g in glob:
+            matching_fields.update(fnmatch.filter(self.get_field_names(), g))
+        return [self.get_field(name) for name in matching_fields]
 
     @cached_property
     def globals(self) -> GlobalData[_MT]:
@@ -297,56 +347,27 @@ class StepWriter(H5Object[Mutable]):
         self._file.single_process_queue.apply()
 
 
-class SeriesFields(H5Reference[_MT]):
-    def __init__(self, series: Series[_MT]):
-        super().__init__(series._path.joinpath(RELATIVE_PATH_FIELD_DATA), series._file)
-
-        self._series = series
-        self._field_instances: dict[str, FieldData[_MT]] = {}
-
-    @with_file_open(FileMode.READ)
-    def keys(self) -> list[str]:
-        return list(self._obj.keys())  # pyright: ignore[reportAttributeAccessIssue]
-
-    def _ipython_key_completions_(self):
-        return self.keys()
-
-    @overload
-    def __getitem__(self, key: tuple[()]) -> list[FieldData[_MT]]: ...
-    @overload
-    def __getitem__(
-        self, key: Union[list[str], tuple[str], set[str]]
-    ) -> list[FieldData[_MT]]: ...
-    @overload
-    def __getitem__(self, key: str) -> FieldData[_MT]: ...
-    def __getitem__(self, key):
-        if isinstance(key, str):
-            return FieldData(self, key)
-        if isinstance(key, tuple) and len(key) == 0:
-            return [FieldData(self, k) for k in self.keys()]
-        # else the key is a iterable of strings
-        return [FieldData(self, k) for k in key]
-
-
 class FieldData(Group[_MT]):
-    _parent: SeriesFields[_MT]
+    _parent: Series[_MT]
     name: str
 
-    def __new__(cls, field: SeriesFields[_MT], name: str):
-        if name not in field._field_instances:
+    def __new__(cls, series: Series[_MT], name: str):
+        if name not in series._field_instances:
             instance = super().__new__(cls)
 
             # Initialize the instance
-            super(FieldData, instance).__init__(field._path.joinpath(name), field._file)
-            instance._parent = field
+            super(FieldData, instance).__init__(
+                series._path.joinpath(RELATIVE_PATH_FIELD_DATA, name), series._file
+            )
+            instance._parent = series
             instance.name = name
 
             # Store the instance and return
-            field._field_instances[name] = instance
+            series._field_instances[name] = instance
 
-        return field._field_instances[name]
+        return series._field_instances[name]
 
-    def __init__(self, field: SeriesFields[_MT], name: str):
+    def __init__(self, series: Series[_MT], name: str):
         # initialization is done in __new__ for simplicity
         pass
 
@@ -370,7 +391,7 @@ class FieldData(Group[_MT]):
                     return self._obj[str(step_positive)][rest]  # type: ignore
                 except KeyError:
                     raise IndexError(
-                        f"Index ({step_positive}) out of range for (0-{self._parent._series.last_step})"
+                        f"Index ({step_positive}) out of range for (0-{self._parent.last_step})"
                     )
             else:
                 try:
@@ -385,13 +406,12 @@ class FieldData(Group[_MT]):
 
     def _handle_negative_index(self, index: int) -> int:
         if index < 0:
-            return (self._parent._series.last_step or 0) + index + 1
+            return (self._parent.last_step or 0) + index + 1
         return index
 
     def _slice_step(self, step: slice) -> list[str]:
         indices = [
-            str(i)
-            for i in range(*step.indices((self._parent._series.last_step or 0) + 1))
+            str(i) for i in range(*step.indices((self._parent.last_step or 0) + 1))
         ]
         return indices
 
