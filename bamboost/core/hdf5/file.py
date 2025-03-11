@@ -196,10 +196,20 @@ class H5Object(Generic[_MT]):
     def mutable(self) -> bool:
         return self._file.mutable
 
-    def open(self, *args, **kwargs) -> HDF5File[_MT]:
-        """Convenience context manager to open the file of this object. Wraps
-        `HDF5File.open`."""
-        return self._file.open(*args, **kwargs)
+    def open(
+        self,
+        mode: FileMode | str = "r",
+        driver: Optional[Literal["mpio"]] = None,
+    ) -> HDF5File[_MT]:
+        """Use this as a context manager in a `with` statement.
+        Purpose: keeping the file open to directly access/edit something in the
+        HDF5 file of this simulation.
+
+        Args:
+            mode: file mode (see h5py docs)
+            driver: file driver (see h5py docs)
+        """
+        return self._file.open(mode, driver=driver)
 
     @mutable_only
     def post_write_instruction(self, instruction: Callable[[], None]) -> None:
