@@ -10,7 +10,7 @@ cp -r /bamboost/docs/content /website/content/docs
 
 echo "Activating virtual environment and installing Python dependencies..."
 . .venv/bin/activate
-uv pip install /bamboost -U
+uv pip install /bamboost -U --no-deps
 uv pip install /website/fumapy -U
 
 echo "Installing npm dependencies and building the site..."

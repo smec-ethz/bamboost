@@ -2,7 +2,7 @@
 FROM node:18-alpine
 
 # Install dependencies
-RUN apk add --no-cache git python3 py3-pip curl
+RUN apk add --no-cache git python3 py3-pip curl  
 
 # Install uv
 RUN curl -LsSf https://astral.sh/uv/install.sh | sh && \
