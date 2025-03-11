@@ -28,6 +28,7 @@ from typing import (
     Iterable,
     Optional,
     Union,
+    cast,
     overload,
 )
 
@@ -36,7 +37,7 @@ import numpy as np
 
 import bamboost
 from bamboost import BAMBOOST_LOGGER, constants
-from bamboost._typing import _MT, Mutable, StrPath
+from bamboost._typing import _MT, Mutable
 from bamboost.constants import (
     DEFAULT_MESH_NAME,
     PATH_DATA,
@@ -232,29 +233,6 @@ class Series(H5Reference[_MT]):
 
         self.post_write_instruction(_write_instruction)
 
-    def create_xdmf(
-        self,
-        field_names: Optional[Union[tuple[str], list[str], set[str]]] = None,
-        timesteps: Optional[Iterable[float]] = None,
-        *,
-        filename: Optional[StrPath] = None,
-        mesh_name: str = DEFAULT_MESH_NAME,
-    ):
-        from bamboost.core.simulation.xdmf import XDMFWriter
-
-        fields = self.fields[field_names] if field_names else self.fields[()]
-        filename = filename or self._simulation.path.joinpath(constants.XDMF_FILE_NAME)
-        timesteps = timesteps or self.values
-
-        def _create_xdmf():
-            xdmf = XDMFWriter(self._file)
-            xdmf.add_mesh(self._simulation.meshes[mesh_name])
-            xdmf.add_timeseries(timesteps, fields, mesh_name)
-            xdmf.write_file(filename)
-            log.debug(f"produced XDMF file at {filename}")
-
-        self.post_write_instruction(_create_xdmf)
-
 
 class StepWriter(H5Object[Mutable]):
     """A class to write data for a specific step in a series.
@@ -288,7 +266,7 @@ class StepWriter(H5Object[Mutable]):
             field_type: The type of the field (default: FieldType.NODE). This is only
                 relevant for XDMF writing.
         """
-        field = self._series.fields[name]
+        field = self._series.get_field(name)
         field.require_self()
         field.add_numerical_dataset(
             str(self._step),
@@ -330,14 +308,14 @@ class StepWriter(H5Object[Mutable]):
 
         @dataclass
         class AddScalarInstruction(WriteInstruction):
-            group: Series
+            series: Series
             name: str
             data_arr: np.ndarray
             step: int
 
             def __call__(self):
-                log.debug(f"Adding scalar {self.name} for step {self.step}")
-                dataset = self.group.globals.require_dataset(
+                log.info(f"Adding scalar {self.name} for step {self.step}")
+                dataset = self.series.globals.require_dataset(
                     self.name,
                     shape=(1, *self.data_arr.shape),
                     dtype=float,
@@ -345,7 +323,10 @@ class StepWriter(H5Object[Mutable]):
                     chunks=True,
                     fillvalue=np.nan,
                 )
-                dataset.resize(self.step + 1, axis=0)
+                new_size = max(self.step + 1, dataset.shape[0])
+                if new_size > dataset.shape[0]:
+                    log.info(f"Resizing dataset {dataset.name} to {new_size}")
+                dataset.resize(new_size, axis=0)
                 dataset[self.step] = self.data_arr
 
         self.post_write_instruction(

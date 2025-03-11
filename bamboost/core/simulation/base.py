@@ -13,7 +13,6 @@ from pathlib import Path
 from typing import (
     TYPE_CHECKING,
     Any,
-    Generic,
     Iterable,
     Optional,
     Union,
@@ -32,6 +31,7 @@ from bamboost._typing import (
 from bamboost.core import utilities
 from bamboost.core.hdf5.file import (
     FileMode,
+    H5Object,
     HDF5File,
 )
 from bamboost.core.hdf5.ref import Group
@@ -111,7 +111,7 @@ class SimulationName(str):
         return uuid.uuid4().hex[:length]
 
 
-class _Simulation(ABC, Generic[_MT]):
+class _Simulation(ABC, H5Object[_MT]):
     """Abstract simulation base class. Use `Simulation` or `SimulationWriter` instead.
 
     Args:
@@ -273,19 +273,6 @@ class _Simulation(ABC, Generic[_MT]):
         """Open the xdmf file in paraview."""
         subprocess.call(["paraview", self._xdmf_file])
 
-    def open(self, mode: FileMode | str = "r", driver=None) -> HDF5File[_MT]:
-        """Use this as a context manager in a `with` statement.
-        Purpose: keeping the file open to directly access/edit something in the
-        HDF5 file of this simulation.
-
-        Args:
-            mode: file mode (see h5py docs)
-            driver: file driver (see h5py docs)
-            comm: mpi communicator
-        """
-        mode = FileMode(mode)
-        return self._file.open(mode, driver)
-
     @contextmanager
     def enter_path(self):
         """A context manager for changing the working directory to this simulations' path.
@@ -308,6 +295,31 @@ class _Simulation(ABC, Generic[_MT]):
             path: path to the series
         """
         return Series(self, path=path)
+
+    def create_xdmf(
+        self,
+        field_names: Optional[Iterable[str]] = None,
+        timesteps: Optional[Iterable[float]] = None,
+        *,
+        series: Optional[Series[_MT]] = None,
+        filename: Optional[StrPath] = None,
+        mesh_name: str = constants.DEFAULT_MESH_NAME,
+    ):
+        from bamboost.core.simulation.xdmf import XDMFWriter
+
+        series = series or self.data
+        fields = series.get_fields(*field_names if field_names else [])
+        filename = filename or self.path.joinpath(constants.XDMF_FILE_NAME)
+        timesteps = timesteps or series.values
+
+        def _create_xdmf():
+            xdmf = XDMFWriter(self._file)
+            xdmf.add_mesh(self.meshes[mesh_name])
+            xdmf.add_timeseries(timesteps, fields, mesh_name)
+            xdmf.write_file(filename)
+            log.debug(f"produced XDMF file at {filename}")
+
+        self.post_write_instruction(_create_xdmf)
 
 
 class Simulation(_Simulation[Immutable]):
