@@ -1,3 +1,22 @@
+"""Module for handling time series data in HDF5 files. The notion of time is used to
+describe Series, but it can be used for any data that changes with a single parameter.
+
+The default time series is stored at `/data` in the HDF5 file. You can create additional
+series' with `bamboost.core.simulation.base.Simulation.create_series`.
+
+This module provides classes for managing time series data stored in HDF5 files:
+- Series: Main class for managing a series, including fields and global values
+- FieldData: Handles a particular field (e.g., nodal or element data) and its timesteps
+- GlobalData: Manages the global data that varies with time. This refers to data that is
+  not tied to a mesh.
+- StepWriter: Helper class for writing data at specific timesteps
+
+The data is organized hierarchically in the HDF5 file with separate sections for
+field data and global/scalar data. Fields typically represent spatial data like
+displacements or stresses, while globals are used for scalar quantities like
+energy or convergence metrics.
+"""
+
 from __future__ import annotations
 
 import pkgutil
@@ -86,7 +105,6 @@ class Series(H5Reference[_MT]):
     @with_file_open(FileMode.READ)
     def _repr_html_(self):
         """Repr showing the content of the group."""
-        # If the object is not a group, return a simple representation
         from jinja2 import Template
 
         html_template = pkgutil.get_data(
