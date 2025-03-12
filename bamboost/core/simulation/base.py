@@ -15,13 +15,13 @@ from typing import (
     Any,
     Iterable,
     Optional,
+    Sized,
     Union,
 )
 
 import numpy as np
 from typing_extensions import Self
 
-import bamboost.core.simulation._repr as reprs
 from bamboost import BAMBOOST_LOGGER, config, constants
 from bamboost._typing import (
     _MT,
@@ -125,8 +125,6 @@ class _Simulation(ABC, H5Object[_MT]):
         FileNotFoundError: If the simulation doesn't exist.
     """
 
-    _repr_html_ = reprs.simulation_html_repr
-
     def __init__(
         self,
         name: str,
@@ -161,8 +159,59 @@ class _Simulation(ABC, H5Object[_MT]):
         self._xdmf_file: Path = self.path.joinpath(constants.XDMF_FILE_NAME)
         self._bash_file: Path = self.path.joinpath(constants.RUN_FILE_NAME)
 
-        # self.root = Group("/", self._file)
-        # """Access to HDF5 file root group."""
+    def _repr_html_(self):
+        import pkgutil
+
+        from jinja2 import Template
+
+        metadata = self.metadata
+        parameters_filtered = {
+            k: "..."
+            if isinstance(v, Sized) and not isinstance(v, str) and len(v) > 5
+            else v
+            for k, v in self.parameters.items()
+        }
+
+        def get_pill_div(text: str, color: str) -> str:
+            return (
+                f'<div class="status" style="background-color:'
+                f'var(--bb-{color});">{text}</div>'
+            )
+
+        def get_status_pill(status: StatusInfo) -> str:
+            if status.status == Status.FAILED:
+                return get_pill_div(status.format(), "red")
+            elif status.status == Status.FINISHED:
+                return get_pill_div(status.format(), "green")
+            elif status.status in (Status.INITIALIZED, Status.UNKNOWN):
+                return get_pill_div(status.format(), "grey")
+            elif status.status == Status.STARTED:
+                return get_pill_div(status.format(), "orange")
+            else:
+                return get_pill_div(status.format(), "grey")
+
+        def get_submitted_pill(submitted: bool) -> str:
+            return (
+                get_pill_div("Submitted", "green")
+                if submitted
+                else get_pill_div("Not submitted", "grey")
+            )
+
+        html_string = pkgutil.get_data("bamboost", "_repr/simulation.html").decode()
+        icon = pkgutil.get_data("bamboost", "_repr/icon.txt").decode()
+        template = Template(html_string)
+        file_tree = repr(self.files).replace("\n", "</br>").replace(" ", "&nbsp;")
+
+        return template.render(
+            uid=self.name,
+            icon=icon,
+            tree=file_tree,
+            parameters=parameters_filtered,
+            note=metadata.get("description"),
+            status=get_status_pill(self.status),
+            submitted=get_submitted_pill(metadata.get("submitted", False)),
+            timestamp=metadata.get("created_at", "N/A"),
+        )
 
     @cached_property
     def root(self) -> Group[_MT]:
@@ -200,7 +249,13 @@ class _Simulation(ABC, H5Object[_MT]):
 
     def edit(self) -> SimulationWriter:
         """Return an object with writing rights to edit the simulation."""
-        return SimulationWriter(self.name, self.path.parent, self._comm, self._index)
+        return SimulationWriter(
+            self.name,
+            self.path.parent,
+            self._comm,
+            self._index,
+            collection_uid=self.collection_uid,
+        )
 
     def update_database(
         self,
