@@ -28,7 +28,6 @@ from typing import (
     Iterable,
     Optional,
     Union,
-    cast,
     overload,
 )
 
@@ -53,7 +52,7 @@ from bamboost.core.hdf5.file import (
     with_file_open,
 )
 from bamboost.core.hdf5.hdf5path import HDF5Path
-from bamboost.core.hdf5.ref import Dataset, Group, H5Reference
+from bamboost.core.hdf5.ref import Dataset, Group, H5Reference, InvalidReferenceError
 from bamboost.core.simulation import FieldType
 
 if TYPE_CHECKING:
@@ -82,7 +81,10 @@ class Series(H5Reference[_MT]):
         self._field_instances: dict[str, FieldData[_MT]] = {}
 
     def __len__(self) -> int:
-        return self._values().shape[0]
+        try:
+            return self._values().shape[0]
+        except InvalidReferenceError:
+            return 0
 
     @overload
     def __getitem__(self, key: tuple[()]) -> list[FieldData[_MT]]: ...
@@ -180,7 +182,10 @@ class Series(H5Reference[_MT]):
     def values(self) -> np.ndarray:
         """Return the values of the series. In the default time series, this returns the
         time values of the steps."""
-        return self._values()[:]
+        try:
+            return self._values()[:]
+        except InvalidReferenceError:
+            return np.array([])
 
     def _values(self) -> Dataset[_MT]:
         return super().__getitem__((constants.DS_NAME_TIMESTEPS, Dataset))
