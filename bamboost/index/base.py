@@ -170,13 +170,12 @@ class Index(metaclass=RootProcessMeta):
     ) -> None:
         self._comm = comm or MPI.COMM_WORLD
         self.search_paths = PathSet(search_paths or config.index.searchPaths)
-        self._initialize_root_process(sql_file or config.index.databaseFile)
+        self._url = f"sqlite:///{sql_file or config.index.databaseFile}"
+        self._initialize_root_process(self._url)
 
-    def _initialize_root_process(self, sql_file: StrPath) -> None:
+    def _initialize_root_process(self, url: str) -> None:
         self._engine = create_engine(
-            f"sqlite:///{sql_file}",
-            json_serializer=json_serializer,
-            json_deserializer=json_deserializer,
+            url, json_serializer=json_serializer, json_deserializer=json_deserializer
         )
         create_all(self._engine)
         self._sm = sessionmaker(
