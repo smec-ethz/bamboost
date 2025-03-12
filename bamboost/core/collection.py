@@ -234,7 +234,8 @@ class Collection:
         # Check if name is already in use, otherwise create a new directory
         if directory.exists():
             if override:
-                shutil.rmtree(directory)
+                if self._comm.rank == 0:
+                    shutil.rmtree(directory)
             else:
                 raise FileExistsError(
                     f"Simulation {name} already exists in {self.path}"
@@ -265,6 +266,7 @@ class Collection:
             log.error(
                 f"Error occurred while creating simulation {name} at path {self.path}"
             )
+            self._index._drop_simulation(self.uid, name)
             shutil.rmtree(directory)
             raise
 

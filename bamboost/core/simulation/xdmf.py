@@ -19,7 +19,8 @@ from bamboost.core.simulation import FieldType
 from bamboost.mpi.utilities import RootProcessMeta
 
 if TYPE_CHECKING:
-    from bamboost.core.simulation.groups import FieldData, GroupMesh
+    from bamboost.core.simulation.groups import GroupMesh
+    from bamboost.core.simulation.series import FieldData
 
 __all__ = ["XDMFWriter"]
 
