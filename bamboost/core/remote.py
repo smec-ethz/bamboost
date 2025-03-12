@@ -6,15 +6,14 @@ import subprocess
 from pathlib import Path
 from typing import TYPE_CHECKING, Callable, Optional, cast
 
-import numpy as np
 from sqlalchemy import create_engine
 from sqlalchemy.orm import sessionmaker
 
 from bamboost import BAMBOOST_LOGGER, _config, constants
 from bamboost._config import config
-from bamboost._typing import Immutable, StrPath
+from bamboost._typing import _MT, StrPath
 from bamboost.core.collection import Collection
-from bamboost.core.simulation.base import Simulation
+from bamboost.core.simulation.base import Simulation, _Simulation
 from bamboost.index.base import (
     CollectionUID,
     Index,
@@ -33,13 +32,16 @@ if TYPE_CHECKING:
 
 log = BAMBOOST_LOGGER.getChild(__name__)
 
+from bamboost._typing import _P
 
-def capture_popen_output(func: Callable[..., subprocess.Popen]) -> Callable[..., None]:
+
+def stream_popen_output(func: Callable[_P, subprocess.Popen]) -> Callable[_P, None]:
     """Decorator to capture and print the output of a subprocess.Popen object."""
 
     def wrapper(*args, **kwargs) -> None:
         process = func(*args, **kwargs)
-        for line in iter(process.stdout.readline, ""):
+        assert process.stdout is not None
+        for line in process.stdout:
             print(line, end="", flush=True)
         process.wait()
 
@@ -105,7 +107,7 @@ class Remote(Index):
                 f"{self._remote_url}:{self._remote_database_path}",
                 str(self._local_database_path),
             ],
-            stdout=subprocess.STDOUT,
+            stdout=subprocess.PIPE,
             stderr=subprocess.STDOUT,
             text=True,
         )
@@ -179,6 +181,14 @@ class RemoteCollection(Collection):
             .replace("$db_size", str(len(self)))
         )
 
+    def __getitem__(self, name: str) -> RemoteSimulation:
+        return RemoteSimulation(
+            name,
+            collection_uid=self.uid,
+            index=self._index,
+            comm=self._comm,
+        )
+
     @property
     def df(self) -> DataFrame:
         df = super().df
@@ -189,29 +199,6 @@ class RemoteCollection(Collection):
         df.insert(1, "cached", cached_col)  # pyright: ignore[reportArgumentType]
         return df
 
-    def __getitem__(self, name: str) -> RemoteSimulation:
-        return RemoteSimulation(
-            name,
-            collection_uid=self.uid,
-            index=self._index,
-            comm=self._comm,
-        )
-
-    def _rsync(self, name: Optional[str] = None) -> subprocess.Popen:
-        """Transfer data using rsync. This method is called by the `rsync`.
-        It returns the subprocess.Popen object.
-
-        Args:
-            name: The simulation name of the simulation to be transferred. If None, all
-                simulations are synced.
-        """
-        if name:
-            return self._index.rsync(
-                self.remote_path.joinpath(name), self.path.joinpath(name)
-            )
-        else:
-            return self._index.rsync(self.remote_path, self.path)
-
     def rsync(self, name: Optional[str] = None) -> Self:
         """Transfer data using rsync. Wait for the process to finish and return
         self.
@@ -220,7 +207,14 @@ class RemoteCollection(Collection):
             name: The simulation name of the simulation to be transferred. If None, all
                 simulations are synced.
         """
-        capture_popen_output(self._rsync)(name)
+        if name:
+            source = self.remote_path.joinpath(name)
+            dest = self.path.joinpath(name)
+        else:
+            source = self.remote_path
+            dest = self.path
+
+        stream_popen_output(self._index.rsync)(source, dest)
         return self
 
 
@@ -245,13 +239,14 @@ class RemoteSimulation(Simulation):
 
         # MPI information
         self._comm: Comm = comm or MPI.COMM_WORLD
-        self._psize: int = self._comm.size
-        self._prank: int = self._comm.rank
-        self._ranks = np.array([i for i in range(self._psize)])
 
         self._data_file: Path = self.path.joinpath(constants.HDF_DATA_FILE_NAME)
         self._xdmf_file: Path = self.path.joinpath(constants.XDMF_FILE_NAME)
         self._bash_file: Path = self.path.joinpath(constants.RUN_FILE_NAME)
+
+    @property
+    def uid(self) -> str:
+        return f"ssh://{self._index._remote_url}/{super().uid}"
 
     @property
     def parameters(self) -> dict:
@@ -263,5 +258,5 @@ class RemoteSimulation(Simulation):
 
     def rsync(self) -> Self:
         """Sync the simulation data with the remote server."""
-        capture_popen_output(self._index.rsync)(self.remote_path, self.path)
+        stream_popen_output(self._index.rsync)(self.remote_path, self.path.parent)
         return self
