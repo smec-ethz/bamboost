@@ -40,12 +40,17 @@ class FilePicker:
 
     def _build_file_dict(self, path: Path) -> dict:
         file_dict = {}
+
+        if not path.is_dir():
+            return file_dict
+
         for f in path.iterdir():
             if f.is_dir():
                 subdir_dict = self._build_file_dict(f)
                 file_dict.update({f"{f.name}/{k}": v for k, v in subdir_dict.items()})
             else:
                 file_dict[f.name] = f.absolute()
+
         return file_dict
 
     def __getitem__(self, key) -> Path:
@@ -54,7 +59,7 @@ class FilePicker:
     def _ipython_key_completions_(self):
         return tuple(self._dict.keys())
 
-    def __repr__(self):
+    def _repr_pretty_(self, *_args):
         return tree(self.path)
 
 

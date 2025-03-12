@@ -11,9 +11,9 @@ from sqlalchemy.orm import sessionmaker
 
 from bamboost import BAMBOOST_LOGGER, _config, constants
 from bamboost._config import config
-from bamboost._typing import _MT, StrPath
 from bamboost.core.collection import Collection
-from bamboost.core.simulation.base import Simulation, _Simulation
+from bamboost.core.simulation.base import Simulation
+from bamboost.core.utilities import FilePicker
 from bamboost.index.base import (
     CollectionUID,
     Index,
@@ -28,15 +28,14 @@ if TYPE_CHECKING:
     from pandas import DataFrame
     from typing_extensions import Self
 
+    from bamboost._typing import _P, StrPath
     from bamboost.mpi import Comm
 
 log = BAMBOOST_LOGGER.getChild(__name__)
 
-from bamboost._typing import _P
-
 
 def stream_popen_output(func: Callable[_P, subprocess.Popen]) -> Callable[_P, None]:
-    """Decorator to capture and print the output of a subprocess.Popen object."""
+    """Decorator to await, capture and print the output of a subprocess.Popen object."""
 
     def wrapper(*args, **kwargs) -> None:
         process = func(*args, **kwargs)
@@ -194,10 +193,12 @@ class RemoteCollection(Collection):
         df = super().df
 
         # Add a cached column at the second position
-        cached_simulations = tuple(str(i) for i in self.path.iterdir() if i.is_dir())
-        cached_col = df["name"].isin(cached_simulations)
+        cached_col = df["name"].isin(self.get_cached_simulation_names())
         df.insert(1, "cached", cached_col)  # pyright: ignore[reportArgumentType]
         return df
+
+    def get_cached_simulation_names(self) -> list[str]:
+        return [str(i.name) for i in self.path.iterdir() if i.is_dir()]
 
     def rsync(self, name: Optional[str] = None) -> Self:
         """Transfer data using rsync. Wait for the process to finish and return
