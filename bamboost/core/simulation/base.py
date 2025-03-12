@@ -46,6 +46,7 @@ from bamboost.index import (
     CollectionUID,
     Index,
 )
+from bamboost.index.sqlmodel import SimulationORM
 from bamboost.mpi import MPI, MPI_ON
 from bamboost.utilities import StrPath
 
@@ -174,6 +175,10 @@ class _Simulation(ABC, H5Object[_MT]):
     @property
     def mutable(self) -> bool:
         return self._file.mutable
+
+    @property
+    def _orm(self) -> SimulationORM:
+        return self._index.simulation(self.collection_uid, self.name)
 
     @classmethod
     def from_uid(cls, uid: str, **kwargs) -> Self:

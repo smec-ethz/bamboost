@@ -175,6 +175,9 @@ class Collection:
 
         return df
 
+    def all_simulation_names(self) -> list[str]:
+        return [sim.name for sim in self._orm.simulations]
+
     def sync_cache(self):
         self._index.sync_collection(self.uid, self.path)
 

@@ -253,6 +253,9 @@ class SimulationORM(_Base):
         stmt = stmt.returning(cls.id)
         return stmt
 
+    def as_dict_metadata(self) -> Dict[str, Any]:
+        return {k.name: getattr(self, k.name) for k in self.__table__.columns}
+
     def as_dict(self, standalone: bool = True) -> Dict[str, Any]:
         """Return the simulation as a dictionary.
 
