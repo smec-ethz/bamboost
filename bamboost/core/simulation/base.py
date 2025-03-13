@@ -238,7 +238,7 @@ class _Simulation(ABC, H5Object[_MT]):
             **kwargs: additional arguments to pass to the constructor
         """
         collection_uid, name = uid.split(constants.UID_SEPARATOR)
-        index = kwargs.pop("index", None) or Index()
+        index = kwargs.pop("index", None) or Index.default
         collection_path = index.resolve_path(collection_uid)
         return cls(name, collection_path, index=index, **kwargs)
 
