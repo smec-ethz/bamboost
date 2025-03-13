@@ -159,6 +159,14 @@ class _Simulation(ABC, H5Object[_MT]):
         self._xdmf_file: Path = self.path.joinpath(constants.XDMF_FILE_NAME)
         self._bash_file: Path = self.path.joinpath(constants.RUN_FILE_NAME)
 
+    def __eq__(self, other: _Simulation, /) -> bool:
+        return (
+            self.uid == other.uid
+            and self.name == other.name
+            and self.path == other.path
+            and self.mutable == other.mutable
+        )
+
     def _repr_html_(self):
         import pkgutil
 
