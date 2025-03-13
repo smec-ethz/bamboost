@@ -413,11 +413,11 @@ class SimulationWriter(_Simulation[Mutable]):
 
     def __exit__(self, exc_type, exc_val, exc_tb):
         if exc_type:
-            # self.change_status(f"failed [{exc_type.__name__}]")
             self.status = StatusInfo(Status.FAILED, str(exc_val))
             log.error(
                 f"Simulation failed with {exc_type.__name__}: {exc_val}\nTraceback: {exc_tb}"
             )
+            return
         self.status = Status.FINISHED
         self._comm.barrier()
 
