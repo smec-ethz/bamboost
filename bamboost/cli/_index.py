@@ -44,9 +44,9 @@ class Clean:
     def execute(self):
         with console.status("[bold blue]Cleaning index...", spinner="dots") as status:
             try:
-                from bamboost.index import DEFAULT_INDEX
+                from bamboost.index import Index
 
-                DEFAULT_INDEX.check_integrity()
+                Index.default.check_integrity()
                 console.print("[green]:heavy_check_mark: Index cleaned.")
             except Exception as e:
                 console.print(f"[bold red]Task failed: {e}")
@@ -63,9 +63,9 @@ class Scan:
             try:
                 from rich.table import Column, Table
 
-                from bamboost.index import DEFAULT_INDEX
+                from bamboost.index import Index
 
-                found_colls = DEFAULT_INDEX.scan_for_collections()
+                found_colls = Index.default.scan_for_collections()
                 console.print("[green]:heavy_check_mark: Index scanned.")
                 tab = Table(
                     "uid",

@@ -13,7 +13,6 @@ from bamboost import BAMBOOST_LOGGER, _config, constants
 from bamboost._config import config
 from bamboost.core.collection import Collection
 from bamboost.core.simulation.base import Simulation
-from bamboost.core.utilities import FilePicker
 from bamboost.index.base import (
     CollectionUID,
     Index,

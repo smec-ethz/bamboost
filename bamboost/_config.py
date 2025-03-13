@@ -28,7 +28,15 @@ from collections.abc import MutableMapping
 from dataclasses import dataclass, field, fields
 from itertools import chain
 from pathlib import Path
-from typing import TYPE_CHECKING, Any, Generator, Iterable, Union, get_type_hints
+from typing import (
+    TYPE_CHECKING,
+    Any,
+    Generator,
+    Iterable,
+    Literal,
+    Union,
+    get_type_hints,
+)
 
 from bamboost import BAMBOOST_LOGGER as log
 from bamboost.utilities import PathSet
