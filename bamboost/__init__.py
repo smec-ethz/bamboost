@@ -1,5 +1,5 @@
 import logging
-from importlib.metadata import version
+from importlib.metadata import PackageNotFoundError, version
 from typing import Literal
 
 import lazy_loader as lazy
@@ -7,7 +7,10 @@ import lazy_loader as lazy
 __author__ = "florez@ethz.ch"
 __copyright__ = ""
 __license__ = "MIT"
-__version__ = version("bamboost")
+try:
+    __version__ = version("bamboost")
+except PackageNotFoundError:  # not installed
+    __version__ = "unknown"
 
 BAMBOOST_LOGGER = logging.getLogger("bamboost")
 STREAM_HANDLER = logging.StreamHandler()
