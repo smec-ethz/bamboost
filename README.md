@@ -46,6 +46,8 @@ will totally break if you load it heavily. Just kidding, bamboo can fully carry 
 
 Terminal user interface for bamboost: https://gitlab.com/zrlf/bamboost-tui.
 
+TUI for next version: https://github.com/zrlf/bamboost-tui
+
 Documentation site: https://gitlab.com/zrlf/bamboost-docs.
 </div>
 

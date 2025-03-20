@@ -21,15 +21,18 @@ dependencies = [
     "h5py",
     "numpy",
     "pandas",
-    "toolz>=1.0.0",
     "typing-extensions>=4.12.2",
     "sqlalchemy>=2.0.36",
+    "typer>=0.15.2",
 ]
 
 [project.urls]
 Homepage = "https://bamboost.ch/"
 repository = "https://gitlab.com/cmbm-ethz/bamboost"
 changelog = "https://gitlab.com/cmbm-ethz/bamboost/-/tree/main/CHANGELOG.md"
+
+[project.scripts]
+bamboost-cli = "bamboost.cli:app"
 
 [build-system]
 requires = [
@@ -52,19 +55,11 @@ dev = [
     "pip>=24.3.1",
     "twine>=5.1.1",
     "ipywidgets>=8.1.5",
-    "textual-dev>=1.7.0",
-]
-mpi = [
-    "mpi4py>=3.1.0",
-]
-cli = [
-    "rich-argparse>=1.6.0",
-    "textual>=1.0.0",
-    "simple-parsing",
 ]
 test = [
     "pytest",
     "pytest-cov",
+    "pytest-mpi",
 ]
 
 [tool.pyright]
