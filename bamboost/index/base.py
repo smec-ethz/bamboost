@@ -169,8 +169,19 @@ class Index(metaclass=RootProcessMeta):
         search_paths: Optional[Iterable[str | Path]] = None,
     ) -> None:
         self._comm = comm or MPI.COMM_WORLD
+
         self.search_paths = PathSet(search_paths or config.index.searchPaths)
-        self._url = f"sqlite:///{sql_file or config.index.databaseFile}"
+        """Paths to scan for collections."""
+
+        self._file = sql_file or config.index.databaseFile
+        """The path to the SQLite database file."""
+
+        self._isolated = config.index.isolated
+        """Whether project based indexing is used."""
+
+        self._url = f"sqlite:///{self._file}"
+        """The URL to the SQLite database file."""
+
         self._initialize_root_process(self._url)
 
     def _initialize_root_process(self, url: str) -> None:
