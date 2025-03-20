@@ -173,13 +173,12 @@ def show_config(
     ),
 ):
     """Show the active configuration."""
-    from bamboost import _config
+    if dir:
+        from bamboost._config import _Config
 
-    if dir is not None:
-        _config.ROOT_DIR = Path(dir).absolute()
-        config = _config._Config()
+        config = _Config(dir)
     else:
-        config = _config.config
+        from bamboost import config
 
     console.print(config)
 
