@@ -33,7 +33,7 @@ from typing import (
     Any,
     Generator,
     Iterable,
-    Literal,
+    Optional,
     Union,
     get_type_hints,
 )
@@ -77,7 +77,7 @@ def _find_root_dir() -> Path:
             if any(path.joinpath(anchor).exists() for anchor in ANCHORS)
         )
     except StopIteration:
-        log.warning("Root directory not found. Using current directory.")
+        log.info("Root directory not found. Using current directory.")
         return cwd
 
 
@@ -91,10 +91,10 @@ def _get_global_config(filepath: Path) -> dict[str, Any]:
             try:
                 return tomli.load(f)
             except tomli.TOMLDecodeError as e:
-                log.error(f"Error reading config file: {e}")
+                log.warning(f"Error reading config file: {e}")
                 return {}
     except FileNotFoundError:
-        log.warning("Config file not found or unreadable. Using default settings.")
+        log.info("Config file not found or unreadable. Using default settings.")
         return {}
 
 
@@ -105,10 +105,10 @@ def _get_project_config() -> dict[str, Any]:
             try:
                 return tomli.load(f).get("tool", {}).get("bamboost", {})
             except tomli.TOMLDecodeError as e:
-                log.error(f"Error reading project config file: {e}")
+                log.warning(f"Error reading project config file: {e}")
                 return {}
     except FileNotFoundError:
-        log.warning("No pyproject.toml file found. Using default settings.")
+        log.info("No pyproject.toml file found. Using default settings.")
         return {}
 
 
@@ -337,10 +337,15 @@ class _Config(_Base):
     paths: _Paths
     options: _Options
     index: _IndexOptions
+    project: Optional[Path] = None
+    """If project specific configuration is used, this is set to the project root
+    directory."""
 
     def __init__(self) -> None:
         global_config = _get_global_config(CONFIG_FILE)
         project_config = _get_project_config()
+        if project_config:
+            self.project = ROOT_DIR
 
         def nested_update(d: MutableMapping, u: MutableMapping) -> MutableMapping:
             for k, v in u.items():
