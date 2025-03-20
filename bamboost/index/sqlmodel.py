@@ -55,7 +55,7 @@ from bamboost.constants import (
 )
 
 if TYPE_CHECKING:
-    pass
+    from pandas import DataFrame
 
 
 log = BAMBOOST_LOGGER.getChild(__name__)
@@ -160,6 +160,19 @@ class CollectionORM(_Base):
         unique_params = list(set(p.key for p in self.parameters))
         counts = [sum(p.key == k for p in self.parameters) for k in unique_params]
         return unique_params, counts
+
+    def to_pandas(self) -> "DataFrame":
+        """Converts the collection to a pandas DataFrame.
+
+        Returns:
+            pandas.DataFrame: DataFrame representation of the collection.
+        """
+        import pandas as pd
+
+        df = pd.DataFrame.from_records(
+            [sim.as_dict(standalone=False) for sim in self.simulations]
+        )
+        return df
 
 
 class SimulationORM(_Base):
