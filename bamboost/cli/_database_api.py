@@ -1,12 +1,12 @@
 import sqlite3
 from contextlib import contextmanager
 
-from bamboost._typing import StrPath
-
 
 class FastIndexQuery:
-    def __init__(self, db_path: StrPath):
-        self.db_path = db_path
+    def __init__(self):
+        from bamboost._config import config
+
+        self.db_path = config.index.databaseFile
 
     @contextmanager
     def connection(self):
@@ -17,7 +17,10 @@ class FastIndexQuery:
         finally:
             self._conn.close()
 
-    def query(self, query: str) -> list[tuple]:
+    def query(self, query: str, *args) -> list[tuple]:
         with self.connection() as cursor:
-            cursor.execute(query)
+            cursor.execute(query, *args)
             return cursor.fetchall()
+
+
+INDEX = FastIndexQuery()
