@@ -1,10 +1,9 @@
-import re
 from collections.abc import Iterable
+from pathlib import Path
 from typing import TYPE_CHECKING, Optional
 
 import rich
 import typer
-from typer.core import TyperGroup
 from typing_extensions import Annotated
 
 from bamboost.cli._database_api import INDEX
@@ -14,21 +13,6 @@ if TYPE_CHECKING:
     from pandas import DataFrame
     from rich.console import RenderableType
     from rich.table import Table
-
-
-class AliasGroup(TyperGroup):
-    _CMD_SPLIT_P = re.compile(r" ?[,|] ?")
-
-    def get_command(self, ctx, cmd_name):
-        cmd_name = self._group_cmd_name(cmd_name)
-        return super().get_command(ctx, cmd_name)
-
-    def _group_cmd_name(self, default_name):
-        for cmd in self.commands.values():
-            name = cmd.name
-            if name and default_name in self._CMD_SPLIT_P.split(name):
-                return name
-        return default_name
 
 
 app = typer.Typer(no_args_is_help=True)
@@ -180,6 +164,24 @@ def list(
                         style="red",
                     )
                 return console.print(sim.as_dict())
+
+
+@app.command()
+def show_config(
+    dir: Optional[str] = typer.Option(
+        None, "--dir", "-d", help="Directory to show the config for."
+    ),
+):
+    """Show the active configuration."""
+    from bamboost import _config
+
+    if dir is not None:
+        _config.ROOT_DIR = Path(dir).absolute()
+        config = _config._Config()
+    else:
+        config = _config.config
+
+    console.print(config)
 
 
 if __name__ == "__main__":
