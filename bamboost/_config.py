@@ -20,8 +20,6 @@ Attributes:
 
 """
 
-from __future__ import annotations
-
 import importlib.util
 import sys
 from collections.abc import MutableMapping
@@ -39,10 +37,11 @@ from typing import (
 )
 
 from bamboost import BAMBOOST_LOGGER as log
+from bamboost._typing import StrPath
 from bamboost.utilities import PathSet
 
 if TYPE_CHECKING:
-    pass
+    from typing_extensions import Self
 
 if sys.version_info < (3, 11):
     import tomli  # type: ignore
@@ -61,7 +60,7 @@ CACHE_DIR = Path("~/.cache/bamboost").expanduser()
 DATABASE_FILE_NAME = "bamboost-next.sqlite"
 
 
-def _find_root_dir() -> Path:
+def _find_root_dir() -> Optional[Path]:
     """Find the root directory."""
 
     ANCHORS = [
@@ -77,11 +76,8 @@ def _find_root_dir() -> Path:
             if any(path.joinpath(anchor).exists() for anchor in ANCHORS)
         )
     except StopIteration:
-        log.info("Root directory not found. Using current directory.")
-        return cwd
-
-
-ROOT_DIR = _find_root_dir()
+        log.info("Root directory not found.")
+        return None
 
 
 def _get_global_config(filepath: Path) -> dict[str, Any]:
@@ -98,10 +94,10 @@ def _get_global_config(filepath: Path) -> dict[str, Any]:
         return {}
 
 
-def _get_project_config() -> dict[str, Any]:
+def _get_project_config(project_dir: Path) -> dict[str, Any]:
     """Get the project configuration."""
     try:
-        with ROOT_DIR.joinpath("pyproject.toml").open("rb") as f:
+        with project_dir.joinpath("pyproject.toml").open("rb") as f:
             try:
                 return tomli.load(f).get("tool", {}).get("bamboost", {})
             except tomli.TOMLDecodeError as e:
@@ -153,7 +149,7 @@ class _Base:
                 yield f"{key}.{subkey}"
 
     @classmethod
-    def from_dict(cls, config: dict):
+    def from_dict(cls, config: dict, **kwargs) -> "Self":
         """Create an instance of the dataclass from a dictionary of
         configuration values.
 
@@ -167,6 +163,7 @@ class _Base:
 
         Args:
             config: A dictionary containing configuration key-value pairs.
+            **kwargs: Additional keyword arguments to pass to the class constructor
 
         Returns:
             An instance of the class initialized with the provided configuration.
@@ -221,7 +218,7 @@ class _Base:
                     )
 
         # Create the instance
-        instance = cls(**filtered_config)
+        instance = cls(**filtered_config, **kwargs)
 
         # Check for missing fields (defaults used)
         for field_def in fields(cls):
@@ -249,8 +246,8 @@ class _Paths(_Base):
         cacheDir: The directory where the cache is stored.
     """
 
-    localDir: Path | str = field(default=LOCAL_DIR)
-    cacheDir: Path | str = field(default=CACHE_DIR)
+    localDir: StrPath = field(default=LOCAL_DIR)
+    cacheDir: StrPath = field(default=CACHE_DIR)
 
     def __setattr__(self, name: str, value: Any, /) -> None:
         if isinstance(value, str):
@@ -299,11 +296,28 @@ class _IndexOptions(_Base):
     searchPaths: Iterable[Union[str, Path]] = field(
         default_factory=lambda: PathSet([Path("~").expanduser()])
     )
+    """The list of paths to search for collections."""
+
     syncTables: bool = field(default=True)
+    """If True, the sqlite database is updated after some queries to keep it in sync."""
+
     convertArrays: bool = True
+    """If True, sqlite lists are converted to np.arrays. If false, they are left as
+    lists."""
+
     databaseFileName: str = field(default=DATABASE_FILE_NAME)
-    databaseFile: Path | str = field(init=False)
+    """The basename of the database file."""
+
+    databaseFile: Path = field(init=False)
+    """The path to the default database file in the current context. This can be the
+    global database or a project-specific database."""
+
     isolated: bool = False
+    """If true, this project manages it's own database. The searchPaths are reduced to the
+    project root only."""
+
+    projectDir: Optional[Path] = None
+    """The project directory, if found."""
 
     def __post_init__(self) -> None:
         # Parse search paths to Path objects
@@ -312,10 +326,14 @@ class _IndexOptions(_Base):
         )
 
         # Handle isolated mode
-        if self.isolated:
-            ROOT_DIR.joinpath(".bamboost_cache").mkdir(parents=True, exist_ok=True)
-            self.databaseFile = ROOT_DIR.joinpath(".bamboost_cache", "bamboost.sqlite")
-            self.searchPaths = PathSet([ROOT_DIR])
+        if self.isolated and self.projectDir:
+            self.projectDir.joinpath(".bamboost_cache").mkdir(
+                parents=True, exist_ok=True
+            )
+            self.databaseFile = self.projectDir.joinpath(
+                ".bamboost_cache", "bamboost.sqlite"
+            )
+            self.searchPaths = PathSet([self.projectDir])
         else:
             self.databaseFile = LOCAL_DIR.joinpath(self.databaseFileName)
 
@@ -328,6 +346,10 @@ class _Config(_Base):
     It loads the configuration from a file and provides access to the options
     and index attributes.
 
+    Args:
+        project_dir: An optional alternative directory to load the project-based config
+            from.
+
     Attributes:
         paths: Paths used by bamboost.
         options: Configuration options for bamboost.
@@ -337,15 +359,14 @@ class _Config(_Base):
     paths: _Paths
     options: _Options
     index: _IndexOptions
-    project: Optional[Path] = None
-    """If project specific configuration is used, this is set to the project root
-    directory."""
 
-    def __init__(self) -> None:
+    def __init__(self, project_dir: Optional[StrPath] = None) -> None:
         global_config = _get_global_config(CONFIG_FILE)
-        project_config = _get_project_config()
-        if project_config:
-            self.project = ROOT_DIR
+        project_dir = project_dir or _find_root_dir()
+        if project_dir:
+            project_config = _get_project_config(Path(project_dir))
+        else:
+            project_config = {}
 
         def nested_update(d: MutableMapping, u: MutableMapping) -> MutableMapping:
             for k, v in u.items():
@@ -360,7 +381,9 @@ class _Config(_Base):
 
         self.paths = _Paths.from_dict(config.pop("paths", {}))
         self.options = _Options.from_dict(config.pop("options", {}))
-        self.index = _IndexOptions.from_dict(config.pop("index", {}))
+        self.index = _IndexOptions.from_dict(
+            config.pop("index", {}), projectDir=project_dir
+        )
 
         # Log unknown config options
         for key in global_config.keys():
@@ -375,5 +398,5 @@ class _Config(_Base):
         return s
 
 
-# Create the config instance
+# Create the config instance (load the configuration)
 config: _Config = _Config()
