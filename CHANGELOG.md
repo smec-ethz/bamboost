@@ -1,8 +1,11 @@
 # Change log for bamboost
 
-## v0.8.3 (11Jan25)
+## v0.8.3 (24Mar25)
 
-- ENH: catch file IO errors and display the path of the file causing the error when generating index
+- ENH: catch file IO errors and display the path of the file causing the error
+  when generating index
+- FEAT: add `ManagerCached` for a manager that reads from the sqlite database
+  without checking the file system. (1eece736)
 
 ## v0.8.2 (13Nov24)
 
