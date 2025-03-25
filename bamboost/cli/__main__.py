@@ -135,7 +135,7 @@ def list(
     if collection_uid is None:
         console.print(_list_collections())
     else:
-        with console.status("[bold blue]Fetching data...", spinner="dots") as status:
+        with console.status("[bold blue]Fetching data...", spinner="dots"):
             # if the user has provided a collection UID, list all simulations in that collection
             # specifically handle the case where the collection is empty
             if simulation_name is None:
@@ -181,6 +181,26 @@ def show_config(
         from bamboost import config
 
     console.print(config)
+
+
+@app.command()
+def new(
+    path: Annotated[str, typer.Argument(..., help="Path of the collection to create.")],
+) -> None:
+    """Create a new collection."""
+    path_object = Path(path).resolve()
+    if path_object.exists():
+        return console.print(f"[red]:cross_mark: Path already in use {path_object}")
+
+    with console.status(
+        "[bold blue]Creating new collection...", spinner="dots", spinner_style="blue"
+    ):
+        from bamboost.core import Collection
+
+        coll = Collection(path_object, create_if_not_exist=True)
+        console.print(f"[green]:heavy_check_mark: New collection created")
+        console.print(f"[default]{'UID:':<5} {coll.uid}")
+        console.print(f"[default]{'Path:':<5} {coll.path}")
 
 
 if __name__ == "__main__":

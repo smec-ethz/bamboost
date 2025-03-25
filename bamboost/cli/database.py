@@ -14,9 +14,9 @@ def _app_callback():
     """Display the database file (project path)."""
     from bamboost import config
 
-    console.print(f"[dim white][bold]Index file: [/bold]{config.index.databaseFile}")
+    console.print(f"[dim default][bold]Index file: [/bold]{config.index.databaseFile}")
     if config.index.isolated:
-        console.print(f"[dim white][bold]Project: [/bold]{config.project}")
+        console.print(f"[dim default][bold]Project: [/bold]{config.index.projectDir}")
 
 
 @app.command()

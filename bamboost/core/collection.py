@@ -4,13 +4,7 @@ import pkgutil
 from ctypes import ArgumentError
 from functools import cache
 from pathlib import Path
-from typing import (
-    TYPE_CHECKING,
-    Any,
-    Dict,
-    Iterable,
-    Optional,
-)
+from typing import TYPE_CHECKING, Any, Dict, Iterable, Optional
 
 from bamboost import BAMBOOST_LOGGER, config
 from bamboost._typing import StrPath
@@ -88,7 +82,7 @@ class Collection:
         assert not (path and uid), "Only one of path or uid must be provided."
 
         self._comm = comm or MPI.COMM_WORLD
-        self._index = index_instance or Index(comm=self._comm)
+        self._index = index_instance or Index.default
 
         # Resolve the path (this updates the index if necessary)
         self.path = Path(path or self._index.resolve_path(uid.upper())).absolute()
