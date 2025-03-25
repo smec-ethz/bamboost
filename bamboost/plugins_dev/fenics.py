@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from contextlib import contextmanager
 from enum import Enum
-from typing import Any, Callable, Optional, TypedDict
+from typing import TYPE_CHECKING, Any, Optional, TypedDict
 
 import h5py
 import numpy as np
@@ -25,6 +25,23 @@ except ImportError:
 __all__ = ["FenicsBamboostPlugin"]
 
 log = BAMBOOST_LOGGER.getChild("bamboost_plugin_fenics")
+
+if TYPE_CHECKING:
+    from functools import cached_property
+
+    from bamboost.core.simulation import SimulationWriter
+    from bamboost.core.simulation.series import Series
+
+    class _T_Simulation(SimulationWriter):
+        @cached_property
+        def data(self) -> _T_Series: ...
+        @cached_property
+        def meshes(self) -> FenicsMeshes: ...
+
+    class _T_Series(Series[Mutable]):
+        def require_step(
+            self: _T_Series, value: float = ..., step: Optional[int] = ...
+        ) -> FenicsWriter: ...
 
 
 class WriteStrategy(Enum):
@@ -97,7 +114,7 @@ class FieldDataFenics(FieldData[Mutable], PluginComponent):
         file_map: bool = True,
     ) -> None:
         """Add a Fenics function to the field."""
-        write_strategy: WriteStrategy = self.__source_plugin__.opts["write_strategy"]
+        write_strategy: WriteStrategy = self.__plugin__.opts["write_strategy"]
 
         if write_strategy == WriteStrategy.CONTIGUOUS:
             self._dump_fenics_field_on_root(
@@ -294,7 +311,7 @@ class FieldDataFenics(FieldData[Mutable], PluginComponent):
 
 
 class FenicsMeshes(GroupMeshes[Mutable], PluginComponent):
-    def add(
+    def add_fenics_mesh(
         self: FenicsMeshes,
         mesh: fe.Mesh,
         name: str = DEFAULT_MESH_NAME,
@@ -339,7 +356,7 @@ class FenicsPluginOpts(TypedDict):
     write_strategy: WriteStrategy
 
 
-class FenicsBamboostPlugin(Plugin):
+class FenicsBamboostPlugin(Plugin[FenicsPluginOpts]):
     name = "fenics_writer"
     overwrite_classes = {
         "bamboost.core.simulation.series.StepWriter": FenicsWriter,

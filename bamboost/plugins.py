@@ -2,12 +2,7 @@ from __future__ import annotations
 
 from abc import ABC
 from itertools import chain
-from typing import Any, ClassVar, Generic, Protocol, Type, TypedDict, TypeVar
-
-
-class PluginProtocol(Protocol):
-    name: str
-    overwrite_classes: dict[str, type]
+from typing import ClassVar, Generic, Type, TypedDict, TypeVar
 
 
 class BasePluginOpts(TypedDict):
@@ -18,12 +13,11 @@ _T_PluginOpts = TypeVar("_T_PluginOpts", bound=BasePluginOpts)
 
 
 class PluginComponent(ABC):
-    __source_plugin__: ClassVar[Plugin]
-    __plugin_owned__: ClassVar[bool] = True
+    __plugin__: ClassVar[Plugin]
 
 
 class Plugin(ABC, Generic[_T_PluginOpts]):
-    name: ClassVar[str]
+    name: str
     overwrite_classes: dict[str, type]
     components: list[Type[PluginComponent]]
 
@@ -32,7 +26,7 @@ class Plugin(ABC, Generic[_T_PluginOpts]):
 
         # remember the source plugin for each class
         for cls in chain(self.overwrite_classes.values(), self.components):
-            setattr(cls, "__source_plugin__", self)
+            cls.__plugin__ = self
 
 
 # active plugins set
