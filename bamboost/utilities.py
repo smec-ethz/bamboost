@@ -53,3 +53,11 @@ def compose_while_not_none(
         return composed
 
     return reduce(function, funcs)
+
+
+def full_class_name(_cls):
+    """Returns the full name of a class, including the module name."""
+    module = _cls.__module__
+    if module is None or module == str.__class__.__module__:
+        return _cls.__qualname__
+    return ".".join([module, _cls.__qualname__])

@@ -1,6 +1,6 @@
 import logging
 from importlib.metadata import PackageNotFoundError, version
-from typing import Literal
+from typing import Literal, Protocol
 
 import lazy_loader as lazy
 
@@ -16,6 +16,7 @@ BAMBOOST_LOGGER = logging.getLogger("bamboost")
 STREAM_HANDLER = logging.StreamHandler()
 
 from bamboost._config import config as config
+from bamboost import plugins as plugins
 
 
 def _add_stream_handler(logger: logging.Logger) -> None:

@@ -119,6 +119,10 @@ class Comm:
         return 1
 
 
+# operators
+SUM = lambda a, b: a + b
+
+
 COMM_WORLD: Comm = Comm()
 COMM_SELF: Comm = COMM_WORLD
 COMM_NULL: Comm = COMM_WORLD

@@ -23,13 +23,7 @@ import pkgutil
 from dataclasses import dataclass
 from functools import cached_property
 from pathlib import Path
-from typing import (
-    TYPE_CHECKING,
-    Iterable,
-    Optional,
-    Union,
-    overload,
-)
+from typing import TYPE_CHECKING, Iterable, Optional, Union, overload
 
 import h5py
 import numpy as np
@@ -154,7 +148,9 @@ class Series(H5Reference[_MT]):
         Args:
             name: The name of the field.
         """
-        return FieldData(self, name)
+        if name not in self._field_instances:
+            self._field_instances[name] = FieldData(self, name)
+        return self._field_instances[name]
 
     def get_fields(self, *glob: str) -> list[FieldData[_MT]]:
         """Get multiple fields by name or glob pattern. If no arguments are given, all
@@ -355,25 +351,12 @@ class FieldData(Group[_MT]):
     _parent: Series[_MT]
     name: str
 
-    def __new__(cls, series: Series[_MT], name: str):
-        if name not in series._field_instances:
-            instance = super().__new__(cls)
-
-            # Initialize the instance
-            super(FieldData, instance).__init__(
-                series._path.joinpath(RELATIVE_PATH_FIELD_DATA, name), series._file
-            )
-            instance._parent = series
-            instance.name = name
-
-            # Store the instance and return
-            series._field_instances[name] = instance
-
-        return series._field_instances[name]
-
     def __init__(self, series: Series[_MT], name: str):
-        # initialization is done in __new__ for simplicity
-        pass
+        super().__init__(
+            series._path.joinpath(RELATIVE_PATH_FIELD_DATA, name), series._file
+        )
+        self._parent = series
+        self.name = name
 
     def __getitem__(
         self, key: Union[int, slice, tuple[slice | int, ...]]

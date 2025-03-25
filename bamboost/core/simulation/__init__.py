@@ -20,3 +20,4 @@ class CellType(Enum):
 
 
 from .base import Simulation as Simulation
+from .base import SimulationWriter as SimulationWriter

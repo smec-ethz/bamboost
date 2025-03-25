@@ -13,6 +13,7 @@ def set_log_level(
     level: Literal["DEBUG", "INFO", "WARNING", "ERROR", "CRITICAL"],
 ) -> None: ...
 
+from bamboost import plugins as plugins
 from bamboost._config import config as config
 from bamboost.core.collection import *
 from bamboost.core.simulation import *
