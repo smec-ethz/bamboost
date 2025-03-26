@@ -3,11 +3,16 @@ from __future__ import annotations
 from typing import ClassVar, Generic, Type, TypedDict, TypeVar
 
 
-class BasePluginOpts(TypedDict):
-    pass
+class ElligibleForPlugin:
+    """A base class for all classes that should be available to be replaced by plugins."""
 
+    def __new__(cls, *args, **kwargs):
+        # hook up plugins here
+        for plugin in _active:
+            if cls in plugin.override_components:
+                return super().__new__(plugin.override_components[cls])
 
-_T_PluginOpts = TypeVar("_T_PluginOpts", bound=BasePluginOpts)
+        return super().__new__(cls)
 
 
 class PluginComponent:
@@ -25,24 +30,31 @@ class PluginMeta(type):
         _replacements: dict[type, type] = {}
 
         for attr_name, attr_value in namespace.items():
-            if (
-                isinstance(attr_value, type)
-                and issubclass(attr_value, PluginComponent)
-                and attr_value is not PluginComponent
-            ):
+            if isinstance(attr_value, type) and issubclass(attr_value, PluginComponent):
                 _components.append(attr_value)
 
-                # Handle replacement if `replace=True` is set
+                # Handle replacement if `replace_base=True` is set
                 if getattr(attr_value, "__replace_base__", False):
                     for base in attr_value.__bases__:
-                        if base is not PluginComponent:
+                        if issubclass(base, ElligibleForPlugin):
                             _replacements[base] = attr_value
                             break
+                    else:
+                        raise ValueError(
+                            f"Could not find a base class that is elligible for replacement by the plugin API (for {attr_value})"
+                        )
 
         namespace["components"] = _components
         namespace["override_components"] = _replacements
 
         return super().__new__(mcs, name, bases, namespace)
+
+
+class BasePluginOpts(TypedDict):
+    pass
+
+
+_T_PluginOpts = TypeVar("_T_PluginOpts", bound=BasePluginOpts)
 
 
 class Plugin(Generic[_T_PluginOpts], metaclass=PluginMeta):

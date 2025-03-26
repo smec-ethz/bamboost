@@ -17,6 +17,7 @@ from bamboost.index import (
     get_identifier_filename,
 )
 from bamboost.mpi import MPI
+from bamboost.plugins import ElligibleForPlugin
 
 if TYPE_CHECKING:
     import pandas as pd
@@ -47,7 +48,7 @@ class _CollectionPicker:
         return (f"{i.uid} - {i.path[-30:]}" for i in Index.default.all_collections)
 
 
-class Collection:
+class Collection(ElligibleForPlugin):
     """View of database.
 
     Args:

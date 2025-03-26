@@ -78,14 +78,14 @@ from typing import (
 import h5py
 from typing_extensions import Concatenate, Self
 
-import bamboost
-from bamboost import BAMBOOST_LOGGER, plugins
+from bamboost import BAMBOOST_LOGGER
 from bamboost._typing import _MT, _P, _T, Immutable, Mutable
 from bamboost.core.hdf5.filemap import FileMap
 from bamboost.core.hdf5.hdf5path import HDF5Path
 from bamboost.mpi import MPI, MPI_ON
 from bamboost.mpi.utilities import RootProcessMeta
-from bamboost.utilities import StrPath, full_class_name
+from bamboost.plugins import ElligibleForPlugin
+from bamboost.utilities import StrPath
 
 if TYPE_CHECKING:
     from bamboost.core.hdf5.attrsdict import AttrsDict
@@ -183,19 +183,8 @@ def add_to_file_queue(
     return inner
 
 
-class H5Object(Generic[_MT]):
+class H5Object(Generic[_MT], ElligibleForPlugin):
     _file: HDF5File[_MT]
-
-    def __new__(cls, *args, **kwargs):
-        # hook up plugins here
-
-        for plugin in plugins._active:
-            # if full_class_name(cls) in plugin.overwrite_classes:
-            #     return super().__new__(plugin.overwrite_classes[full_class_name(cls)])
-            if cls in plugin.override_components:
-                return super().__new__(plugin.override_components[cls])
-
-        return super().__new__(cls)
 
     def __init__(self, file: HDF5File[_MT]) -> None:
         self._file = file

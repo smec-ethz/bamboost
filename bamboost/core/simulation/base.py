@@ -10,42 +10,20 @@ from datetime import datetime
 from enum import Enum
 from functools import cached_property
 from pathlib import Path
-from typing import (
-    TYPE_CHECKING,
-    Any,
-    Iterable,
-    Optional,
-    Sized,
-    Union,
-)
+from typing import TYPE_CHECKING, Any, Iterable, Optional, Sized, Union
 
 import numpy as np
 from typing_extensions import Self
 
 from bamboost import BAMBOOST_LOGGER, config, constants
-from bamboost._typing import (
-    _MT,
-    Immutable,
-    Mutable,
-)
+from bamboost._typing import _MT, Immutable, Mutable
 from bamboost.core import utilities
-from bamboost.core.hdf5.file import (
-    FileMode,
-    H5Object,
-    HDF5File,
-)
+from bamboost.core.hdf5.file import FileMode, H5Object, HDF5File
 from bamboost.core.hdf5.ref import Group
 from bamboost.core.simulation.dict import Links, Metadata, Parameters
-from bamboost.core.simulation.groups import (
-    GroupGit,
-    GroupMesh,
-    GroupMeshes,
-)
+from bamboost.core.simulation.groups import GroupGit, GroupMesh, GroupMeshes
 from bamboost.core.simulation.series import Series
-from bamboost.index import (
-    CollectionUID,
-    Index,
-)
+from bamboost.index import CollectionUID, Index
 from bamboost.index.sqlmodel import SimulationORM
 from bamboost.mpi import MPI, MPI_ON
 from bamboost.utilities import StrPath
@@ -112,7 +90,7 @@ class SimulationName(str):
         return uuid.uuid4().hex[:length]
 
 
-class _Simulation(ABC, H5Object[_MT]):
+class _Simulation(H5Object[_MT]):
     """Abstract simulation base class. Use `Simulation` or `SimulationWriter` instead.
 
     Args:
