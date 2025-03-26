@@ -36,12 +36,12 @@ if TYPE_CHECKING:
         @cached_property
         def data(self) -> _T_Series: ...
         @cached_property
-        def meshes(self) -> FenicsMeshes: ...
+        def meshes(self) -> FenicsBamboostPlugin.FenicsMeshes: ...
 
     class _T_Series(Series[Mutable]):
         def require_step(
             self: _T_Series, value: float = ..., step: Optional[int] = ...
-        ) -> FenicsWriter: ...
+        ) -> FenicsBamboostPlugin.FenicsWriter: ...
 
 
 class WriteStrategy(Enum):
@@ -56,7 +56,7 @@ class WriteStrategy(Enum):
     contigously."""
 
 
-class FenicsWriter(StepWriter, PluginComponent):
+class _FenicsStepWriter(StepWriter, PluginComponent, replace_base=True):
     """
     Helper writer for input from FEniCS directly.
 
@@ -90,7 +90,7 @@ class FenicsWriter(StepWriter, PluginComponent):
                 is only relevant for XDMF writing.
         """
         # field = self._series.get_field(name)
-        field = FieldDataFenics(self._series, name)
+        field = _FenicsFieldData(self._series, name)
         field.require_self()
         field.add_fenics_function(
             str(self._step),
@@ -102,7 +102,7 @@ class FenicsWriter(StepWriter, PluginComponent):
         log.debug(f"Added field {name} for step {self._step}")
 
 
-class FieldDataFenics(FieldData[Mutable], PluginComponent):
+class _FenicsFieldData(FieldData[Mutable], PluginComponent):
     def add_fenics_function(
         self,
         name: str,
@@ -310,9 +310,9 @@ class FieldDataFenics(FieldData[Mutable], PluginComponent):
         }
 
 
-class FenicsMeshes(GroupMeshes[Mutable], PluginComponent):
+class _FenicsMeshes(GroupMeshes[Mutable], PluginComponent, replace_base=True):
     def add_fenics_mesh(
-        self: FenicsMeshes,
+        self,
         mesh: fe.Mesh,
         name: str = DEFAULT_MESH_NAME,
         cell_type: CellType = CellType.TRIANGLE,
@@ -331,14 +331,14 @@ class FenicsMeshes(GroupMeshes[Mutable], PluginComponent):
         from mpi4py import MPI
 
         mesh_location = f"{self._path}/{name}"
-        with self.temporary_close_file():
+        with self._temporary_close_file():
             with fe.HDF5File(MPI.COMM_WORLD, self._file._filename, "a") as f:
                 f.write(mesh, mesh_location)
 
         self.attrs.update({"cell_type": cell_type.value})
 
     @contextmanager
-    def temporary_close_file(self):
+    def _temporary_close_file(self):
         was_open = False
         if self._file.is_open:
             was_open = True
@@ -352,15 +352,13 @@ class FenicsMeshes(GroupMeshes[Mutable], PluginComponent):
                 self._file.open(mode, driver)  # type: ignore
 
 
-class FenicsPluginOpts(TypedDict):
+class _T_FenicsPluginOpts(TypedDict):
     write_strategy: WriteStrategy
 
 
-class FenicsBamboostPlugin(Plugin[FenicsPluginOpts]):
-    name = "fenics_writer"
-    overwrite_classes = {
-        "bamboost.core.simulation.series.StepWriter": FenicsWriter,
-        "bamboost.core.simulation.groups.GroupMeshes": FenicsMeshes,
-    }
-    components = [FieldDataFenics]
-    opts: FenicsPluginOpts
+class FenicsBamboostPlugin(Plugin[_T_FenicsPluginOpts]):
+    """Plugin for writing FEniCS data to HDF5 files."""
+
+    FenicsWriter = _FenicsStepWriter
+    FenicsFieldData = _FenicsFieldData
+    FenicsMeshes = _FenicsMeshes
