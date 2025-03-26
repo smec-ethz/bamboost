@@ -190,8 +190,10 @@ class H5Object(Generic[_MT]):
         # hook up plugins here
 
         for plugin in plugins._active:
-            if full_class_name(cls) in plugin.overwrite_classes:
-                return super().__new__(plugin.overwrite_classes[full_class_name(cls)])
+            # if full_class_name(cls) in plugin.overwrite_classes:
+            #     return super().__new__(plugin.overwrite_classes[full_class_name(cls)])
+            if cls in plugin.override_components:
+                return super().__new__(plugin.override_components[cls])
 
         return super().__new__(cls)
 
