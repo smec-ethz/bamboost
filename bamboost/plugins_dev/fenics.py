@@ -181,17 +181,13 @@ class _FenicsFieldData(FieldData[Mutable], PluginComponent):
         """
         # get global dofs ordering and vector
         if center == FieldType.NODE:
-            data = self._get_global_dofs(field)
+            vector, global_map, global_size = self._get_global_dofs(field)
         elif center == FieldType.ELEMENT:
-            data = self._get_global_dofs_cell_data(field)
+            vector, global_map, global_size = self._get_global_dofs_cell_data(field)
         else:
             raise ValueError("Invalid field type (NODE or ELEMENT).")
 
-        vector = data["vector"]
-        global_map = data["global_map"]
-        global_size = data["global_size"]
-
-        dim = data["vector"].shape[1:] if data["vector"].ndim > 1 else None
+        dim = vector.shape[1:] if vector.ndim > 1 else None
 
         vector_p = self._file._comm.gather(vector)
         global_map_p = self._file._comm.gather(global_map)
@@ -215,12 +211,7 @@ class _FenicsFieldData(FieldData[Mutable], PluginComponent):
 
             self.post_write_instruction(_write_vector)
 
-    class FenicsFieldInformation(TypedDict):
-        vector: np.ndarray
-        global_map: np.ndarray
-        global_size: int
-
-    def _get_global_dofs(self, func: fe.Function) -> FenicsFieldInformation:
+    def _get_global_dofs(self, func: fe.Function) -> tuple[np.ndarray, np.ndarray, int]:
         """
         Get global dofs for a given function.
 
@@ -228,7 +219,7 @@ class _FenicsFieldData(FieldData[Mutable], PluginComponent):
             - func: Expression/field/function
 
         Returns:
-            A dict with the local vector, a mapping from the local to the
+            A tuple with the local vector, a mapping from the local to the
             global vertices (both sorted by index because h5py complains if
             slicing is not continuously increasing), and the number of global
             vertices.
@@ -264,13 +255,11 @@ class _FenicsFieldData(FieldData[Mutable], PluginComponent):
             func.vector().get_local().reshape(shape)[: loc1 - loc0][sort_indices]
         )
 
-        return {
-            "vector": local_vector,
-            "global_map": global_vertices[sort_indices],
-            "global_size": global_size,
-        }
+        return (local_vector, global_vertices[sort_indices], global_size)
 
-    def _get_global_dofs_cell_data(self, func: fe.Function) -> FenicsFieldInformation:
+    def _get_global_dofs_cell_data(
+        self, func: fe.Function
+    ) -> tuple[np.ndarray, np.ndarray, int]:
         """
         Get global dofs for a given function.
 
@@ -278,7 +267,7 @@ class _FenicsFieldData(FieldData[Mutable], PluginComponent):
             - func: Expression/field/function
 
         Returns:
-            A dict with the local vector, a mapping from the local to the
+            A tuple with the local vector, a mapping from the local to the
             global vertices (both sorted by index because h5py complains if
             slicing is not continuously increasing), and the number of global
             vertices.
@@ -303,11 +292,11 @@ class _FenicsFieldData(FieldData[Mutable], PluginComponent):
         shape = (-1, *func.ufl_shape) if func.ufl_shape else (-1,)
         local_vector = func.vector().get_local().reshape(shape)
 
-        return {
-            "vector": local_vector,
-            "global_map": local_to_global_indices,
-            "global_size": self._file._comm.allreduce(mesh.num_cells(), op=MPI.SUM),
-        }
+        return (
+            local_vector,
+            local_to_global_indices,
+            self._file._comm.allreduce(mesh.num_cells(), op=MPI.SUM),
+        )
 
 
 class _FenicsMeshes(GroupMeshes[Mutable], PluginComponent, replace_base=True):
