@@ -140,17 +140,13 @@ class _FenicsFieldData(FieldData[Mutable], PluginComponent):
     ) -> None:
         # get global dofs ordering and vector
         if center == FieldType.NODE:
-            data = self._get_global_dofs(field)
+            vector, global_map, global_size = self._get_global_dofs(field)
         elif center == FieldType.ELEMENT:
-            data = self._get_global_dofs_cell_data(field)
+            vector, global_map, global_size = self._get_global_dofs_cell_data(field)
         else:
             raise ValueError("Invalid field type (NODE or ELEMENT).")
 
-        vector = data["vector"]
-        global_map = data["global_map"]
-        global_size = data["global_size"]
-
-        dim = data["vector"].shape[1:] if data["vector"].ndim > 1 else None
+        dim = vector.shape[1:] if vector.ndim > 1 else None
 
         with self._file.open(FileMode.APPEND, driver="mpio"):
             dataset = self._obj.require_dataset(
@@ -341,8 +337,9 @@ class _FenicsMeshes(GroupMeshes[Mutable], PluginComponent, replace_base=True):
                 self._file.open(mode, driver)  # type: ignore
 
 
-class _T_FenicsPluginOpts(TypedDict):
+class _T_FenicsPluginOpts(TypedDict, total=True):
     write_strategy: WriteStrategy
+    """Write strategy for the data. Contiguous is faster but requires the entire array to fit in memory of the root process."""
 
 
 class FenicsBamboostPlugin(Plugin[_T_FenicsPluginOpts]):
