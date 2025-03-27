@@ -10,7 +10,7 @@ from datetime import datetime
 from enum import Enum
 from functools import cached_property
 from pathlib import Path
-from typing import TYPE_CHECKING, Any, Iterable, Optional, Sized, Union
+from typing import TYPE_CHECKING, Any, Iterable, Optional, Sized, Type, Union
 
 import numpy as np
 from typing_extensions import Self
@@ -216,7 +216,7 @@ class _Simulation(H5Object[_MT]):
         return self._index.simulation(self.collection_uid, self.name)
 
     @classmethod
-    def from_uid(cls, uid: str, **kwargs) -> Self:
+    def from_uid(cls: Type[_Simulation], uid: str, **kwargs) -> _Simulation:
         """Return the `Simulation` with given UID.
 
         Args:
@@ -356,7 +356,7 @@ class _Simulation(H5Object[_MT]):
         series = series or self.data
         fields = series.get_fields(*field_names if field_names else [])
         filename = filename or self.path.joinpath(constants.XDMF_FILE_NAME)
-        timesteps = timesteps or series.values
+        timesteps = timesteps if timesteps is not None else series.values
 
         def _create_xdmf():
             xdmf = XDMFWriter(self._file)
@@ -397,7 +397,6 @@ class SimulationWriter(_Simulation[Mutable]):
             )
             return
         self.status = Status.FINISHED
-        self._comm.barrier()
 
     @cached_property
     def _file(self) -> HDF5File[Mutable]:
@@ -517,9 +516,8 @@ class SimulationWriter(_Simulation[Mutable]):
         # Add environment variables
         script += "\n"
         script += (
-            f"""COLLECTION_DIR=$(sqlite3 {config.index.databaseFile} "SELECT path FROM collections WHERE uid='{self.collection_uid}'")\n"""
-            f"SIMULATION_DIR={self.path.as_posix()}\n"
-            f"SIMULATION_ID={self.uid}\n\n"
+            f"export SIMULATION_DIR={self.path.as_posix()}\n"
+            f"export SIMULATION_ID={self.uid}\n\n"
         )
         script += "\n".join(commands)
 
