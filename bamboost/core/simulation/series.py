@@ -414,3 +414,26 @@ class GlobalData(Group[_MT]):
         return DataFrame(
             {"values": self._series.values} | {k: list(v[:]) for k, v in self.items()}
         )
+
+    def get(self, *glob: str) -> tuple[tuple[np.ndarray, ...], tuple[str, ...]]:
+        """Get the data for many scalars by name or glob pattern. If no arguments are
+        given, all scalars are read and returned.
+
+        Args:
+            glob: A list of glob patterns to filter the scalar names.
+        """
+        if not glob:
+            dataset_names = self.datasets()
+            return tuple(self.__getitem__(name).array for name in dataset_names), tuple(
+                map(str, dataset_names)
+            )
+
+        import fnmatch
+
+        matching_datasets = set()
+        for g in glob:
+            matching_datasets.update(fnmatch.filter(self.datasets(), g))
+        matching_datasets = tuple(matching_datasets)
+        return tuple(
+            self.__getitem__(name).array for name in matching_datasets
+        ), matching_datasets

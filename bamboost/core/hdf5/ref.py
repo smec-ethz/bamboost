@@ -450,6 +450,11 @@ class Dataset(H5Reference[_MT]):
     def dtype(self):
         return self._obj.dtype
 
+    @property
+    @with_file_open(FileMode.READ)
+    def array(self) -> np.ndarray:
+        return self._obj[()]
+
 
 # Aliases for Group and Dataset
 _g = Group
