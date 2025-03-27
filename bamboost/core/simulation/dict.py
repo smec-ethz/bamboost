@@ -10,12 +10,7 @@ from bamboost import constants
 from bamboost._typing import SimulationParameterT
 from bamboost.core import utilities
 from bamboost.core.hdf5.attrsdict import AttrsDict, AttrsEncoder, mutable_only
-from bamboost.core.hdf5.file import (
-    _MT,
-    FileMode,
-    Mutable,
-    with_file_open,
-)
+from bamboost.core.hdf5.file import _MT, FileMode, Mutable, with_file_open
 
 if TYPE_CHECKING:
     from bamboost.core.simulation.base import _Simulation
@@ -143,6 +138,11 @@ class Parameters(AttrsDict[_MT]):
 class Links(AttrsDict[_MT]):
     def __init__(self, simulation: _Simulation[_MT]) -> None:
         super().__init__(simulation._file, constants.PATH_LINKS)
+
+    def __getitem__(self, key: str) -> "_Simulation":
+        from bamboost.core.simulation import Simulation
+
+        return Simulation.from_uid(super().__getitem__(key))
 
 
 class Metadata(AttrsDict[_MT]):
