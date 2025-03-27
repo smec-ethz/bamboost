@@ -103,7 +103,7 @@ class XDMFWriter(metaclass=RootProcessMeta):
             Format="HDF",
             Precision=precission,
         )
-        data_item.text = f"{self._file._path.as_posix()}:{nodes_path}"
+        data_item.text = f"{self._file._path.name}:{nodes_path}"
 
     def _add_cells(self, grid: ET.Element, cells_path: HDF5Path):
         cells = cast(h5py.Dataset, self._file[cells_path])
@@ -124,7 +124,7 @@ class XDMFWriter(metaclass=RootProcessMeta):
             Format="HDF",
             Precision=prec,
         )
-        data_item.text = f"{self._file._path.as_posix()}:{cells_path}"
+        data_item.text = f"{self._file._path.name}:{cells_path}"
 
     def add_timeseries(
         self, timesteps: Iterable[float], fields: "list[FieldData]", mesh_name: str
@@ -183,7 +183,7 @@ class XDMFWriter(metaclass=RootProcessMeta):
             att_type = "Matrix"
 
         # Cell or Node data
-        data_type = FieldType(data.attrs.get("type", FieldType.NODE))
+        data_type = FieldType(field._obj.attrs.get("field_type", FieldType.NODE))
 
         att = ET.SubElement(
             grid,
@@ -204,4 +204,4 @@ class XDMFWriter(metaclass=RootProcessMeta):
             Format="HDF",
             Precision=prec,
         )
-        data_item.text = f"{self._file._path.as_posix()}:{field._path}/{step}"
+        data_item.text = f"{self._file._path.name}:{field._path}/{step}"
