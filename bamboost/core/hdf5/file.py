@@ -83,7 +83,7 @@ from bamboost import BAMBOOST_LOGGER, config
 from bamboost._typing import _MT, _P, _T, Immutable, Mutable
 from bamboost.core.hdf5.filemap import FileMap
 from bamboost.core.hdf5.hdf5path import HDF5Path
-from bamboost.mpi import MPI, MPI_ON
+from bamboost.mpi import MPI, MPI_ON, Communicator
 from bamboost.mpi.utilities import RootProcessMeta
 from bamboost.plugins import ElligibleForPlugin
 from bamboost.utilities import StrPath
@@ -186,6 +186,7 @@ def add_to_file_queue(
 
 class H5Object(Generic[_MT], ElligibleForPlugin):
     _file: HDF5File[_MT]
+    _comm = Communicator()
 
     def __init__(self, file: HDF5File[_MT]) -> None:
         self._file = file
@@ -249,9 +250,10 @@ class SingleProcessQueue(deque[Callable[[], None]], metaclass=RootProcessMeta):
     executed on the root process.
     """
 
+    _comm = Communicator()
+
     def __init__(self, file: HDF5File):
         self._file = file
-        self._comm = file._comm  # needed for MPISafeMeta to work
         super().__init__()
 
     def add_instruction(self, instruction: Callable[[], None]) -> None:
@@ -295,7 +297,7 @@ class HDF5File(h5py.File, Generic[_MT]):
     """
 
     _filename: str
-    _comm: Comm
+    _comm = Communicator()
     _context_stack: int = 0
     mutable: bool
     file_map: FileMap
@@ -323,7 +325,6 @@ class HDF5File(h5py.File, Generic[_MT]):
         mutable: bool = False,
     ):
         self._filename = file.as_posix() if isinstance(file, Path) else file
-        self._comm = comm or MPI.COMM_WORLD
         self._path = Path(self._filename).absolute()
         self.file_map = FileMap(self)
         self.mutable = mutable

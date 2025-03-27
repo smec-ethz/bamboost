@@ -49,13 +49,7 @@ from sqlalchemy.orm import Session, joinedload, sessionmaker
 from typing_extensions import Concatenate
 
 from bamboost import BAMBOOST_LOGGER, config, constants
-from bamboost._typing import (
-    _P,
-    _T,
-    SimulationMetadataT,
-    SimulationParameterT,
-    StrPath,
-)
+from bamboost._typing import _P, _T, SimulationMetadataT, SimulationParameterT, StrPath
 from bamboost.index.sqlmodel import (
     CollectionORM,
     ParameterORM,
@@ -64,7 +58,7 @@ from bamboost.index.sqlmodel import (
     json_deserializer,
     json_serializer,
 )
-from bamboost.mpi import MPI
+from bamboost.mpi import MPI, Communicator
 from bamboost.mpi.utilities import RootProcessMeta
 from bamboost.utilities import PathSet
 
@@ -151,7 +145,7 @@ class Index(metaclass=RootProcessMeta):
             instance is created with the default cache file.
     """
 
-    _comm: Comm
+    _comm = Communicator()
     _engine: Engine
     _sm: Callable[..., Session]
     _s: Session
@@ -168,8 +162,6 @@ class Index(metaclass=RootProcessMeta):
         *,
         search_paths: Optional[Iterable[str | Path]] = None,
     ) -> None:
-        self._comm = comm or MPI.COMM_WORLD
-
         self.search_paths = PathSet(search_paths or config.index.searchPaths)
         """Paths to scan for collections."""
 
@@ -193,16 +185,6 @@ class Index(metaclass=RootProcessMeta):
             bind=self._engine, autobegin=False, expire_on_commit=False
         )
         self._s = self._sm()
-
-    @contextmanager
-    def comm_self(self) -> Generator[None, None, None]:
-        """Context manager which changes the communicator to MPI.COMM_SELF."""
-        current_comm = self._comm
-        try:
-            self._comm = MPI.COMM_SELF
-            yield
-        finally:
-            self._comm = current_comm
 
     @RootProcessMeta.exclude
     @contextmanager
@@ -542,14 +524,13 @@ class Index(metaclass=RootProcessMeta):
             # temp change the communicator to MPI.COMM_SELF -> because here is only
             # executed on rank 0
             # 04.03.25: unclear whether passing comm=MPI.COMM_SELF is sufficient in itself
-            with self.comm_self():
-                sim = Simulation(
-                    simulation_name,
-                    collection_path,
-                    comm=MPI.COMM_SELF,
-                    index=self,
-                    collection_uid=collection_uid,
-                )
+            # 26.03.25: removed the context manager, because it is included in the metaclass
+            sim = Simulation(
+                simulation_name,
+                collection_path,
+                index=self,
+                collection_uid=collection_uid,
+            )
             with sim._file.open("r"):
                 metadata, parameters = sim.metadata._dict, sim.parameters._dict
 

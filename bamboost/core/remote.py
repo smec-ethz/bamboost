@@ -75,7 +75,6 @@ class Remote(Index):
         self._local_database_path = self._local_path.joinpath(self.DATABASE_BASE_NAME)
 
         # super init
-        self._comm = comm or MPI.COMM_WORLD
         self.search_paths = PathSet([self._local_path])
         self._url = f"sqlite:///{self._local_database_path}"
 
@@ -153,7 +152,6 @@ class RemoteCollection(Collection):
         remote: Remote,
     ):
         self.uid = CollectionUID(uid)
-        self._comm = remote._comm
         self._index = remote
 
         # Resolve the path (this updates the index if necessary)
@@ -236,9 +234,6 @@ class RemoteSimulation(Simulation):
 
         # Reference to the database
         self._index: Remote = index
-
-        # MPI information
-        self._comm: Comm = comm or MPI.COMM_WORLD
 
         self._data_file: Path = self.path.joinpath(constants.HDF_DATA_FILE_NAME)
         self._xdmf_file: Path = self.path.joinpath(constants.XDMF_FILE_NAME)

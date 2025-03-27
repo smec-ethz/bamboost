@@ -1,7 +1,10 @@
+import sys
+from contextlib import contextmanager
 from functools import wraps
-from typing import TYPE_CHECKING, Callable, Protocol, cast
+from typing import TYPE_CHECKING, Callable, Generator, Protocol, cast
 
 from bamboost._typing import _P, _T
+from bamboost.mpi import MPI
 
 if TYPE_CHECKING:
     from bamboost.mpi import Comm
@@ -72,9 +75,7 @@ class RootProcessMeta(type):
                     attr_value, "_mpi_bcast_"
                 ):  # check for @cast_result decorator
                     continue
-                elif hasattr(
-                    attr_value, "_mpi_on_all_"
-                ):  # check for @exclude decorator
+                if hasattr(attr_value, "_mpi_on_all_"):  # check for @exclude decorator
                     continue
                 else:
                     attrs[attr_name] = mcs._root_only_default(attr_value)
@@ -93,19 +94,48 @@ class RootProcessMeta(type):
 
         @wraps(func)
         def wrapper(self: HasComm, *args, **kwargs):
+            result = None
+
             if self._comm.rank == 0:
-                return func(self, *args, **kwargs)
+                with RootProcessMeta.comm_self(self):
+                    result = func(self, *args, **kwargs)
+
+            # dummy broadcast to ensure synchronization
+            self._comm.bcast(result, root=0)
+            return result
 
         return wrapper
+
+    @staticmethod
+    @contextmanager
+    def comm_self(instance: HasComm) -> Generator[None, None, None]:
+        """Context manager to temporarily change the communicator to MPI.COMM_SELF.
+
+        Args:
+            comm: The MPI communicator.
+
+        Yields:
+            None
+        """
+        prev_comm = instance._comm
+        try:
+            instance._comm = MPI.COMM_SELF
+            yield
+        finally:
+            instance._comm = prev_comm
 
     @staticmethod
     def bcast_result(func):
         @wraps(func)
         def wrapper(self: HasComm, *args, **kwargs):
             result = None
+
             if self._comm.rank == 0:
-                result = func(self, *args, **kwargs)
-            return self._comm.bcast(result, root=0)
+                with RootProcessMeta.comm_self(self):
+                    result = func(self, *args, **kwargs)
+
+            result = self._comm.bcast(result, root=0)
+            return result
 
         wrapper._mpi_bcast_ = True  # type: ignore
         return wrapper

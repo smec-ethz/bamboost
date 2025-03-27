@@ -16,6 +16,7 @@ import h5py
 from bamboost._typing import StrPath
 from bamboost.core.hdf5.file import FileMode, HDF5File, HDF5Path
 from bamboost.core.simulation import FieldType
+from bamboost.mpi import Communicator
 from bamboost.mpi.utilities import RootProcessMeta
 
 if TYPE_CHECKING:
@@ -44,11 +45,13 @@ class XDMFWriter(metaclass=RootProcessMeta):
 
     Args:
         filename (str): xdmf file path
-        h5file (str): h5 file path"""
+        h5file (str): h5 file path
+    """
+
+    _comm = Communicator()
 
     def __init__(self, file: HDF5File):
         self._file = file
-        self._comm = file._comm  # needed for MPISafeMeta metaclass
         self.root_element = ET.Element("Xdmf", Version="3.0")
         self.domain = ET.SubElement(self.root_element, "Domain")
         ET.register_namespace("xi", "https://www.w3.org/2001/XInclude/")

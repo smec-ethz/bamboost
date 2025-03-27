@@ -69,7 +69,6 @@ class Series(H5Reference[_MT]):
         super().__init__(path, simulation._file)
 
         # if this is not tagged a series, we raise an error
-        self.attrs = AttrsDict(self._file, path)
         if not self.attrs.get(".series"):
             raise NotASeriesError(path)
         self._field_instances: dict[str, FieldData[_MT]] = {}
@@ -205,9 +204,6 @@ class Series(H5Reference[_MT]):
         with self.suspend_immediate_write():
             self._store_value(step, value)
             self.last_step = step
-
-        # wait for root process to finish writing
-        self._file._comm.barrier()
 
         return StepWriter(self, step)
 

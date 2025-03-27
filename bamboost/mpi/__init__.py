@@ -23,6 +23,7 @@ Attributes:
 Type Aliases:
     Comm: Union of real and mock MPI communicators, available under TYPE_CHECKING.
 """
+from __future__ import annotations
 
 import os
 from typing import TYPE_CHECKING, Union
@@ -85,3 +86,16 @@ def _get_mpi_module():
 
 MPI_ON = _detect_if_mpi_needed()
 MPI = _get_mpi_module()
+
+
+class Communicator:
+    _active_comm = MPI.COMM_WORLD
+
+    def __set__(self, instance, value):
+        Communicator._active_comm = value
+
+    def __get__(self, instance, owner) -> Comm:
+        return Communicator._active_comm
+
+    def __delete__(self, instance):
+        raise AttributeError("Cannot delete the communicator.")

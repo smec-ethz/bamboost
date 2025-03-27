@@ -16,7 +16,7 @@ from bamboost.index import (
     create_identifier_file,
     get_identifier_filename,
 )
-from bamboost.mpi import MPI
+from bamboost.mpi import MPI, Communicator
 from bamboost.plugins import ElligibleForPlugin
 
 if TYPE_CHECKING:
@@ -69,6 +69,7 @@ class Collection(ElligibleForPlugin):
     uid: CollectionUID
     path: Path
     fromUID = _CollectionPicker()
+    _comm = Communicator()
 
     def __init__(
         self,
@@ -82,7 +83,6 @@ class Collection(ElligibleForPlugin):
         assert path or uid, "Either path or uid must be provided."
         assert not (path and uid), "Only one of path or uid must be provided."
 
-        self._comm = comm or MPI.COMM_WORLD
         self._index = index_instance or Index.default
 
         # Resolve the path (this updates the index if necessary)

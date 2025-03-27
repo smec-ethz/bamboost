@@ -119,7 +119,6 @@ class _Simulation(H5Object[_MT]):
             )
 
         # MPI information
-        self._comm: Comm = comm or MPI.COMM_WORLD
         self._psize: int = self._comm.size
         self._prank: int = self._comm.rank
         self._ranks = np.array([i for i in range(self._psize)])
