@@ -1,24 +1,17 @@
 from __future__ import annotations
 
-from typing import (
-    TYPE_CHECKING,
-    TypedDict,
-    cast,
-)
+from subprocess import CalledProcessError
+from typing import TYPE_CHECKING, TypedDict, cast
 
 import numpy as np
 
 from bamboost import BAMBOOST_LOGGER
 from bamboost._typing import _MT, Mutable, StrPath
-from bamboost.constants import (
-    DEFAULT_MESH_NAME,
-    PATH_MESH,
-)
-from bamboost.core.hdf5.file import (
-    FileMode,
-)
+from bamboost.constants import DEFAULT_MESH_NAME, PATH_MESH
+from bamboost.core.hdf5.file import FileMode
 from bamboost.core.hdf5.ref import Group
 from bamboost.core.simulation import CellType
+from bamboost.mpi import Communicator
 
 if TYPE_CHECKING:
     from bamboost.core.simulation.base import _Simulation
@@ -91,12 +84,18 @@ def get_git_status(repo_path) -> _GitStatus:
     import subprocess
 
     def run_git_command(command: str) -> str:
-        return subprocess.run(
-            ["git", "-C", str(repo_path), *command.split()],
-            capture_output=True,
-            text=True,
-            check=True,
-        ).stdout.strip()
+        res = ""
+        if Communicator._active_comm.rank == 0:
+            try:
+                res = subprocess.run(
+                    ["git", "-C", str(repo_path), *command.split()],
+                    capture_output=True,
+                    text=True,
+                    check=True,
+                ).stdout.strip()
+            except CalledProcessError:
+                res = "Git command has failed"
+        return Communicator._active_comm.bcast(res, root=0)
 
     return {
         "origin": run_git_command("remote get-url origin"),
@@ -110,16 +109,15 @@ class GroupGit(Group[_MT]):
     def __init__(self, simulation: "_Simulation[_MT]"):
         super().__init__(".git", simulation._file)
 
-    def add(self: GroupGit[Mutable], repo_path: StrPath) -> None:
+    def add(self: GroupGit[Mutable], repo_name: str, repo_path: StrPath) -> None:
         # Make sure the .git group exists
         self.require_self()
 
         status = get_git_status(repo_path)
-        name = status["origin"].split("/")[-1].replace(".git", "")
-        if name in self.keys():  # delete if already exists
-            del self[name]
+        if repo_name in self.keys():  # delete if already exists
+            del self[repo_name]
 
-        new_grp = self.require_group(name)
+        new_grp = self.require_group(repo_name)
         new_grp.attrs.update(
             {k: v for k, v in status.items() if k in {"origin", "commit", "branch"}}
         )
