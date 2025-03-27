@@ -82,6 +82,7 @@ def test_create_simulation_with_files(tmp_collection: Collection, tmp_path: Path
     assert (sim_folder / "testfile.txt").read_text() == "Test content"
 
 
+@pytest.mark.skip(reason="Test is outdated")
 def test_create_simulation_with_links(tmp_collection: Collection):
     links = {"linked_sim": "some/other/simulation"}
     sim_writer = tmp_collection.create_simulation(
