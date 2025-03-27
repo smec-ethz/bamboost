@@ -55,6 +55,7 @@ Decorators:
 
 from __future__ import annotations
 
+import logging
 import time
 from abc import ABC
 from collections import deque
@@ -78,7 +79,7 @@ from typing import (
 import h5py
 from typing_extensions import Concatenate, Self
 
-from bamboost import BAMBOOST_LOGGER
+from bamboost import BAMBOOST_LOGGER, config
 from bamboost._typing import _MT, _P, _T, Immutable, Mutable
 from bamboost.core.hdf5.filemap import FileMap
 from bamboost.core.hdf5.hdf5path import HDF5Path
@@ -436,7 +437,10 @@ class HDF5File(h5py.File, Generic[_MT]):
             except BlockingIOError:
                 # If the file is locked, we wait and try again
                 if not waiting_logged:
-                    log.warning(f"[{id(self)}] file locked (waiting) {self._filename}")
+                    level = logging._nameToLevel[config.options.log_file_lock_severity]
+                    log.log(
+                        level, f"[{id(self)}] file locked (waiting) {self._filename}"
+                    )
                 waiting_logged = True
                 time.sleep(0.01)
 

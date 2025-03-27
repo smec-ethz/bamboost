@@ -31,6 +31,7 @@ from typing import (
     Any,
     Generator,
     Iterable,
+    Literal,
     Optional,
     Union,
     get_type_hints,
@@ -270,6 +271,15 @@ class _Options(_Base):
     mpi: bool = field(default=importlib.util.find_spec("mpi4py") is not None)
     sortTableKey: str = field(default="time_stamp")
     sortTableOrder: str = field(default="desc")
+
+    log_file_lock_severity: Literal["DEBUG", "INFO", "WARNING", "ERROR", "CRITICAL"] = (
+        field(default="WARNING")
+    )
+    """The severity level for the log file lock."""
+
+    log_root_only: bool = False
+    """If True, only the root logger is used."""
+
 
 
 @dataclass(repr=False)
