@@ -260,6 +260,20 @@ class Collection(ElligibleForPlugin):
             shutil.rmtree(directory)
             raise
 
+    def _delete_simulation(self, name: str) -> None:
+        """CAUTIOUS. Deletes a simulation.
+
+        Args:
+            name: Name of the simulation to delete.
+        """
+        dir_to_delete = self.path.joinpath(name)
+        if dir_to_delete.parent != self.path:
+            raise ValueError(f"Invalid name given ({name}). Cannot delete.")
+
+        import shutil
+
+        shutil.rmtree(dir_to_delete)
+
     def find(self, parameter_selection: dict[str, Any]) -> pd.DataFrame:
         """Find simulations with the given parameters.
 
