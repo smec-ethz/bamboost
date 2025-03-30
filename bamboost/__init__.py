@@ -1,6 +1,6 @@
 import logging
 from importlib.metadata import PackageNotFoundError, version
-from typing import Literal, Protocol
+from typing import Literal
 
 import lazy_loader as lazy
 
@@ -15,8 +15,8 @@ except PackageNotFoundError:  # not installed
 BAMBOOST_LOGGER = logging.getLogger("bamboost")
 STREAM_HANDLER = logging.StreamHandler()
 
-from bamboost._config import config as config
 from bamboost import plugins as plugins
+from bamboost._config import config as config
 
 
 def _add_stream_handler(logger: logging.Logger) -> None:
@@ -59,7 +59,7 @@ __getattr__, __dir__, __all__ = lazy.attach(
     [],
     {
         "core.collection": ["Collection"],
-        "core.simulation": ["Simulation", "SimulationWriter"],
+        "core.simulation": ["Simulation", "SimulationWriter", "FieldType"],
         "index": ["Index"],
     },
 )
