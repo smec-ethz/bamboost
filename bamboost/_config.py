@@ -57,7 +57,7 @@ __all__ = [
 CONFIG_DIR = Path("~/.config/bamboost").expanduser()
 CONFIG_FILE = CONFIG_DIR.joinpath("config.toml")
 LOCAL_DIR = Path("~/.local/share/bamboost").expanduser()
-CACHE_DIR = Path("~/.cache/bamboost").expanduser()
+CACHE_DIR = Path("~/.cache/bamboost-next").expanduser()
 DATABASE_FILE_NAME = "bamboost-next.sqlite"
 
 
@@ -279,7 +279,6 @@ class _Options(_Base):
 
     log_root_only: bool = False
     """If True, only the root logger is used."""
-
 
 
 @dataclass(repr=False)
