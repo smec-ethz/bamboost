@@ -2,12 +2,13 @@
 
 from __future__ import annotations
 
+import json
 import subprocess
 from pathlib import Path
 from typing import TYPE_CHECKING, Callable, Optional, cast
 
 from sqlalchemy import create_engine
-from sqlalchemy.orm import sessionmaker
+from sqlalchemy.orm import remote, sessionmaker
 
 from bamboost import BAMBOOST_LOGGER, _config, constants
 from bamboost._config import config
@@ -20,7 +21,6 @@ from bamboost.index.base import (
     get_identifier_filename,
 )
 from bamboost.index.sqlmodel import json_deserializer, json_serializer
-from bamboost.mpi import MPI
 from bamboost.utilities import PathSet
 
 if TYPE_CHECKING:
@@ -49,30 +49,53 @@ def stream_popen_output(func: Callable[_P, subprocess.Popen]) -> Callable[_P, No
 class Remote(Index):
     DATABASE_BASE_NAME = "bamboost.sqlite"
     DATABASE_REMOTE_PATH = _config.LOCAL_DIR.joinpath(_config.DATABASE_FILE_NAME)
+    WORKSPACE_SPLITTER = "_WS_"
 
     def __init__(
         self,
         remote_url: str,
         comm: Optional[Comm] = None,
         *,
-        project_path: Optional[str] = None,
-        project_name: Optional[str] = None,
+        workspace_path: Optional[str] = None,
+        workspace_name: Optional[str] = None,
         skip_fetch: bool = False,
     ):
+        cache_dir = Path(config.paths.cacheDir)
         self._remote_url = remote_url
-        self._local_path = Path(config.paths.cacheDir).joinpath(remote_url)
-        if project_name is not None:
-            self._local_path = self._local_path.joinpath(project_name)
-        # Create the local path if it doesn't exist
-        self._local_path.mkdir(parents=True, exist_ok=True)
+        self.id = (
+            f"{remote_url}{self.WORKSPACE_SPLITTER}{workspace_name}"
+            if workspace_name
+            else remote_url
+        )
+        self._local_path = Path(cache_dir).joinpath(self.id)
+        self._workspace_path = workspace_path
+        self._workspace_name = workspace_name
+        self._remote_database_path = self.DATABASE_REMOTE_PATH
 
-        if project_path is not None:
-            self._remote_database_path = Path(project_path).joinpath(
+        if workspace_name is not None:
+            # check if the remote workspace has a meta file
+            meta_file = cache_dir.joinpath(f"{self.id}.json")
+            if workspace_path is not None:
+                # update the meta file
+                meta_file.write_text(
+                    f'{{"remote_url": "{remote_url}", "workspace_path": "{workspace_path}"}}'
+                )
+                self._workspace_path = workspace_path
+            else:
+                assert meta_file.exists(), (
+                    f"Workspace {workspace_name} is not found in the cache. "
+                    "You must also provide the workspace path (`workspace_path=...`)."
+                )
+                meta = json.loads(meta_file.read_text())
+                self._workspace_path = cast(str, meta["workspace_path"])
+
+            self._remote_database_path = Path(self._workspace_path).joinpath(
                 ".bamboost_cache", self.DATABASE_BASE_NAME
             )
-        else:
-            self._remote_database_path = self.DATABASE_REMOTE_PATH
-        self._local_database_path = self._local_path.joinpath(self.DATABASE_BASE_NAME)
+
+        # Create the local path if it doesn't exist
+        self._local_path.mkdir(parents=True, exist_ok=True)
+        self._local_database_path = cache_dir.joinpath(f"{self.id}.sqlite")
 
         # super init
         self.search_paths = PathSet([self._local_path])
@@ -92,6 +115,19 @@ class Remote(Index):
             bind=self._engine, autobegin=False, expire_on_commit=False
         )
         self._s = self._sm()
+
+    def __repr__(self) -> str:
+        qualname = ".".join([__name__, self.__class__.__qualname__])
+        return f"<{qualname} (source={self._remote_url}, workspace={self._workspace_name})>"
+
+    @classmethod
+    def _from_id(cls, id: str) -> Remote:
+        remote_url, *workspace_name = id.split(cls.WORKSPACE_SPLITTER)
+        return cls(
+            remote_url,
+            workspace_name=workspace_name[0] if workspace_name else None,
+            skip_fetch=True,
+        )
 
     def fetch_remote_database(
         self,
@@ -130,9 +166,14 @@ class Remote(Index):
         )
 
     @classmethod
-    def list(cls) -> list[str]:
+    def list(cls) -> list[Remote]:
         """List all remote databases in the cache."""
-        return [str(name) for name in _config.CACHE_DIR.iterdir() if name.is_dir()]
+        # find all sqlite files in the cache directory
+        return [
+            Remote._from_id(name.stem)
+            for name in _config.CACHE_DIR.iterdir()
+            if name.is_file() and name.suffix == ".sqlite"
+        ]
 
     def __getitem__(self, key: str) -> RemoteCollection:
         uid = key.split(" - ")[0]
