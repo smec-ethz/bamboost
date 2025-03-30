@@ -92,7 +92,7 @@ def test_h5ref_getitem_string_key(hdf5_file_populated: HDF5File):
     ref = H5Reference("/", hdf5_file_populated)
     with patch.object(H5Reference, "new") as mock_new:
         ref["group1"]
-        mock_new.assert_called_once_with("/group1", hdf5_file_populated, None)
+        mock_new.assert_called_once_with("/group1", hdf5_file_populated, Group)
 
 
 def test_h5ref_getitem_nested_path(hdf5_file_populated: HDF5File):
@@ -100,7 +100,9 @@ def test_h5ref_getitem_nested_path(hdf5_file_populated: HDF5File):
     ref = H5Reference("/group2", hdf5_file_populated)
     with patch.object(H5Reference, "new") as mock_new:
         ref["dataset2"]
-        mock_new.assert_called_once_with("/group2/dataset2", hdf5_file_populated, None)
+        mock_new.assert_called_once_with(
+            "/group2/dataset2", hdf5_file_populated, Dataset
+        )
 
 
 def test_h5ref_getitem_with_explicit_type(hdf5_file_populated: HDF5File):

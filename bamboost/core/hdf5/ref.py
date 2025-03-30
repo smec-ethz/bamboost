@@ -134,23 +134,33 @@ class H5Reference(H5Object[_MT]):
     def __getitem__(self, value: tuple[str, Type[Group]]) -> Group[_MT]: ...
     @overload
     def __getitem__(self, value: tuple[str, Type[Dataset]]) -> Dataset[_MT]: ...
-    @with_file_open(FileMode.READ)
     def __getitem__(self, value):
-        obj = self._obj
-        assert not isinstance(obj, h5py.Datatype), (
-            "__getitem__ not implemented for Datatype"
-        )
+        if isinstance(value, str):
+            if _type := self._file.file_map.get(self._path / value):
+                return self.new(
+                    self._path.joinpath(value),
+                    self._file,
+                    Group if _type == h5py.Group else Dataset,
+                )
 
-        # If the value is a slice or empty tuple, we return the sliced dataset
-        if isinstance(value, slice) or (isinstance(value, tuple) and len(value) == 0):
-            return obj[value]
+        with self._file.open(FileMode.READ):
+            obj = self._obj
+            assert not isinstance(obj, h5py.Datatype), (
+                "__getitem__ not implemented for Datatype"
+            )
 
-        # Here we know that we are looking for a group or dataset
-        if isinstance(value, tuple):
-            name, _type = value
-        else:
-            name, _type = cast(str, value), None
-        return self.new(self._path / name, self._file, _type)
+            # If the value is a slice or empty tuple, we return the sliced dataset
+            if isinstance(value, slice) or (
+                isinstance(value, tuple) and len(value) == 0
+            ):
+                return obj[value]
+
+            # Here we know that we are looking for a group or dataset
+            if isinstance(value, tuple):
+                name, _type = value
+            else:
+                name, _type = cast(str, value), None
+            return self.new(self._path / name, self._file, _type)
 
     @classmethod
     def new(
