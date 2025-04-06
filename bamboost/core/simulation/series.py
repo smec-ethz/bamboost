@@ -76,7 +76,7 @@ class Series(H5Reference[_MT]):
     def __len__(self) -> int:
         try:
             return self._values().shape[0]
-        except InvalidReferenceError:
+        except (InvalidReferenceError, KeyError):
             return 0
 
     @overload
