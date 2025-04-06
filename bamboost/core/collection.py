@@ -16,7 +16,7 @@ from bamboost.index import (
     create_identifier_file,
     get_identifier_filename,
 )
-from bamboost.mpi import MPI, Communicator
+from bamboost.mpi import Communicator
 from bamboost.plugins import ElligibleForPlugin
 
 if TYPE_CHECKING:
@@ -144,11 +144,8 @@ class Collection(ElligibleForPlugin):
         Returns:
             A dataframe of the collection
         """
-        import pandas as pd
+        df = self._orm.to_pandas()
 
-        df = pd.DataFrame.from_records(
-            [sim.as_dict(standalone=False) for sim in self._orm.simulations]
-        )
         # Try to sort the dataframe with the user specified key
         try:
             df.sort_values(
