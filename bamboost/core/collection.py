@@ -16,12 +16,14 @@ from bamboost.index import (
     create_identifier_file,
     get_identifier_filename,
 )
+from bamboost.index.sqlmodel import FilteredCollection
 from bamboost.mpi import Communicator
 from bamboost.plugins import ElligibleForPlugin
 
 if TYPE_CHECKING:
     import pandas as pd
 
+    from bamboost.index.sqlmodel import CollectionORM
     from bamboost.mpi import Comm
 
 __all__ = [
@@ -79,11 +81,14 @@ class Collection(ElligibleForPlugin):
         create_if_not_exist: bool = True,
         comm: Optional[Comm] = None,
         index_instance: Optional[Index] = None,
+        sync_collection: bool = True,
+        filter: Optional[dict[str, Any]] = None,
     ):
         assert path or uid, "Either path or uid must be provided."
         assert not (path and uid), "Only one of path or uid must be provided."
 
         self._index = index_instance or Index.default
+        self._filter = filter
 
         # Resolve the path (this updates the index if necessary)
         self.path = Path(path or self._index.resolve_path(uid.upper())).absolute()
@@ -103,16 +108,20 @@ class Collection(ElligibleForPlugin):
         if not self.path.joinpath(get_identifier_filename(uid=self.uid)).exists():
             create_identifier_file(self.path, self.uid)
 
-        # Sync the SQL table with the filesystem
-        # Making sure the collection is up to date in the index
-        self._index.sync_collection(self.uid, self.path)
+        if sync_collection:
+            # Sync the SQL table with the filesystem
+            # Making sure the collection is up to date in the index
+            self._index.sync_collection(self.uid, self.path)
 
-        # Wait for root process to finish syncing
-        self._comm.barrier()
+            # Wait for root process to finish syncing
+            self._comm.barrier()
 
     @property
-    def _orm(self):
-        return self._index.collection(self.uid)
+    def _orm(self) -> CollectionORM:
+        collection_orm = self._index.collection(self.uid)
+        if self._filter is None:
+            return collection_orm
+        return FilteredCollection(collection_orm, self._filter)
 
     def __len__(self) -> int:
         return len(self._orm.simulations)
@@ -159,6 +168,21 @@ class Collection(ElligibleForPlugin):
 
         return df
 
+    def filter(self, filter: Iterable[Filter] | Filter) -> Collection:
+        """Filter the collection with the given filter.
+
+        Args:
+            filter: The filter to apply to the collection.
+        """
+        return Collection(
+            self.path,
+            uid=self.uid,
+            create_if_not_exist=False,
+            index_instance=self._index,
+            sync_collection=False,
+            filter=filter,
+        )
+
     def all_simulation_names(self) -> list[str]:
         return [sim.name for sim in self._orm.simulations]
 
@@ -184,12 +208,14 @@ class Collection(ElligibleForPlugin):
                 will be assigned.
             parameters: Parameter dictionary. If provided, the parameters will be
                 checked against the existing sims for duplication. Otherwise, they may be
-                specified later with `bamboost.simulation_writer.SimulationWriter.add_parameters`.
+                specified later with `bamboost.core.simulation.Simulation.parameters`.
+
                 Note:
                     The parameters are stored in the h5 file as attributes.
                     - If the value is a dict, it is flattened using
-                      `bamboost.common.utilities.flatten_dict`.
+                      `bamboost.core.utilities.flatten_dict`.
                     - If the value is a list/array, it is stored as a dataset.
+
             skip_duplicate_check: if True, the duplicate check is skipped.
             prefix: Prefix for the uid. If not specified, no prefix is used.
             duplicate_action: how to deal with duplicates. Replace
@@ -352,6 +378,7 @@ class Collection(ElligibleForPlugin):
         Args:
             parameters (`dict`): parameter dictionary to check for
             uid (`str`): uid
+
         Returns:
             Tuple(Bool, uid) wheter to continue and with what uid.
         """

@@ -38,12 +38,7 @@ from sqlalchemy import (
     UniqueConstraint,
 )
 from sqlalchemy.dialects.sqlite import insert
-from sqlalchemy.orm import (
-    Mapped,
-    declarative_base,
-    mapped_column,
-    relationship,
-)
+from sqlalchemy.orm import Mapped, declarative_base, mapped_column, relationship
 from sqlalchemy.sql.dml import ReturningInsert
 from typing_extensions import NotRequired, TypedDict
 
@@ -104,7 +99,45 @@ def json_deserializer(value: str) -> Any:
     return json.loads(value)
 
 
-class CollectionORM(_Base):
+class _CollectionMixin:
+    """Methods for collections."""
+
+    simulations: Any
+
+    @property
+    def parameters(self) -> List[ParameterORM]:
+        """Retrieves all parameters associated with the collections's simulations.
+
+        Returns:
+            List of parameters belonging to simulations in the collection.
+        """
+        return [p for s in self.simulations for p in s.parameters]
+
+    def get_parameter_keys(self) -> tuple[list[str], list[int]]:
+        """Extracts unique parameter keys and their occurences across all simulations.
+
+        Returns:
+            A tuple containing a list of unique parameter keys and a corresponding count list.
+        """
+        unique_params = list(set(p.key for p in self.parameters))
+        counts = [sum(p.key == k for p in self.parameters) for k in unique_params]
+        return unique_params, counts
+
+    def to_pandas(self) -> "DataFrame":
+        """Converts the collection to a pandas DataFrame.
+
+        Returns:
+            pandas.DataFrame: DataFrame representation of the collection.
+        """
+        import pandas as pd
+
+        df = pd.DataFrame.from_records(
+            [sim.as_dict(standalone=False) for sim in self.simulations]
+        )
+        return df
+
+
+class CollectionORM(_Base, _CollectionMixin):
     """ORM model representing a collection of simulations.
 
     Attributes:
@@ -142,37 +175,27 @@ class CollectionORM(_Base):
         stmt = insert(cls).values(data)
         return stmt.on_conflict_do_update(["uid"], set_=dict(stmt.excluded))
 
+
+class FilteredCollection(_CollectionMixin):
+    """In-memory filtered view of a CollectionORM."""
+
+    def __init__(self, base: CollectionORM, simulations: list[SimulationORM]):
+        self._base = base
+        self.simulations: list[SimulationORM] = simulations  # required by mixin
+
     @property
-    def parameters(self) -> List[ParameterORM]:
-        """Retrieves all parameters associated with the collections's simulations.
+    def uid(self) -> str:
+        return self._base.uid
 
-        Returns:
-            List of parameters belonging to simulations in the collection.
-        """
-        return [p for s in self.simulations for p in s.parameters]
+    @property
+    def path(self) -> str:
+        return self._base.path
 
-    def get_parameter_keys(self) -> tuple[list[str], list[int]]:
-        """Extracts unique parameter keys and their occurences across all simulations.
+    def __repr__(self) -> str:
+        return f"FilteredCollection {self.uid} with {len(self.simulations)} simulations"
 
-        Returns:
-            A tuple containing a list of unique parameter keys and a corresponding count list.
-        """
-        unique_params = list(set(p.key for p in self.parameters))
-        counts = [sum(p.key == k for p in self.parameters) for k in unique_params]
-        return unique_params, counts
-
-    def to_pandas(self) -> "DataFrame":
-        """Converts the collection to a pandas DataFrame.
-
-        Returns:
-            pandas.DataFrame: DataFrame representation of the collection.
-        """
-        import pandas as pd
-
-        df = pd.DataFrame.from_records(
-            [sim.as_dict(standalone=False) for sim in self.simulations]
-        )
-        return df
+    def _repr_html_(self) -> str:
+        return f"<b>FilteredCollection {self.uid}</b><br/>{len(self.simulations)} simulations"
 
 
 class SimulationORM(_Base):
