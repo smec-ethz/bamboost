@@ -22,3 +22,4 @@ tests/*.ipynb
 .coverage
 bamboost/_version.py
 .bamboost_cache
+_ignore

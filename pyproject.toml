@@ -62,12 +62,21 @@ test = [
     "pytest-mpi",
 ]
 
-[tool.pyright]
+[tool.basedpyright]
 pythonVersion = "3.9"
 pythonPlatform = "Linux"
-typeCheckingMode = "basic"
+typeCheckingMode = "standard"
+exclude = [
+    "build",
+    "dist",
+    "docs",
+    "tests",
+    ".venv",
+    "**/*.ipynb",
+]
 reportOptionalMemberAccess = false
 reportOptionalSubscript = false
+reportIncompatibleMethodOverride = false
 
 [tool.bamboost.index]
 isolated = true
