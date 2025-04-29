@@ -132,6 +132,10 @@ class XDMFWriter(metaclass=RootProcessMeta):
     def add_timeseries(
         self, timesteps: Iterable[float], fields: "list[FieldData]", mesh_name: str
     ):
+        # if no timesteps, return
+        if not timesteps:
+            return
+
         collection = ET.SubElement(
             self.domain,
             "Grid",
