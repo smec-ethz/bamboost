@@ -387,6 +387,22 @@ class FieldData(Group[_MT]):
                         dtype=object,
                     )
 
+    def at(self, step: int) -> Dataset[_MT]:
+        """Get the dataset for a specific step without reading the data itself.
+
+        Args:
+            step: The step number.
+        """
+        step_positive = self._handle_negative_index(step)
+        try:
+            return self.new(
+                self._path.joinpath(str(step_positive)), self._file, Dataset
+            )
+        except KeyError:
+            raise IndexError(
+                f"Index ({step_positive}) out of range for (0-{self._parent.last_step})"
+            )
+
     def _handle_negative_index(self, index: int) -> int:
         if index < 0:
             return (self._parent.last_step or 0) + index + 1
