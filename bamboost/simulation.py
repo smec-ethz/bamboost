@@ -420,8 +420,8 @@ class Simulation:
         def _set_environment_variables():
             return (
                 f"""DATABASE_DIR=$(sqlite3 {paths['DATABASE_FILE']} "SELECT path FROM dbindex WHERE id='{self.database_id}'")\n"""
-                f"SIMULATION_DIR=$DATABASE_DIR/{self.uid}\n"
-                f"SIMULATION_ID={self.database_id}:{self.uid}\n\n"
+                f"export SIMULATION_DIR=$DATABASE_DIR/{self.uid}\n"
+                f"export SIMULATION_ID={self.database_id}:{self.uid}\n\n"
             )
 
         script = "#!/bin/bash\n\n"
