@@ -12,6 +12,7 @@ from pathlib import Path
 from typing import TYPE_CHECKING, Iterable, cast
 
 import h5py
+import numpy as np
 
 from bamboost._typing import StrPath
 from bamboost.core.hdf5.file import FileMode, HDF5File, HDF5Path
@@ -163,6 +164,10 @@ class XDMFWriter(metaclass=RootProcessMeta):
             data_location (str): String to data in h5 file
             name (str): Name for the field in the Xdmf file
         """
+        # avoid time = NaN in xdmf
+        if np.isnan(time):
+            time = step
+
         grid = ET.SubElement(collection, "Grid")
         ptr = (
             f'xpointer(//Grid[@Name="{mesh_name}"]/*[self::Topology or self::Geometry])'
