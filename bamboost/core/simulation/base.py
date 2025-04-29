@@ -10,7 +10,7 @@ from datetime import datetime
 from enum import Enum
 from functools import cached_property
 from pathlib import Path
-from typing import TYPE_CHECKING, Any, Iterable, Optional, Sized, Type, Union
+from typing import TYPE_CHECKING, Any, Iterable, Mapping, Optional, Sized, Type, Union
 
 import numpy as np
 from typing_extensions import Self
@@ -215,7 +215,7 @@ class _Simulation(H5Object[_MT]):
         return self._index.simulation(self.collection_uid, self.name)
 
     @classmethod
-    def from_uid(cls: Type[_Simulation], uid: str, **kwargs) -> _Simulation:
+    def from_uid(cls, uid: str, **kwargs) -> Self:
         """Return the `Simulation` with given UID.
 
         Args:
@@ -245,8 +245,8 @@ class _Simulation(H5Object[_MT]):
     def update_database(
         self,
         *,
-        metadata: Optional[dict] = None,
-        parameters: Optional[dict] = None,
+        metadata: Optional[Mapping] = None,
+        parameters: Optional[Mapping] = None,
     ) -> None:
         """Push update to sqlite database.
 

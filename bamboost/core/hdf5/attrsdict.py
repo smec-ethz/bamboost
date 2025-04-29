@@ -14,6 +14,7 @@ Key features:
 from __future__ import annotations
 
 import json
+from collections.abc import MutableMapping
 from datetime import datetime
 from typing import Any, Callable, Dict, Mapping, Sequence, Type, Union
 
@@ -111,7 +112,7 @@ class AttrsDict(H5Object[_MT], Mapping):
 
     mutable: bool = False
     _path: str
-    _dict: dict
+    _dict: MutableMapping
 
     def __new__(cls, *args, **kwargs):
         if cls is not AttrsDict:

@@ -1,6 +1,6 @@
 from datetime import datetime
 from pathlib import Path
-from typing import Any, Dict, TypedDict, TypeVar, Union
+from typing import Any, MutableMapping, TypedDict, TypeVar, Union
 
 from typing_extensions import ParamSpec, TypeAlias
 
@@ -21,7 +21,7 @@ class SimulationMetadataT(TypedDict, total=False):
     status: str
 
 
-SimulationParameterT: TypeAlias = Dict[str, Any]
+SimulationParameterT: TypeAlias = MutableMapping[str, Any]
 
 
 class _MutabilitySentinel(type):

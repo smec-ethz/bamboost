@@ -36,6 +36,7 @@ from typing import (
     ClassVar,
     Generator,
     Iterable,
+    Mapping,
     Optional,
     Sequence,
     Set,
@@ -503,8 +504,8 @@ class Index(metaclass=RootProcessMeta):
         self,
         collection_uid: str,
         simulation_name: str,
-        parameters: Optional[dict[Any, Any]] = None,
-        metadata: Optional[dict[Any, Any]] = None,
+        parameters: Optional[Mapping[Any, Any]] = None,
+        metadata: Optional[Mapping[Any, Any]] = None,
         *,
         collection_path: Optional[StrPath] = None,
     ) -> None:
@@ -559,7 +560,7 @@ class Index(metaclass=RootProcessMeta):
 
     @_sql_transaction
     def update_simulation_metadata(
-        self, collection_uid: str, simulation_name: str, data: dict
+        self, collection_uid: str, simulation_name: str, data: Mapping
     ) -> None:
         """Update the metadata of a simulation by passing it as a dict.
 

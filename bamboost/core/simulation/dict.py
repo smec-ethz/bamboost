@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from functools import reduce
-from typing import TYPE_CHECKING, Any, Generator, cast
+from typing import TYPE_CHECKING, Any, Generator, Mapping, cast
 
 import h5py
 import numpy as np
@@ -97,7 +97,7 @@ class Parameters(AttrsDict[_MT]):
         self._simulation.update_database(parameters={key: value})
 
     @mutable_only
-    def update(self: Parameters[Mutable], update_dict: dict) -> None:
+    def update(self: Parameters[Mutable], update_dict: Mapping) -> None:
         """Update the parameters dictionary. This method pushes the update to
         the HDF5 file, and the SQL database.
 
