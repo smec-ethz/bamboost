@@ -471,7 +471,7 @@ class SimulationWriter(_Simulation[Mutable]):
     def create_run_script(
         self,
         commands: list[str],
-        euler: bool = True,
+        euler: bool = False,
         sbatch_kwargs: Optional[dict[str, Any]] = None,
     ) -> None:
         """Create a batch job and put it into the folder.
