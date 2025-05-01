@@ -23,6 +23,8 @@ Database schema:
 
 from __future__ import annotations
 
+import fnmatch
+import os
 import subprocess
 import uuid
 from contextlib import contextmanager
@@ -696,40 +698,37 @@ def _find_collection(uid: str, root_dir: Path) -> tuple[Path, ...]:
         uid: UID to search for
         root_dir: root directory for search
     """
-    try:
-        return tuple(
-            Path(i).parent.absolute()
-            for i in _find_posix(get_identifier_filename(uid), root_dir.as_posix())
-        )
-    except subprocess.CalledProcessError:
-        raise NotImplementedError(
-            "Only POSIX systems are supported for now. Install `find`."
-        )
-
-
-def _find_posix(iname: str, root_dir: str) -> tuple[str, ...]:
-    """Find function using system `find` on linux."""
-    # assert that "find" is available
-    assert subprocess.run(["which", "find"], capture_output=True).returncode == 0, (
-        "command `find` not available"
+    return tuple(
+        Path(i).parent for i in _find_files(get_identifier_filename(uid), root_dir)
     )
 
-    completed_process = subprocess.run(
-        [
-            "find",
-            root_dir,
-            "-iname",
-            iname,
-            "-not",
-            "-path",
-            r"*/\.git/*",
-        ],
-        capture_output=True,
-    )
-    identifier_files_found = tuple(
-        completed_process.stdout.decode("utf-8").splitlines()
-    )
-    return identifier_files_found
+
+def _find_files(
+    pattern: str,
+    root_dir: str | os.PathLike,
+    exclude: Iterable[str] | None = None,
+) -> Tuple[Path, ...]:
+    """
+    Locate every file matching *pattern* under *root_dir* while **pruning**
+    directory names listed in *exclude* (exact-match on the final path part).
+
+    Returns an immutable tuple of absolute paths (str) just like the POSIX helper.
+    """
+    root = Path(root_dir)
+    hits: list[Path] = []
+
+    if exclude is None:
+        exclude = config.index.excludeDirs
+
+    for base, dirnames, filenames in os.walk(root, topdown=True):
+        # --- prune in–place so the walker never descends further ---
+        dirnames[:] = [d for d in dirnames if d not in exclude]
+
+        for fname in filenames:
+            if fnmatch.fnmatch(fname, pattern):
+                hits.append(Path(base, fname))
+
+    return tuple(hits)
 
 
 def _scan_directory_for_collections(root_dir: Path) -> tuple[tuple[str, Path], ...]:
@@ -748,8 +747,8 @@ def _scan_directory_for_collections(root_dir: Path) -> tuple[tuple[str, Path], .
         log.warning(f"Path does not exist: {root_dir}")
         return ()
 
-    found_indicator_files = _find_posix(
-        f"{IDENTIFIER_PREFIX}{IDENTIFIER_SEPARATOR}*", root_dir.as_posix()
+    found_indicator_files = _find_files(
+        get_identifier_filename("*"), root_dir.as_posix()
     )
 
     if not found_indicator_files:
@@ -757,6 +756,6 @@ def _scan_directory_for_collections(root_dir: Path) -> tuple[tuple[str, Path], .
         return ()
 
     return tuple(
-        (i.rsplit(IDENTIFIER_SEPARATOR, 1)[-1], Path(i).parent)
+        (i.name.rsplit(IDENTIFIER_SEPARATOR, 1)[-1], i.parent)
         for i in found_indicator_files
     )
