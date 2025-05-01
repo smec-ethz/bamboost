@@ -88,7 +88,11 @@ class SqliteJSONEncoder(json.JSONEncoder):
             if isinstance(obj, typ):
                 return {"__type__": typ.__name__, "__value__": encoder(obj)}
 
-        return super().default(obj)
+        try:
+            return super().default(obj)
+        except TypeError:
+            # Handle objects that cannot be serialized by default
+            return f"{str(obj)} (unserializable)"
 
 
 def json_serializer(value: Any) -> str:
