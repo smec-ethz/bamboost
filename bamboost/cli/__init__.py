@@ -15,4 +15,4 @@ BAMBOOST_LOGGER.addHandler(CliHandler())
 BAMBOOST_LOGGER.removeHandler(STREAM_HANDLER)
 BAMBOOST_LOGGER.setLevel("CRITICAL")
 
-from bamboost.cli.__main__ import app
+from bamboost.cli.app import app
