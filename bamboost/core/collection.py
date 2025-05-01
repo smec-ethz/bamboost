@@ -186,8 +186,8 @@ class Collection(ElligibleForPlugin):
     def all_simulation_names(self) -> list[str]:
         return [sim.name for sim in self._orm.simulations]
 
-    def sync_cache(self):
-        self._index.sync_collection(self.uid, self.path)
+    def sync_cache(self, *, force_all: bool = False) -> None:
+        self._index.sync_collection(self.uid, self.path, force_all=force_all)
 
     def create_simulation(
         self,
@@ -263,7 +263,7 @@ class Collection(ElligibleForPlugin):
             sim = SimulationWriter(
                 name, self.path, self._comm, self._index, collection_uid=self.uid
             )
-            with self._index.sql_transaction(), sim._file.open("w", driver="mpio"):
+            with sim._file.open("w", driver="mpio"):
                 sim.initialize()  # create groups, set metadata and status
                 sim.metadata["description"] = description or ""
                 sim.parameters.update(parameters or {})

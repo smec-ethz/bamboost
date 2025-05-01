@@ -339,7 +339,7 @@ class Index(metaclass=RootProcessMeta):
         return uid
 
     @_sql_transaction
-    def sync_collection(self, uid: str, path: Optional[StrPath] = None) -> None:
+    def sync_collection(self, uid: str, path: Optional[StrPath] = None, *, force_all: bool = False) -> None:
         """Sync the table with the file system.
 
         Iterates through the simulations in the collection and updates the
@@ -369,6 +369,8 @@ class Index(metaclass=RootProcessMeta):
 
                 # if the HDF5 file has not been modified since the last sync,
                 # remove the simulation from the active update set
+                if force_all:
+                    continue
                 h5_file = path.joinpath(simulation.name, constants.HDF_DATA_FILE_NAME)
                 if (  # type: ignore
                     datetime.fromtimestamp(h5_file.stat().st_mtime)
