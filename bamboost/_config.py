@@ -55,10 +55,40 @@ __all__ = [
 ]
 
 CONFIG_DIR = Path("~/.config/bamboost").expanduser()
-CONFIG_FILE = CONFIG_DIR.joinpath("config.toml")
+CONFIG_FILE = CONFIG_DIR.joinpath("config-next.toml")
 LOCAL_DIR = Path("~/.local/share/bamboost").expanduser()
 CACHE_DIR = Path("~/.cache/bamboost-next").expanduser()
 DATABASE_FILE_NAME = "bamboost-next.sqlite"
+# fmt: off
+DEFAULT_EXCLUDE_DIRS: set[str] = {
+    # version-control metadata
+    ".git", ".hg", ".svn", ".bzr", ".cvs",
+
+    # virtual-envs & package managers
+    ".venv", "venv", "env", ".tox", ".nox",
+    "node_modules", ".yarn", ".pnp",
+
+    # build / artefact output
+    "build", "dist", ".eggs",
+
+    # IDE & editor junk
+    ".idea", ".vscode", ".vs",
+
+    # language-specific caches
+    "__pycache__", ".mypy_cache", ".pytest_cache", ".ruff_cache",
+    ".cache", ".cargo", ".gocache",
+
+    # web / framework caches
+    ".next", ".nuxt", ".terser-cache", ".parcel-cache",
+    ".vercel", ".serverless", ".aws-sam",
+
+    # infra tools (Terraform etc.)
+    ".terraform",
+
+    # vendor copies of dependencies
+    "vendor",
+}
+# fmt: on
 
 
 def _find_root_dir() -> Optional[Path]:
@@ -307,6 +337,12 @@ class _IndexOptions(_Base):
     )
     """The list of paths to search for collections."""
 
+    excludeDirs: Iterable[str] = field(default_factory=lambda: DEFAULT_EXCLUDE_DIRS)
+    """The list of directory names to exclude from the search."""
+
+    extendDefaultExcludeDirs: Iterable[str] | None = None
+    """Use this to extend the default exclude directories."""
+
     syncTables: bool = field(default=True)
     """If True, the sqlite database is updated after some queries to keep it in sync."""
 
@@ -345,6 +381,10 @@ class _IndexOptions(_Base):
             self.searchPaths = PathSet([self.projectDir])
         else:
             self.databaseFile = LOCAL_DIR.joinpath(self.databaseFileName)
+
+        # Handle extendDefaultExcludeDirs
+        if self.extendDefaultExcludeDirs is not None:
+            self.excludeDirs = set((*self.excludeDirs, *self.extendDefaultExcludeDirs))
 
 
 @dataclass(repr=False, init=False)
