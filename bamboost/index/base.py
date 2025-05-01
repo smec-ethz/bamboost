@@ -205,9 +205,14 @@ class Index(metaclass=RootProcessMeta):
         if not self._comm.rank == 0:
             yield None  # type: ignore
             return
+
         if self._s.in_transaction():
-            yield self._s
+            try:
+                yield self._s
+            except SQLAlchemyError as e:
+                log.warning(f"Caching transaction failed: {e}")
             return
+
         try:
             self._s.begin()
             yield self._s
@@ -339,7 +344,9 @@ class Index(metaclass=RootProcessMeta):
         return uid
 
     @_sql_transaction
-    def sync_collection(self, uid: str, path: Optional[StrPath] = None, *, force_all: bool = False) -> None:
+    def sync_collection(
+        self, uid: str, path: Optional[StrPath] = None, *, force_all: bool = False
+    ) -> None:
         """Sync the table with the file system.
 
         Iterates through the simulations in the collection and updates the
