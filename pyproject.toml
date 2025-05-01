@@ -13,7 +13,7 @@ classifiers = [
     "Programming Language :: Python :: 3",
 ]
 keywords = ["hdf5", "database", "database-manager"]
-requires-python = ">=3.9"
+requires-python = ">=3.10"
 dependencies = [
     "build>=1.2.2.post1",
     "jinja2>=3.1.5",
@@ -63,7 +63,7 @@ test = [
 ]
 
 [tool.basedpyright]
-pythonVersion = "3.9"
+pythonVersion = "3.10"
 pythonPlatform = "Linux"
 typeCheckingMode = "standard"
 exclude = [
