@@ -39,7 +39,7 @@ def test_df(test_collection: Collection):
     assert df.index.size == 3
     # parameters exist in dataframe?
     test_collection._index.upsert_simulation(test_collection.uid, "testsim1")
-    assert {"first_name", "age", "list", "dict"}.issubset(set(df.columns))
+    assert {"first_name", "age", "list", "dict.a", "dict.b"}.issubset(set(df.columns))
     # names correct?
     assert set(df["name"].tolist()) == {"testsim1", "testsim2", "testsim3"}
 

@@ -76,6 +76,8 @@ class _AttrsEncoder:
                     for typ, decoder in self._decoders.items():
                         if typ.__name__ == typ_name:
                             return decoder(decoded_json["__value__"])
+                # fallback to return the original string
+                return obj
             except json.JSONDecodeError:
                 return obj  # Return the original string if not a special encoded type
         elif isinstance(obj, Mapping):
@@ -91,10 +93,10 @@ class _AttrsEncoder:
 
 AttrsEncoder = _AttrsEncoder()
 AttrsEncoder.register_encoder(datetime, lambda dt: dt.isoformat())
-AttrsEncoder.register_encoder(set, lambda s: list(s))
-AttrsEncoder.register_decoder(np.generic, lambda x: x.item())
 AttrsEncoder.register_decoder(datetime, lambda s: datetime.fromisoformat(s))
+AttrsEncoder.register_encoder(set, lambda s: list(s))
 AttrsEncoder.register_decoder(set, lambda x: set(x))
+AttrsEncoder.register_decoder(np.generic, lambda x: x.item())
 
 
 class AttrsDict(H5Object[_MT], Mapping):

@@ -48,6 +48,7 @@ from bamboost.constants import (
     TABLENAME_PARAMETERS,
     TABLENAME_SIMULATIONS,
 )
+from bamboost.core.utilities import flatten_dict
 
 if TYPE_CHECKING:
     from pandas import DataFrame
@@ -62,7 +63,17 @@ create_all = _Base.metadata.create_all
 _APIMethod = TypeVar("_APIMethod", bound=Callable[..., Any])
 
 
-class NumpyJSONEncoder(json.JSONEncoder):
+_encoders: Dict[type, Callable[[Any], Any]] = {
+    datetime: lambda obj: obj.isoformat(),
+    complex: lambda obj: {"real": obj.real, "imag": obj.imag},
+}
+_decoders: Dict[type, Callable[[Any], Any]] = {
+    datetime: lambda obj: datetime.fromisoformat(obj),
+    complex: lambda obj: complex(obj["real"], obj["imag"]),
+}
+
+
+class SqliteJSONEncoder(json.JSONEncoder):
     """Custom JSON encoder for numpy types."""
 
     def default(self, obj: Any) -> Any:
@@ -72,6 +83,11 @@ class NumpyJSONEncoder(json.JSONEncoder):
             return obj.tolist()
         if isinstance(obj, (np.generic, np.number)):
             return obj.item()
+
+        for typ, encoder in _encoders.items():
+            if isinstance(obj, typ):
+                return {"__type__": typ.__name__, "__value__": encoder(obj)}
+
         return super().default(obj)
 
 
@@ -84,7 +100,7 @@ def json_serializer(value: Any) -> str:
     Returns:
         str: JSON string
     """
-    return json.dumps(value, cls=NumpyJSONEncoder)
+    return json.dumps(value, cls=SqliteJSONEncoder)
 
 
 def json_deserializer(value: str) -> Any:
@@ -96,13 +112,24 @@ def json_deserializer(value: str) -> Any:
     Returns:
         Any: Converted value
     """
-    return json.loads(value)
+    obj = json.loads(value)
+
+    def decode_dict(obj: dict) -> Any:
+        if "__type__" in obj and "__value__" in obj:
+            typ = obj["__type__"]
+            value = obj["__value__"]
+            for typ_key, decoder in _decoders.items():
+                if typ_key.__name__ == typ:
+                    return decoder(value)
+        return obj
+
+    return decode_dict(obj) if isinstance(obj, dict) else obj
 
 
 class _CollectionMixin:
     """Methods for collections."""
 
-    simulations: Any
+    simulations: Mapped[List[SimulationORM]]
 
     @property
     def parameters(self) -> List[ParameterORM]:
@@ -123,18 +150,25 @@ class _CollectionMixin:
         counts = [sum(p.key == k for p in self.parameters) for k in unique_params]
         return unique_params, counts
 
-    def to_pandas(self) -> "DataFrame":
+    def to_pandas(self, flatten: bool = True) -> "DataFrame":
         """Converts the collection to a pandas DataFrame.
+
+        Args:
+            flatten: If True, flatten dictionaries with dot notation.
 
         Returns:
             pandas.DataFrame: DataFrame representation of the collection.
         """
         import pandas as pd
 
-        df = pd.DataFrame.from_records(
-            [sim.as_dict(standalone=False) for sim in self.simulations]
-        )
-        return df
+        if flatten:
+            return pd.DataFrame.from_records(
+                [flatten_dict(sim.as_dict(standalone=False)) for sim in self.simulations]
+            )
+        else:
+            return pd.DataFrame.from_records(
+                [sim.as_dict(standalone=False) for sim in self.simulations]
+            )
 
 
 class CollectionORM(_Base, _CollectionMixin):
