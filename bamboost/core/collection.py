@@ -248,6 +248,9 @@ class Collection(ElligibleForPlugin):
         if directory.exists():
             if override:
                 if self._comm.rank == 0:
+                    # drop the simulation from the index to avoid artefacts 
+                    # e.g. parameters from the old simulation
+                    self._index._drop_simulation(self.uid, name)
                     shutil.rmtree(directory)
             else:
                 raise FileExistsError(
@@ -263,7 +266,7 @@ class Collection(ElligibleForPlugin):
             sim = SimulationWriter(
                 name, self.path, self._comm, self._index, collection_uid=self.uid
             )
-            with sim._file.open("w", driver="mpio"):
+            with sim._file.open("w", driver="mpio"), self._index.sql_transaction():
                 sim.initialize()  # create groups, set metadata and status
                 sim.metadata["description"] = description or ""
                 sim.parameters.update(parameters or {})
