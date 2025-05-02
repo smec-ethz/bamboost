@@ -46,7 +46,7 @@ from typing import (
     Type,
 )
 
-from sqlalchemy import Engine, create_engine, delete, select
+from sqlalchemy import Engine, create_engine, delete, event, select
 from sqlalchemy.exc import SQLAlchemyError
 from sqlalchemy.orm import Session, joinedload, sessionmaker
 from typing_extensions import Concatenate
@@ -183,6 +183,11 @@ class Index(metaclass=RootProcessMeta):
         self._engine = create_engine(
             url, json_serializer=json_serializer, json_deserializer=json_deserializer
         )
+
+        def _fk_pragma_on_connect(dbapi_con, _con_record):
+            dbapi_con.execute("pragma foreign_keys=ON")
+
+        event.listen(self._engine, "connect", _fk_pragma_on_connect)
         create_all(self._engine)
         self._sm = sessionmaker(
             bind=self._engine, autobegin=False, expire_on_commit=False

@@ -167,7 +167,10 @@ class _CollectionMixin:
 
         if flatten:
             return pd.DataFrame.from_records(
-                [flatten_dict(sim.as_dict(standalone=False)) for sim in self.simulations]
+                [
+                    flatten_dict(sim.as_dict(standalone=False))
+                    for sim in self.simulations
+                ]
             )
         else:
             return pd.DataFrame.from_records(
