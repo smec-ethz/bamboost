@@ -16,6 +16,7 @@ from bamboost.index import (
     create_identifier_file,
     get_identifier_filename,
 )
+from bamboost.index._filtering import Filter, Operator, _Key
 from bamboost.index.sqlmodel import FilteredCollection
 from bamboost.mpi import Communicator
 from bamboost.plugins import ElligibleForPlugin
@@ -50,6 +51,25 @@ class _CollectionPicker:
         return (f"{i.uid} - {i.path[-30:]}" for i in Index.default.all_collections)
 
 
+class _FilterKeys:
+    def __init__(self, collection: Collection):
+        self.collection = collection
+
+    def __getitem__(self, key: str) -> _Key:
+        return _Key(key)
+
+    def _ipython_key_completions_(self):
+        metadata_keys = (
+            "collection_uid",
+            "name",
+            "created_at",
+            "modified_at",
+            "description",
+            "status",
+        )
+        return (*self.collection._orm.get_parameter_keys()[0], *metadata_keys)
+
+
 class Collection(ElligibleForPlugin):
     """View of database.
 
@@ -82,13 +102,16 @@ class Collection(ElligibleForPlugin):
         comm: Optional[Comm] = None,
         index_instance: Optional[Index] = None,
         sync_collection: bool = True,
-        filter: Optional[dict[str, Any]] = None,
+        filter: Optional[Filter] = None,
     ):
         assert path or uid, "Either path or uid must be provided."
         assert not (path and uid), "Only one of path or uid must be provided."
 
         self._index = index_instance or Index.default
         self._filter = filter
+
+        # A key store with completion of all the parameters and metadata keys
+        self.k = _FilterKeys(self)
 
         # Resolve the path (this updates the index if necessary)
         self.path = Path(path or self._index.resolve_path(uid.upper())).absolute()
@@ -117,7 +140,7 @@ class Collection(ElligibleForPlugin):
             self._comm.barrier()
 
     @property
-    def _orm(self) -> CollectionORM:
+    def _orm(self) -> CollectionORM | FilteredCollection:
         collection_orm = self._index.collection(self.uid)
         if self._filter is None:
             return collection_orm
@@ -137,13 +160,19 @@ class Collection(ElligibleForPlugin):
         """HTML repr for ipython/notebooks. Uses string replacement to fill the
         template code.
         """
+        from jinja2 import Template
+
         html_string = pkgutil.get_data("bamboost", "_repr/manager.html").decode()
         icon = pkgutil.get_data("bamboost", "_repr/icon.txt").decode()
-        return (
-            html_string.replace("$ICON", icon)
-            .replace("$db_path", f"<a href={self.path.as_posix()}>{self.path}</a>")
-            .replace("$db_uid", self.uid)
-            .replace("$db_size", str(len(self)))
+        template = Template(html_string)
+
+        return template.render(
+            icon=icon,
+            db_path=f"<a href={self.path.as_posix()}>{self.path}</a>",
+            db_uid=self.uid,
+            db_size=len(self),
+            filtered=self._filter is not None,
+            filter=str(self._filter),
         )
 
     @property
@@ -168,19 +197,22 @@ class Collection(ElligibleForPlugin):
 
         return df
 
-    def filter(self, filter: Iterable[Filter] | Filter) -> Collection:
-        """Filter the collection with the given filter.
+    def filter(self, *operators: Operator) -> Collection:
+        """Filter the collection with the given operators.
 
         Args:
-            filter: The filter to apply to the collection.
+            *operators: The operators to filter the collection with.
+
+        Returns:
+            A new collection with the filtered simulations.
         """
         return Collection(
-            self.path,
-            uid=self.uid,
+            path=self.path,
             create_if_not_exist=False,
-            index_instance=self._index,
             sync_collection=False,
-            filter=filter,
+            comm=self._comm,
+            index_instance=self._index,
+            filter=Filter(*operators) & self._filter,
         )
 
     def all_simulation_names(self) -> list[str]:
@@ -248,7 +280,7 @@ class Collection(ElligibleForPlugin):
         if directory.exists():
             if override:
                 if self._comm.rank == 0:
-                    # drop the simulation from the index to avoid artefacts 
+                    # drop the simulation from the index to avoid artefacts
                     # e.g. parameters from the old simulation
                     self._index._drop_simulation(self.uid, name)
                     shutil.rmtree(directory)

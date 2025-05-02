@@ -49,6 +49,7 @@ from bamboost.constants import (
     TABLENAME_SIMULATIONS,
 )
 from bamboost.core.utilities import flatten_dict
+from bamboost.index._filtering import Filter
 
 if TYPE_CHECKING:
     from pandas import DataFrame
@@ -220,9 +221,31 @@ class CollectionORM(_Base, _CollectionMixin):
 class FilteredCollection(_CollectionMixin):
     """In-memory filtered view of a CollectionORM."""
 
-    def __init__(self, base: CollectionORM, simulations: list[SimulationORM]):
+    def __init__(self, base: CollectionORM, filter: Filter):
         self._base = base
-        self.simulations: list[SimulationORM] = simulations  # required by mixin
+        self._filter = filter
+
+    @property
+    def simulations(self) -> list[SimulationORM]:
+        """List of simulations in the collection that match the filter criteria."""
+        df = self.to_pandas()
+        return [sim for sim in self._base.simulations if sim.name in df["name"].values]
+
+    def to_pandas(self) -> "DataFrame":
+        """Converts the collection to a pandas DataFrame.
+
+        Returns:
+            pandas.DataFrame: DataFrame representation of the collection.
+        """
+        import pandas as pd
+
+        df = pd.DataFrame.from_records(
+            [
+                flatten_dict(sim.as_dict(standalone=False))
+                for sim in self._base.simulations
+            ]
+        )
+        return self._filter.apply(df)  # pyright: ignore[reportReturnType]
 
     @property
     def uid(self) -> str:
