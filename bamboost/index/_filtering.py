@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import operator
 from numbers import Number
-from typing import TYPE_CHECKING, Any, Callable, Sequence, Union
+from typing import TYPE_CHECKING, Any, Callable, Sequence, Union, overload
 
 if TYPE_CHECKING:
     from pandas import DataFrame, Series
@@ -54,12 +54,18 @@ def add_operators(cls):
 
 @add_operators
 class Operator(_SupportsOperators):
+    @overload
     def __init__(
         self,
         op: Callable[[Any, Any], bool],
         a: Number | str | _Key | Operator,
-        b: Number | str | _Key | Operator | None = None,
-    ) -> None:
+        b: Number | str | _Key | Operator,
+    ) -> None: ...
+    @overload
+    def __init__(
+        self, op: Callable[[Any], bool], a: Number | str | _Key | Operator
+    ) -> None: ...
+    def __init__(self, op, a, b=None):
         self._op = op
         self._a = a
         self._b = b
@@ -72,6 +78,8 @@ class Operator(_SupportsOperators):
                 return val.evaluate(item)
             return val
 
+        if self._b is None:
+            return self._op(resolve(self._a))
         return self._op(resolve(self._a), resolve(self._b))
 
     def __repr__(self) -> str:
