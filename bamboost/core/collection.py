@@ -4,7 +4,9 @@ import pkgutil
 from ctypes import ArgumentError
 from functools import cache
 from pathlib import Path
-from typing import TYPE_CHECKING, Any, Dict, Iterable, Optional
+from typing import TYPE_CHECKING, Any, Dict, Iterable, Optional, cast
+
+import numpy as np
 
 from bamboost import BAMBOOST_LOGGER, config
 from bamboost._typing import StrPath
@@ -356,27 +358,30 @@ class Collection(ElligibleForPlugin):
 
         df = self.df
         matches = self._list_duplicates(params, df=df)
-        matches = df[df.id.isin(matches)]
+        matches = df[df.name.isin(matches)]
+        assert isinstance(matches, pd.DataFrame)
         if len(matches) == 0:
             return matches
 
         for key, func in filters.items():
-            matches = matches[matches[key].apply(func)]
+            matches = cast(pd.DataFrame, matches[matches[key].apply(func)])
 
         return matches
 
     def _list_duplicates(
-        self, parameters: dict, *, df: pd.DataFrame = None
+        self, parameters: dict, *, df: pd.DataFrame | None = None
     ) -> list[str]:
         """List ids of duplicates of the given parameters.
 
         Args:
-            parameters (dict): parameter dictionary
-            df (pd.DataFrame): dataframe to search in. If not provided, the
+            parameters: parameter dictionary
+            df: dataframe to search in. If not provided, the
                 dataframe from the sql database is used.
         """
+        import pandas as pd
+
         if df is None:
-            df: pd.DataFrame = self._table.read_table()
+            df = self._orm.to_pandas()
         params = flatten_dict(parameters)
 
         class ComparableIterable:
@@ -402,7 +407,7 @@ class Collection(ElligibleForPlugin):
         # get matching rows where all values of the series are equal to the corresponding values in the dataframe
         s = pd.Series(params)
         match = df.loc[(df[s.keys()].apply(lambda row: (s == row).all(), axis=1))]
-        return match.id.tolist()
+        return match.name.tolist()
 
     def _check_duplicate(
         self, parameters: dict, uid: str, duplicate_action: str = "prompt"
@@ -411,8 +416,8 @@ class Collection(ElligibleForPlugin):
         May need to be improved...
 
         Args:
-            parameters (`dict`): parameter dictionary to check for
-            uid (`str`): uid
+            parameters: parameter dictionary to check for
+            uid: uid
 
         Returns:
             Tuple(Bool, uid) wheter to continue and with what uid.
@@ -427,25 +432,24 @@ class Collection(ElligibleForPlugin):
             "The parameter space already exists. Here are the duplicates:",
             flush=True,
         )
-        print(self.df[self.df["id"].isin([i for i in duplicates])], flush=True)
+        print(self.df[self.df["name"].isin([i for i in duplicates])], flush=True)
 
         if duplicate_action == "prompt":
             # What should be done?
             prompt = input(
-                f"Replace first duplicate [{duplicates[0]}] ('r'), Create with altered uid (`c`), "
-                + "Create new with new id (`n`), Abort (`a`): "
+                f"`r`: Replace first duplicate [{duplicates[0]}]\n"
+                "`n`: Create new with new id\n"
+                "`a`: Abort\n"
             )
         else:
             prompt = duplicate_action
 
         if prompt == "r":
-            self.remove(duplicates[0])
+            self._delete_simulation(duplicates[0])
             return True, uid
         if prompt == "a":
             return False, uid
         if prompt == "n":
             return True, uid
-        if prompt == "c":
-            return True, self._generate_subuid(duplicates[0].split(".")[0])
 
         raise ArgumentError("Answer not valid! Aborting")
