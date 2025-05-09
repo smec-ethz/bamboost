@@ -1,173 +1,162 @@
-<!doctype html>
-<html>
-  <head>
-    <style>
-      :root {
-        --bb-green: #2b6b53;
-        --bb-red: #eb6f92;
-        --bb-grey: #4e4e4e;
-        --bb-bg: #939ab7ff;
-        --bb-bg50: #939ab77f;
-        --head-height: 2rem;
-        --head-padding: 10px;
-      }
+<style>
+  :root {
+    --bb-green: #2b6b53;
+    --bb-red: #eb6f92;
+    --bb-grey: #4e4e4e;
+    --bb-bg: #939ab7ff;
+    --bb-bg50: #939ab72f;
+    --head-height: 2rem;
+    --head-padding: 10px;
+  }
 
-      tr:hover {
-        background-color: var(--bb-bg50);
-      }
+  .bamboost table.content-table th {
+    font-style: italic;
+    background-color: var(--bb-bg50);
+  }
 
-      .jp-RenderedHTMLCommon tbody tr:hover {
-        background-color: var(--bb-bg50);
-      }
+  .bamboost .jp-RenderedHTMLCommon tbody tr:hover {
+    background-color: var(--bb-bg50);
+  }
 
-      .info_container {
-        position: relative;
-        display: inline-flex;
-        justify-content: flex-start;
-        gap: 1.5rem;
-        align-items: flex-start;
-        height: 100%;
-        border-bottom-right-radius: 10px;
-        font-family: "Segoe UI", Tahoma, Geneva, Verdana, sans-serif;
-      }
+  .info_container {
+    position: relative;
+    display: inline-flex;
+    justify-content: flex-start;
+    gap: 1.5rem;
+    align-items: flex-start;
+    height: 100%;
+    border-bottom-right-radius: 10px;
+    font-family: "Segoe UI", Tahoma, Geneva, Verdana, sans-serif;
+  }
 
-      .info_container .name-logo {
-        position: relative;
-        align-self: stretch;
-        display: flex;
-        flex-direction: column;
-        justify-content: space-between;
-      }
+  .info_container .name-logo {
+    position: relative;
+    align-self: stretch;
+    display: flex;
+    flex-direction: column;
+    justify-content: space-between;
+  }
 
-      .first-col-header {
-        display: flex;
-        flex-direction: column;
-        justify-content: flex-end;
-        height: var(--head-height);
-        padding: var(--head-padding);
-      }
+  .first-col-header {
+    display: flex;
+    flex-direction: column;
+    justify-content: flex-end;
+    height: var(--head-height);
+    padding: var(--head-padding);
+  }
 
-      .info_container .logobox {
-        position: relative;
-        display: flex;
-        flex-direction: column;
-        align-self: stretch;
-        justify-content: flex-end;
-        padding: 1rem;
-        flex: 1;
-        background-color: var(--bb-bg50);
-        border-bottom-right-radius: 10px;
-      }
+  .info_container .logobox {
+    position: relative;
+    display: flex;
+    flex-direction: column;
+    align-self: stretch;
+    justify-content: flex-end;
+    padding: 1rem;
+    flex: 1;
+    background-color: var(--bb-bg50);
+    border-bottom-right-radius: 10px;
+  }
 
-      .logobox > div {
-        font-size: x-small;
-        font-family: monospace;
-      }
+  .logobox > div {
+    font-size: x-small;
+    font-family: monospace;
+  }
 
-      .logobox .logo {
-        position: absolute;
-        top: 1rem;
-        right: 1rem;
-        height: 50%;
-        max-height: 4rem;
-        max-width: 4rem;
-        filter: drop-shadow(2px 2px 10px #00000044) blur(4px);
-      }
+  .logobox .logo {
+    position: absolute;
+    top: 1rem;
+    right: 1rem;
+    height: 50%;
+    max-height: 4rem;
+    max-width: 4rem;
+    filter: drop-shadow(2px 2px 10px #00000044) blur(4px);
+  }
 
-      #title {
-        z-index: 1;
-        line-height: 1rem;
-        mix-blend-mode: normal;
-        font-weight: bold;
-        font-size: larger;
-      }
+  #title {
+    z-index: 1;
+    line-height: 1rem;
+    mix-blend-mode: normal;
+    font-weight: bold;
+    font-size: larger;
+  }
 
-      .content-table {
-        position: relative;
-        display: flex;
-        gap: 0px;
-        flex-direction: column;
-        justify-content: flex-start;
-      }
+  .content-table {
+    position: relative;
+    display: flex;
+    gap: 0px;
+    flex-direction: column;
+    justify-content: flex-start;
+  }
 
-      .content-table .head {
-        opacity: 0.3;
-        height: calc(var(--head-height));
-        vertical-align: bottom;
-        padding: var(--head-padding);
-        font-style: normal;
-        font-size: larger;
-        font-weight: bold;
-        text-align: right;
-        background-color: transparent;
-      }
+  .content-table .head {
+    opacity: 0.3;
+    height: calc(var(--head-height));
+    vertical-align: bottom;
+    padding: var(--head-padding);
+    font-style: normal;
+    font-size: larger;
+    font-weight: bold;
+    text-align: right;
+    background-color: transparent;
+  }
+</style>
 
-      table.content-table th {
-        font-style: italic;
-        background-color: var(--bb-bg50);
-      }
-    </style>
-  </head>
-
-  <body>
-    <div class="info_container">
-      <div class="name-logo">
-        <div class="first-col-header">
-          <div id="title" style="opacity: 0.3">{{ uid }}</div>
-          <div id="title">{{ name }}</div>
-        </div>
-        <div class="logobox">
-          <img class="logo" src="data:image/png;base64,{{ icon }}" alt="Icon" />
-          <div>bamboost {{ version }}</div>
-        </div>
-      </div>
-      <table class="content-table">
-        <tbody>
-          <th colspan="2" class="head">Attributes</th>
-          <tr>
-            <th>Attribute</th>
-            <th>Value</th>
-          </tr>
-          {% for key, val in attrs.items() %}
-          <tr>
-            <td>{{ key }}</td>
-            <td>{{ val }}</td>
-          </tr>
-          {% endfor %}
-        </tbody>
-      </table>
-      <table class="content-table">
-        <tbody>
-          <th colspan="2" class="head">Groups</th>
-          <tr>
-            <th>Name</th>
-            <th>Members</th>
-          </tr>
-          {% for key, length in groups.items() %}
-          <tr>
-            <td>{{ key }}</td>
-            <td>{{ length }}</td>
-          </tr>
-          {% endfor %}
-        </tbody>
-      </table>
-      <table class="content-table">
-        <tbody>
-          <th colspan="3" class="head">Datasets</th>
-          <tr>
-            <th>Name</th>
-            <th>dtype</th>
-            <th>shape</th>
-          </tr>
-          {% for key, (dtype, shape) in datasets.items() %}
-          <tr>
-            <td>{{ key }}</td>
-            <td>{{ dtype }}</td>
-            <td>{{ shape }}</td>
-          </tr>
-          {% endfor %}
-        </tbody>
-      </table>
+<div class="bamboost info_container">
+  <div class="name-logo">
+    <div class="first-col-header">
+      <div id="title" style="opacity: 0.3">{{ uid }}</div>
+      <div id="title">{{ name }}</div>
     </div>
-  </body>
-</html>
+    <div class="logobox">
+      <img class="logo" src="data:image/png;base64,{{ icon }}" alt="Icon" />
+      <div>bamboost {{ version }}</div>
+    </div>
+  </div>
+  <table class="content-table">
+    <tbody>
+      <th colspan="2" class="head">Attributes</th>
+      <tr>
+        <th>Attribute</th>
+        <th>Value</th>
+      </tr>
+      {% for key, val in attrs.items() %}
+      <tr>
+        <td>{{ key }}</td>
+        <td>{{ val }}</td>
+      </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+  <table class="content-table">
+    <tbody>
+      <th colspan="2" class="head">Groups</th>
+      <tr>
+        <th>Name</th>
+        <th>Members</th>
+      </tr>
+      {% for key, length in groups.items() %}
+      <tr>
+        <td>{{ key }}</td>
+        <td>{{ length }}</td>
+      </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+  <table class="content-table">
+    <tbody>
+      <th colspan="3" class="head">Datasets</th>
+      <tr>
+        <th>Name</th>
+        <th>dtype</th>
+        <th>shape</th>
+      </tr>
+      {% for key, (dtype, shape) in datasets.items() %}
+      <tr>
+        <td>{{ key }}</td>
+        <td>{{ dtype }}</td>
+        <td>{{ shape }}</td>
+      </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+</div>

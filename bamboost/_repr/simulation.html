@@ -1,177 +1,166 @@
-<!doctype html>
-<html>
-  <head>
-    <style>
-      :root {
-        --bb-green: #2b6b53;
-        --bb-red: #962327;
-        --bb-grey: #4e4e4e;
-        --bb-orange: #b77f2e;
-        --bb-bg-simulation: #939ab77f;
-        --head-height: 2rem;
-        --head-padding: 10px;
-      }
+<style>
+  :root {
+    --bb-green: #2b6b53;
+    --bb-red: #eb6f92;
+    --bb-grey: #4e4e4e8f;
+    --bb-orange: #b77f2e;
+    --bb-bg: #939ab7ff;
+    --bb-bg50: #939ab72f;
+    --bb-bg-simulation: var(--bb-bg50);
+    --head-height: 2rem;
+    --head-padding: 10px;
+  }
 
-      tr:hover {
-        background-color: var(--bb-bg-simulation);
-      }
+  .container {
+    position: relative;
+    display: inline-flex;
+    justify-content: flex-start;
+    gap: 3rem;
+    font-family: "Segoe UI", Tahoma, Geneva, Verdana, sans-serif;
+  }
 
-      .jp-renderedhtmlcommon tbody tr:hover {
-        background-color: var(--bb-bg-simulation);
-      }
+  .first-col {
+    position: relative;
+    display: flex;
+    flex-direction: column;
+    justify-content: space-between;
+    align-self: stretch;
+    width: 40%;
+    max-width: 100%;
+  }
 
-      .container {
-        position: relative;
-        display: inline-flex;
-        justify-content: flex-start;
-        gap: 3rem;
-        font-family: "Segoe UI", Tahoma, Geneva, Verdana, sans-serif;
-      }
+  .first-col .uid {
+    display: flex;
+    flex-direction: column;
+    justify-content: flex-end;
+    align-items: flex-start;
+    font-weight: bold;
+    font-size: larger;
+    opacity: 0.3;
+    padding: var(--head-padding);
+  }
 
-      .first-col {
-        position: relative;
-        display: flex;
-        flex-direction: column;
-        justify-content: space-between;
-        align-self: stretch;
-        width: 40%;
-        max-width: 100%;
-      }
+  .second-col .logo,
+  .first-col .logo {
+    position: absolute;
+    right: 1rem;
+    top: 1rem;
+    height: calc(3rem + 2em);
+    width: calc(3rem + 2em);
+    filter: drop-shadow(2px 2px 5px #00000044) blur(4px);
+    opacity: 0.5;
+  }
 
-      .first-col .uid {
-        display: flex;
-        flex-direction: column;
-        justify-content: flex-end;
-        align-items: flex-start;
-        font-weight: bold;
-        font-size: larger;
-        opacity: 0.3;
-        padding: var(--head-padding);
-      }
+  .first-col .bottombox {
+    position: relative;
+    padding: 1em;
+    display: flex;
+    flex-direction: column;
+    justify-content: space-between;
+    gap: 1em;
+    flex: 1;
+    background-color: var(--bb-bg-simulation);
+    border-bottom-right-radius: 10px;
+  }
 
-      .second-col .logo,
-      .first-col .logo {
-        position: absolute;
-        right: 1rem;
-        top: 1rem;
-        height: calc(3rem + 2em);
-        width: calc(3rem + 2em);
-        filter: drop-shadow(2px 2px 10px #00000044) blur(4px);
-      }
+  .first-col .bottombox #text {
+    mix-blend-mode: normal;
+  }
 
-      .first-col .bottombox {
-        position: relative;
-        padding: 1em;
-        display: flex;
-        flex-direction: column;
-        justify-content: space-between;
-        gap: 1em;
-        flex: 1;
-        background-color: var(--bb-bg-simulation);
-        border-bottom-right-radius: 10px;
-      }
+  .first-col .infoboxes {
+    display: inline-flex;
+    z-index: 1;
+    gap: 1rem;
+    align-items: flex-end;
+    flex-wrap: wrap;
+    align-items: flex-start;
+  }
 
-      .first-col .bottombox #text {
-        mix-blend-mode: normal;
-      }
+  .first-col .status {
+    padding: 0.5rem;
+    border-radius: 6px;
+    filter: drop-shadow(2px 2px 10px #00000044);
+    text-align: center;
+  }
 
-      .first-col .infoboxes {
-        display: inline-flex;
-        z-index: 1;
-        gap: 1rem;
-        align-items: flex-end;
-        flex-wrap: wrap;
-        align-items: flex-start;
-      }
+  .first-col .timestamp {
+    flex: 1;
+    text-align: right;
+    padding: 0.5rem;
+  }
 
-      .first-col .status {
-        padding: 0.5rem;
-        border-radius: 9999px;
-        background-color: var(--bb-grey);
-        filter: drop-shadow(2px 2px 10px #00000044);
-        text-align: center;
-      }
+  .tree-col {
+    position: relative;
+    display: flex;
+    flex-direction: column;
+  }
 
-      .first-col .timestamp {
-        flex: 1;
-        text-align: right;
-        padding: 0.5rem;
-      }
+  .tree-col .head {
+    display: flex;
+    flex-direction: column;
+    justify-content: flex-end;
+    font-weight: bold;
+    font-size: larger;
+    padding: var(--head-padding);
+    opacity: 0.3;
+  }
 
-      .tree-col {
-        flex-shrink: 0;
-        line-height: 1.8;
-        opacity: 0.7;
-      }
+  .second-col {
+    position: relative;
+    display: flex;
+    flex-direction: column;
+  }
 
-      .tree-col .head {
-        opacity: 0.3;
-        font-weight: bold;
-        font-size: larger;
-        line-height: 1;
-        padding: var(--head-padding);
-      }
+  .second-col .head {
+    display: flex;
+    flex-direction: column;
+    justify-content: flex-end;
+    font-weight: bold;
+    font-size: larger;
+    padding: var(--head-padding);
+    opacity: 0.3;
+  }
 
-      .second-col {
-        position: relative;
-        display: flex;
-        flex-direction: column;
-      }
+  .bamboost table.parameter-table th {
+    font-weight: normal;
+    font-style: italic;
+    background-color: var(--bb-bg-simulation);
+  }
+</style>
 
-      .second-col .head {
-        display: flex;
-        flex-direction: column;
-        justify-content: flex-end;
-        font-weight: bold;
-        font-size: larger;
-        padding: var(--head-padding);
-        opacity: 0.3;
-      }
-
-      table.parameter-table th {
-        font-weight: normal;
-        font-style: italic;
-        background-color: var(--bb-bg-simulation);
-      }
-    </style>
-  </head>
-
-  <body>
-    <div class="container">
-      <div class="first-col">
-        <div class="uid">{{ uid }}</div>
-        <div class="bottombox">
-          <div class="logo">
-            <img src="data:image/png;base64,{{ icon }}" alt="icon" />
-          </div>
-          <div class="infoboxes">
-            {{ status }} {{ submitted }}
-            <div class="timestamp">time stamp: {{ timestamp }}</div>
-          </div>
-          <div id="text">{{ note }}</div>
-        </div>
+<div class="bamboost container">
+  <div class="first-col">
+    <div class="uid">{{ uid }}</div>
+    <div class="bottombox">
+      <div class="logo">
+        <img src="data:image/png;base64,{{ icon }}" alt="icon" />
       </div>
-      <div class="tree-col">
-        <div class="head">Files</div>
-        {{ tree }}
+      <div class="infoboxes">
+        {{ status }} {{ submitted }}
+        <div class="timestamp">time stamp: {{ timestamp }}</div>
       </div>
-      <div class="second-col">
-        <div class="head">Parameters</div>
-        <table class="parameter-table">
-          <thead>
-            <tr>
-              <th>Parameter</th>
-              <th>Value</th>
-            </tr>
-          </thead>
-          {% for key, value in parameters.items() %}
-          <tr>
-            <td>{{ key }}</td>
-            <td>{{ value }}</td>
-          </tr>
-          {% endfor %}
-        </table>
-      </div>
+      <div id="text">{{ note }}</div>
     </div>
-  </body>
-</html>
+  </div>
+  <div class="tree-col">
+    <div class="head">Files</div>
+    {{ tree }}
+  </div>
+  <div class="second-col">
+    <div class="head">Parameters</div>
+    <table class="parameter-table">
+      <thead>
+        <tr>
+          <th>Parameter</th>
+          <th>Value</th>
+        </tr>
+      </thead>
+      {% for key, value in parameters.items() %}
+      <tr>
+        <td>{{ key }}</td>
+        <td>{{ value }}</td>
+      </tr>
+      {% endfor %}
+    </table>
+  </div>
+</div>
