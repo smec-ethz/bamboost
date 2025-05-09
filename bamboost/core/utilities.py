@@ -59,7 +59,7 @@ class FilePicker:
     def _ipython_key_completions_(self):
         return tuple(self._dict.keys())
 
-    def _repr_pretty_(self, *_args):
+    def __str__(self, *_args):
         return tree(self.path)
 
 

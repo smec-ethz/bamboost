@@ -185,7 +185,7 @@ class _Simulation(H5Object[_MT]):
         html_string = pkgutil.get_data("bamboost", "_repr/simulation.html").decode()
         icon = pkgutil.get_data("bamboost", "_repr/icon.txt").decode()
         template = Template(html_string)
-        file_tree = repr(self.files).replace("\n", "</br>").replace(" ", "&nbsp;")
+        file_tree = str(self.files).replace("\n", "</br>").replace(" ", "&nbsp;")
 
         return template.render(
             uid=self.name,
