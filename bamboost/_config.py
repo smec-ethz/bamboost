@@ -126,17 +126,28 @@ def _get_global_config(filepath: Path) -> dict[str, Any]:
 
 
 def _get_project_config(project_dir: Path) -> dict[str, Any]:
-    """Get the project configuration."""
-    try:
-        with project_dir.joinpath("pyproject.toml").open("rb") as f:
-            try:
+    """Get the project configuration from bamboost.toml or pyproject.toml."""
+    bamboost_path = project_dir.joinpath("bamboost.toml")
+    pyproject_path = project_dir.joinpath("pyproject.toml")
+
+    if bamboost_path.is_file():
+        try:
+            with bamboost_path.open("rb") as f:
+                return tomli.load(f)
+        except tomli.TOMLDecodeError as e:
+            log.warning(f"Error reading bamboost.toml: {e}")
+            return {}
+
+    if pyproject_path.is_file():
+        try:
+            with pyproject_path.open("rb") as f:
                 return tomli.load(f).get("tool", {}).get("bamboost", {})
-            except tomli.TOMLDecodeError as e:
-                log.warning(f"Error reading project config file: {e}")
-                return {}
-    except FileNotFoundError:
-        log.info("No pyproject.toml file found. Using default settings.")
-        return {}
+        except tomli.TOMLDecodeError as e:
+            log.warning(f"Error reading pyproject.toml: {e}")
+            return {}
+
+    log.info("No configuration file found. Using default settings.")
+    return {}
 
 
 @dataclass
