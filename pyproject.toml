@@ -47,6 +47,14 @@ source = "versioningit"
 [tool.versioningit]
 default-version = "0.0.dev0"
 
+[tool.commitizen]
+name = "cz_conventional_commits"
+tag_format = "$version"
+version_scheme = "pep440"
+version_provider = "scm"
+update_changelog_on_bump = true
+major_version_zero = true
+
 [dependency-groups]
 dev = [
     "mypy[mypyc]>=1.13.0",
@@ -55,6 +63,7 @@ dev = [
     "pip>=24.3.1",
     "twine>=5.1.1",
     "ipywidgets>=8.1.5",
+    "commitizen>=4.6.3",
 ]
 test = [
     "pytest",
