@@ -1,28 +1,28 @@
 [project]
 name = "bamboost"
 dynamic = ["version"]
-description = "A light weight database manager using HDF5"
+description = "A light weight scientific data management system using HDF5"
 readme = { file = "README.md", content-type = "text/markdown" }
 authors = [
     { name = "Flavio Lorez", email = "florez@ethz.ch" },
 ]
-license = { file = "LICENSE" }
+license = "MIT"
+license-files = ["LICENSE",]
 classifiers = [
-    "License :: OSI Approved :: MIT License",
+    "Development Status :: 4 - Beta",
     "Programming Language :: Python",
     "Programming Language :: Python :: 3",
 ]
 keywords = ["hdf5", "database", "database-manager"]
 requires-python = ">=3.10"
 dependencies = [
-    "build>=1.2.2.post1",
-    "jinja2>=3.1.5",
-    "lazy-loader>=0.4",
     "h5py",
     "numpy",
     "pandas",
     "typing-extensions>=4.12.2",
     "sqlalchemy>=2.0.36",
+    "jinja2>=3.1.5",
+    "lazy-loader>=0.4",
     "typer>=0.15.2",
 ]
 
@@ -33,6 +33,21 @@ changelog = "https://gitlab.com/cmbm-ethz/bamboost/-/tree/main/CHANGELOG.md"
 
 [project.scripts]
 bamboost-cli = "bamboost.cli:app"
+
+[dependency-groups]
+dev = [
+    "ipykernel>=6.29.5",
+    "ipython>=8.18.1",
+    "pip>=24.3.1",
+    "twine>=5.1.1",
+    "ipywidgets>=8.1.5",
+    "commitizen>=4.6.3",
+]
+test = [
+    "pytest",
+    "pytest-cov",
+    "pytest-mpi",
+]
 
 [build-system]
 requires = [
@@ -55,22 +70,6 @@ version_provider = "scm"
 update_changelog_on_bump = true
 major_version_zero = true
 
-[dependency-groups]
-dev = [
-    "mypy[mypyc]>=1.13.0",
-    "ipykernel>=6.29.5",
-    "ipython>=8.18.1",
-    "pip>=24.3.1",
-    "twine>=5.1.1",
-    "ipywidgets>=8.1.5",
-    "commitizen>=4.6.3",
-]
-test = [
-    "pytest",
-    "pytest-cov",
-    "pytest-mpi",
-]
-
 [tool.basedpyright]
 pythonVersion = "3.10"
 pythonPlatform = "Linux"
@@ -86,10 +85,3 @@ exclude = [
 reportOptionalMemberAccess = false
 reportOptionalSubscript = false
 reportIncompatibleMethodOverride = false
-
-[tool.bamboost.index]
-isolated = true
-
-[tool.bamboost.options]
-mpi = true
-sortTableKey = "created_at"

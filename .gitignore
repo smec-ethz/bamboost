@@ -20,6 +20,7 @@ tests/*.ipynb
 
 # specific files
 .coverage
-bamboost/_version.py
 .bamboost_cache
 _ignore
+bamboost/_version.py
+bamboost.toml
