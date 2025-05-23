@@ -1,6 +1,5 @@
 stages:
   - test
-  - docs
 
 test:
   stage: test
@@ -10,29 +9,3 @@ test:
     - cd tests/
     - pytest --cov=bamboost --cov-report term
   coverage: /(?i)total.*? (100(?:\.0+)?\%|[1-9]?\d(?:\.\d+)?\%)$/
-
-build_doc_source:
-  stage: docs
-  image: python:3
-  before_script:
-    - "which ssh-agent || ( apt-get update -qy && apt-get install openssh-client -qqy )"
-    - eval `ssh-agent -s`
-    - echo "${SSH_PRIVATE_KEY}" | tr -d '\r' | ssh-add - > /dev/null
-    # Setup known ssh hosts
-    - mkdir -p ~/.ssh
-    - chmod 700 ~/.ssh
-    - ssh-keyscan gitlab.com >> ~/.ssh/known_hosts
-    - chmod 644 ~/.ssh/known_hosts
-  script:
-    - pip install .
-    # Clone docs repo and update reference docs
-    - git clone git@gitlab.com:zrlf/bamboost-docs.git
-    - cd bamboost-docs/
-    - bash ./generateAPIdoc.sh
-    # Push to docs repo
-    - git config --global user.email "${CI_EMAIL}" && git config --global user.name "${CI_USERNAME}"
-    - git add .
-    - git commit -m "CI_REF_GUIDE_UPDATE:$(python -c "import bamboost; print(bamboost.__version__)")"
-    - git push
-  only:
-    - tags

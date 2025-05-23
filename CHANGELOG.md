@@ -1,11 +1,13 @@
 # Change log for bamboost
 
-## v0.8.3 (24Mar25)
+## v0.9.0 (23May25)
 
 - ENH: catch file IO errors and display the path of the file causing the error
   when generating index
 - FEAT: add `ManagerCached` for a manager that reads from the sqlite database
   without checking the file system. (1eece736)
+- ENH: export environment variables SIMULATION_ID and SIMULATION_DIR in
+  submission scripts.
 
 ## v0.8.2 (13Nov24)
 
