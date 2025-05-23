@@ -123,8 +123,9 @@ class Collection(ElligibleForPlugin):
             if not create_if_not_exist:
                 raise NotADirectoryError("Specified path does not exist.")
 
-            self.path.mkdir(parents=True, exist_ok=False)  # create the directory
-            log.info(f"Initialized directory for collection at {path}")
+            if self._comm.rank == 0:
+                self.path.mkdir(parents=True, exist_ok=False)  # create the directory
+                log.info(f"Initialized directory for collection at {path}")
 
         # Resolve or get an UID for the collection (updates the index if necessary)
         self.uid = CollectionUID(uid or self._index.resolve_uid(self.path))
@@ -276,6 +277,7 @@ class Collection(ElligibleForPlugin):
         import shutil
 
         name = SimulationName(name)  # Generates a unique id as name if not provided
+        name = cast(SimulationName, self._comm.bcast(name, root=0))  # Broadcast the name to all processes
         directory = self.path.joinpath(name)
 
         # Check if name is already in use, otherwise create a new directory
