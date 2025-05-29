@@ -1,5 +1,0 @@
-# MANIFEST.in
-
-include pyproject.toml
-include bamboost/_repr/*
-include bamboost/_example_config.toml
