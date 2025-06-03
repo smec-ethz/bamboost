@@ -1,6 +1,6 @@
 from datetime import datetime
 from pathlib import Path
-from typing import Any, MutableMapping, TypedDict, TypeVar, Union
+from typing import Any, MutableMapping, Protocol, TypedDict, TypeVar, Union
 
 from typing_extensions import ParamSpec, TypeAlias
 
@@ -71,3 +71,15 @@ Mutable = type("Mutable", (_Mutability,), {})
 Immutable = type("Immutable", (_Mutability,), {})
 
 _MT = TypeVar("_MT", bound=_Mutability)
+
+
+# Numpy array protocol
+class ArrayLike(Protocol):
+    """Protocol for objects that can be treated as array-like structures."""
+
+    def __array__(self) -> Any: ...
+    def __len__(self) -> int: ...
+    @property
+    def shape(self) -> tuple[int, ...]: ...
+    @property
+    def dtype(self) -> Any: ...

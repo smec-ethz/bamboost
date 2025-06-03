@@ -44,7 +44,7 @@ from typing_extensions import Self
 
 import bamboost
 from bamboost import BAMBOOST_LOGGER
-from bamboost._typing import _MT, Mutable
+from bamboost._typing import _MT, ArrayLike, Mutable
 from bamboost.core.hdf5.attrsdict import AttrsDict
 from bamboost.core.hdf5.file import (
     FileMode,
@@ -372,7 +372,7 @@ class Group(H5Reference[_MT]):
     def add_numerical_dataset(
         self: Group[Mutable],
         name: str,
-        vector: np.ndarray,
+        vector: ArrayLike,
         attrs: Optional[Dict[str, Any]] = None,
         dtype: Optional[str] = None,
         *,

@@ -30,14 +30,13 @@ import numpy as np
 
 import bamboost
 from bamboost import BAMBOOST_LOGGER, constants
-from bamboost._typing import _MT, Mutable
+from bamboost._typing import _MT, ArrayLike, Mutable
 from bamboost.constants import (
     DEFAULT_MESH_NAME,
     PATH_DATA,
     RELATIVE_PATH_FIELD_DATA,
     RELATIVE_PATH_SCALAR_DATA,
 )
-from bamboost.core.hdf5.attrsdict import AttrsDict
 from bamboost.core.hdf5.file import (
     FileMode,
     H5Object,
@@ -249,7 +248,7 @@ class StepWriter(H5Object[Mutable]):
     def add_field(
         self,
         name: str,
-        data: np.ndarray,
+        data: ArrayLike,
         *,
         mesh_name: str = DEFAULT_MESH_NAME,
         field_type: FieldType = FieldType.NODE,
@@ -275,7 +274,7 @@ class StepWriter(H5Object[Mutable]):
 
     def add_fields(
         self,
-        fields: dict[str, np.ndarray],
+        fields: dict[str, ArrayLike],
         mesh_name: str = DEFAULT_MESH_NAME,
         field_type: FieldType = FieldType.NODE,
     ) -> None:
