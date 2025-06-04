@@ -3,14 +3,14 @@ from __future__ import annotations
 import os
 import subprocess
 import uuid
-from abc import ABC, abstractmethod
+from abc import ABC
 from contextlib import contextmanager
 from dataclasses import dataclass
 from datetime import datetime
 from enum import Enum
 from functools import cached_property
 from pathlib import Path
-from typing import TYPE_CHECKING, Any, Iterable, Mapping, Optional, Sized, Type, Union
+from typing import TYPE_CHECKING, Any, Iterable, Mapping, Optional, Sized, Union
 
 import numpy as np
 from typing_extensions import Self
@@ -25,7 +25,7 @@ from bamboost.core.simulation.groups import GroupGit, GroupMesh, GroupMeshes
 from bamboost.core.simulation.series import Series
 from bamboost.index import CollectionUID, Index
 from bamboost.index.sqlmodel import SimulationORM
-from bamboost.mpi import MPI, MPI_ON, Communicator
+from bamboost.mpi import MPI_ON, Communicator
 from bamboost.utilities import StrPath
 
 if TYPE_CHECKING:
@@ -95,7 +95,7 @@ class SimulationName(str):
         return uid
 
 
-class _Simulation(H5Object[_MT]):
+class _Simulation(H5Object[_MT], ABC):
     """Abstract simulation base class. Use `Simulation` or `SimulationWriter` instead.
 
     Args:
@@ -206,10 +206,6 @@ class _Simulation(H5Object[_MT]):
     @cached_property
     def root(self) -> Group[_MT]:
         return Group("/", self._file)
-
-    @property
-    @abstractmethod
-    def _file(self) -> HDF5File[_MT]: ...
 
     @property
     def mutable(self) -> bool:
@@ -373,9 +369,18 @@ class _Simulation(H5Object[_MT]):
 
 
 class Simulation(_Simulation[Immutable]):
-    @cached_property
-    def _file(self) -> HDF5File[Immutable]:
-        return HDF5File(self._data_file, comm=self._comm, mutable=False)
+    def __init__(
+        self,
+        name: str,
+        parent: StrPath,
+        comm: Optional[Comm] = None,
+        index: Optional[Index] = None,
+        **kwargs,
+    ):
+        super().__init__(name, parent, comm, index, **kwargs)
+        self._file: HDF5File[Immutable] = HDF5File(
+            self._data_file, comm=self._comm, mutable=False
+        )
 
 
 class SimulationWriter(_Simulation[Mutable]):
@@ -388,6 +393,9 @@ class SimulationWriter(_Simulation[Mutable]):
         **kwargs,
     ):
         super().__init__(name, parent, comm, index, **kwargs)
+        self._file: HDF5File[Mutable] = HDF5File(
+            self._data_file, comm=self._comm, mutable=True
+        )
 
     def __enter__(self) -> SimulationWriter:
         self.status = Status.STARTED
@@ -401,10 +409,6 @@ class SimulationWriter(_Simulation[Mutable]):
             )
             return
         self.status = Status.FINISHED
-
-    @cached_property
-    def _file(self) -> HDF5File[Mutable]:
-        return HDF5File(self._data_file, comm=self._comm, mutable=True)
 
     def initialize(self) -> None:
         """Initialize the simulation."""
