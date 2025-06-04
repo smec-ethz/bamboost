@@ -6,6 +6,7 @@ from pathlib import Path
 import pytest
 
 from bamboost import Collection, Index, config
+from bamboost.mpi import Communicator
 
 
 def pytest_sessionstart(session):
@@ -32,29 +33,25 @@ def pytest_sessionfinish(session, exitstatus):
 @pytest.fixture(scope="module")
 def tmp_path_module(tmp_path_factory):
     tmp_path = tmp_path_factory.mktemp("data")
+    tmp_path = Communicator._active_comm.bcast(tmp_path, root=0)
     yield tmp_path
 
 
-def _create_tmp_collection():
-    temp_dir = tempfile.mkdtemp()
-    db = Collection(path=temp_dir, index_instance=Index.default)
-    try:
-        yield db
-    finally:
-        try:
-            shutil.rmtree(temp_dir)
-        except FileNotFoundError:
-            pass
-
-
 @pytest.fixture(scope="module")
-def tmp_collection():
-    yield from _create_tmp_collection()
+def tmp_collection(tmp_path_module: Path):
+    yield Collection(
+        path=tmp_path_module.joinpath("tmp_collection"),
+        index_instance=Index.default,
+    )
 
 
 @pytest.fixture
-def tmp_collection_burn():
-    yield from _create_tmp_collection()
+def tmp_collection_burn(tmp_path: Path):
+    tmp_path = Communicator._active_comm.bcast(tmp_path, root=0)
+    yield Collection(
+        path=tmp_path,
+        index_instance=Index.default,
+    )
 
 
 @pytest.fixture(scope="module")
