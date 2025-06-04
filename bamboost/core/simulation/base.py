@@ -25,7 +25,7 @@ from bamboost.core.simulation.groups import GroupGit, GroupMesh, GroupMeshes
 from bamboost.core.simulation.series import Series
 from bamboost.index import CollectionUID, Index
 from bamboost.index.sqlmodel import SimulationORM
-from bamboost.mpi import MPI, MPI_ON
+from bamboost.mpi import MPI, MPI_ON, Communicator
 from bamboost.utilities import StrPath
 
 if TYPE_CHECKING:
@@ -87,7 +87,12 @@ class SimulationName(str):
 
     @staticmethod
     def generate_name(length: int) -> str:
-        return uuid.uuid4().hex[:length]
+        if Communicator._active_comm.rank == 0:
+            uid = uuid.uuid4().hex[:length]
+        else:
+            uid = ""
+        uid: str = Communicator._active_comm.bcast(uid, root=0)
+        return uid
 
 
 class _Simulation(H5Object[_MT]):
@@ -418,8 +423,6 @@ class SimulationWriter(_Simulation[Mutable]):
 
             # create default series ('data')
             self._initialize_series(constants.PATH_DATA)
-
-        self._comm.barrier()
 
     def _initialize_series(self, path: str) -> None:
         """Create the groups for a series. Does not manage file state.

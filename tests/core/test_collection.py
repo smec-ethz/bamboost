@@ -1,13 +1,11 @@
 import shutil
-import tempfile
 from pathlib import Path
-from unittest.mock import MagicMock, patch
+from unittest.mock import patch
 
 import pytest
 
 from bamboost.core.collection import Collection
 from bamboost.core.simulation.base import SimulationWriter
-from bamboost.index.base import Index
 
 # ------------------- Fixtures -------------------
 # also used:
@@ -93,23 +91,25 @@ def test_create_simulation_with_links(tmp_collection: Collection):
     assert sim_writer.links == links
 
 
-def test_create_simulation_overrides_existing(tmp_collection: Collection):
-    with patch("shutil.rmtree", wraps=shutil.rmtree) as spy_rmtree:
-        # Create initial simulation
-        sim1 = tmp_collection.create_simulation(
-            name="override_test", parameters={"param": 1}
-        )
+def test_create_simulation_overrides_existing(tmp_collection_burn: Collection):
+    # Create initial simulation
+    sim1 = tmp_collection_burn.create_simulation(
+        name="override_test", parameters={"param": 1}
+    )
 
-        # Create it again with override=True
-        sim2 = tmp_collection.create_simulation(
-            name="override_test", parameters={"param": 2}, override=True
-        )
+    # Create it again with override=True
+    sim2 = tmp_collection_burn.create_simulation(
+        name="override_test", parameters={"param": 2}, override=True
+    )
 
-        assert sim1.name == sim2.name  # Same name reused
-        assert sim2.parameters == {"param": 2}
-        spy_rmtree.assert_called_once()  # Ensure the old directory was deleted
+    sim_final = tmp_collection_burn["override_test"]
+
+    assert len(tmp_collection_burn) == 1  # Only one simulation should exist
+    assert sim_final.name == "override_test"  # Same name reused
+    assert sim_final.parameters == {"param": 2}
 
 
+@pytest.mark.mpi_skip(reason="Test patching does not work with MPI")
 def test_create_simulation_error_handling(tmp_collection: Collection):
     with patch("shutil.rmtree", wraps=shutil.rmtree) as spy_rmtree:
         with patch(

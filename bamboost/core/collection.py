@@ -21,6 +21,7 @@ from bamboost.index import (
 from bamboost.index._filtering import Filter, Operator, _Key
 from bamboost.index.sqlmodel import FilteredCollection
 from bamboost.mpi import Communicator
+from bamboost.mpi.utilities import RootProcessMeta
 from bamboost.plugins import ElligibleForPlugin
 
 if TYPE_CHECKING:
@@ -153,7 +154,7 @@ class Collection(ElligibleForPlugin):
         return len(self._orm.simulations)
 
     def __getitem__(self, name: str) -> Simulation:
-        return Simulation(name, self.path, self._comm)
+        return Simulation(name, self.path, self._comm, collection_uid=self.uid)
 
     @cache
     def _ipython_key_completions_(self):
@@ -277,24 +278,34 @@ class Collection(ElligibleForPlugin):
         import shutil
 
         name = SimulationName(name)  # Generates a unique id as name if not provided
-        name = cast(SimulationName, self._comm.bcast(name, root=0))  # Broadcast the name to all processes
         directory = self.path.joinpath(name)
 
         # Check if name is already in use, otherwise create a new directory
-        if directory.exists():
-            if override:
-                if self._comm.rank == 0:
-                    # drop the simulation from the index to avoid artefacts
-                    # e.g. parameters from the old simulation
-                    self._index._drop_simulation(self.uid, name)
-                    shutil.rmtree(directory)
-            else:
-                raise FileExistsError(
-                    f"Simulation {name} already exists in {self.path}"
-                )
-
         if self._comm.rank == 0:
+            exists = directory.exists()
+            must_fail = exists and not override
+            fail_msg = (
+                f"Simulation {name} already exists in {self.path}" if must_fail else ""
+            )
+        else:
+            exists = must_fail = None
+            fail_msg = ""
+
+        # Broadcast the decision to everyone
+        must_fail = self._comm.bcast(must_fail, root=0)
+        fail_msg = self._comm.bcast(fail_msg, root=0)
+
+        if must_fail:
+            raise FileExistsError(fail_msg)
+
+        # Root process creates the directory if it does not exist
+        if self._comm.rank == 0:
+            if exists and override:
+                with RootProcessMeta.comm_self(self):
+                    self._index._drop_simulation(self.uid, name)
+                shutil.rmtree(directory)  # remove the old directory
             directory.mkdir(exist_ok=False)
+
         self._comm.barrier()
 
         try:

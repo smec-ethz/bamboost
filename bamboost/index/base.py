@@ -83,7 +83,12 @@ class CollectionUID(str):
 
     @staticmethod
     def generate_uid(length: int) -> str:
-        return uuid.uuid4().hex[:length].upper()
+        if Communicator._active_comm.rank == 0:
+            uid = uuid.uuid4().hex[:length].upper()
+        else:
+            uid = ""
+        uid: str = Communicator._active_comm.bcast(uid, root=0)
+        return uid
 
 
 def _sql_transaction(
