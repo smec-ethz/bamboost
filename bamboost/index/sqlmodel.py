@@ -410,7 +410,7 @@ class ParameterORM(_Base):
 
     id: Mapped[int] = mapped_column(primary_key=True, autoincrement=True)
     simulation_id: Mapped[int] = mapped_column(
-        ForeignKey(SimulationORM.id), nullable=False
+        ForeignKey(SimulationORM.id, ondelete="CASCADE"), nullable=False
     )
     key: Mapped[str] = mapped_column(String, nullable=False)
     value: Mapped[JSON] = mapped_column(JSON, nullable=False)
