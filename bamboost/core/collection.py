@@ -7,6 +7,7 @@ from pathlib import Path
 from typing import TYPE_CHECKING, Any, Dict, Iterable, Optional, cast
 
 import numpy as np
+import pandas as pd
 
 from bamboost import BAMBOOST_LOGGER, config
 from bamboost._typing import StrPath
@@ -25,8 +26,6 @@ from bamboost.mpi.utilities import RootProcessMeta
 from bamboost.plugins import ElligibleForPlugin
 
 if TYPE_CHECKING:
-    import pandas as pd
-
     from bamboost.index.sqlmodel import CollectionORM
     from bamboost.mpi import Comm
 
@@ -153,7 +152,11 @@ class Collection(ElligibleForPlugin):
     def __len__(self) -> int:
         return len(self._orm.simulations)
 
-    def __getitem__(self, name: str) -> Simulation:
+    def __getitem__(self, name_or_index: str | int) -> Simulation:
+        if isinstance(name_or_index, int):
+            name = self.df.iloc[name_or_index]["name"]
+        else:
+            name = name_or_index
         return Simulation(name, self.path, self._comm, collection_uid=self.uid)
 
     @cache
