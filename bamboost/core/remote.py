@@ -1,4 +1,17 @@
-"""This module introduces the Remote class, which is used to access remote collections."""
+"""Remote Access Module for Bamboost
+
+This module provides the `Remote` class and related classes to facilitate access to remote
+collections and simulations in the Bamboost framework.
+
+Classes:
+    - Remote: Represents a remote index/database, handles synchronization and workspace management.
+    - RemoteCollection: Represents a collection within a remote index, supports data transfer and caching.
+    - RemoteSimulation: Represents a simulation within a remote collection, supports remote data access.
+
+Typical usage involves creating a Remote instance pointing to a remote server, listing available
+collections, and synchronizing data as needed.
+
+"""
 
 from __future__ import annotations
 
@@ -47,6 +60,37 @@ def stream_popen_output(func: Callable[_P, subprocess.Popen]) -> Callable[_P, No
 
 
 class Remote(Index):
+    """Represents a remote index/database for accessing and synchronizing collections and simulations.
+
+    The Remote class manages connections to a remote server, handles local caching of remote data,
+    and provides methods for synchronizing databases and collections using rsync. It supports
+    workspace management and can list available remote databases in the local cache.
+
+    Args:
+        remote_url (str): The SSH URL of the remote server.
+        comm (Optional[Comm]): Optional MPI communicator.
+        workspace_path (Optional[str]): Path to the workspace on the remote server.
+        workspace_name (Optional[str]): Name of the workspace.
+        skip_fetch (bool): If True, skip fetching the remote database on initialization.
+
+    Attributes:
+        DATABASE_BASE_NAME (str): The base name of the database file.
+        DATABASE_REMOTE_PATH (Path): Default path to the remote database.
+        WORKSPACE_SPLITTER (str): String used to split remote URL and workspace name.
+        id (str): Unique identifier for the remote instance.
+        _remote_url (str): The SSH URL of the remote server.
+        _local_path (Path): Local cache path for the remote data.
+        _workspace_path (Optional[str]): Path to the workspace on the remote server.
+        _workspace_name (Optional[str]): Name of the workspace.
+        _remote_database_path (Path): Path to the remote database file.
+        _local_database_path (Path): Path to the local cached database file.
+        search_paths (PathSet): Set of search paths for collections.
+        _url (str): SQLAlchemy database URL for the local cache.
+        _engine: SQLAlchemy engine instance.
+        _sm: SQLAlchemy sessionmaker.
+        _s: SQLAlchemy session.
+    """
+
     DATABASE_BASE_NAME = "bamboost.sqlite"
     DATABASE_REMOTE_PATH = _config.LOCAL_DIR.joinpath(_config.DATABASE_FILE_NAME)
     WORKSPACE_SPLITTER = "_WS_"
@@ -132,7 +176,7 @@ class Remote(Index):
     def fetch_remote_database(
         self,
     ) -> subprocess.Popen:
-        """Fetch the remote database."""
+        """Fetch the remote SQL database."""
         return subprocess.Popen(
             [
                 "rsync",
@@ -146,12 +190,15 @@ class Remote(Index):
         )
 
     def rsync(self, source: StrPath, dest: StrPath) -> subprocess.Popen:
-        """Sync data with the remote server.
+        """Synchronize data from the remote server to the local cache using rsync.
 
         Args:
-            source: The absolute source path on the remote server.
-            dest: The relative (from the cache dir for this remote) destination path on
-                the local machine.
+            source (StrPath): The absolute source path on the remote server.
+            dest (StrPath): The destination path on the local machine, relative
+                to the local cache directory for this remote.
+
+        Returns:
+            subprocess.Popen: The Popen object for the rsync process.
         """
         return subprocess.Popen(
             [
