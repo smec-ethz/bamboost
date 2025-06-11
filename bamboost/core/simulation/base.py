@@ -1,3 +1,19 @@
+"""Simulation management module for bamboost.
+
+This module provides classes and utilities for managing simulations,
+including reading and writing simulation data, handling metadata and parameters,
+interfacing with HDF5 files, managing simulation status, and supporting
+HPC job submission and MPI parallelism.
+
+Classes:
+    Status: Enum representing the status of a simulation.
+    StatusInfo: Dataclass for detailed status information.
+    SimulationName: Utility for generating unique simulation names.
+    _Simulation: Abstract base class for simulation objects.
+    Simulation: Read-only simulation object.
+    SimulationWriter: Writable simulation object for editing and managing simulations.
+"""
+
 from __future__ import annotations
 
 import os
@@ -36,7 +52,15 @@ log = BAMBOOST_LOGGER.getChild("simulation")
 
 
 class Status(Enum):
-    """Status of a simulation."""
+    """Enum representing the status of a simulation.
+
+    Attributes:
+        INITIALIZED: The simulation has been initialized but not yet started.
+        STARTED: The simulation is currently running.
+        FINISHED: The simulation has completed successfully.
+        FAILED: The simulation has failed.
+        UNKNOWN: The status of the simulation is unknown.
+    """
 
     INITIALIZED = "initialized"
     STARTED = "started"
@@ -45,11 +69,19 @@ class Status(Enum):
     UNKNOWN = "unknown"
 
     def format(self) -> str:
+        """Return the string representation of the status."""
         return self.value
 
 
 @dataclass
 class StatusInfo:
+    """Detailed status information for a simulation.
+
+    Attributes:
+        status (Status): The current status of the simulation.
+        message (Optional[str]): An optional message providing additional details about the status.
+    """
+
     status: Status
     message: Optional[str] = None
 
@@ -79,7 +111,29 @@ class StatusInfo:
 
 
 class SimulationName(str):
-    """Name of a simulation."""
+    """
+    Utility class for generating unique simulation names.
+
+    The `SimulationName` class provides a convenient way to generate or validate
+    unique names for simulation runs. If no name is provided, a random unique
+    identifier is generated using UUID, truncated to the specified length.
+
+    Args:
+        name (Optional[str]): The desired name for the simulation. If not provided,
+            a unique name will be generated.
+        length (int): The length of the generated name if `name` is not provided.
+            Default is 10.
+
+    Examples:
+        >>> sim_name = SimulationName()  # Generates a unique name of length 10
+        >>> sim_name = SimulationName("my_simulation")
+        >>> print(sim_name)
+        my_simulation
+
+    Note:
+        The generated name is guaranteed to be unique across MPI ranks by broadcasting
+        the generated UUID from the root rank.
+    """
 
     def __new__(cls, name: Optional[str] = None, length: int = 10):
         name = name or cls.generate_name(length)
@@ -96,16 +150,20 @@ class SimulationName(str):
 
 
 class _Simulation(H5Object[_MT], ABC):
-    """Abstract simulation base class. Use `Simulation` or `SimulationWriter` instead.
+    """
+    Abstract base class for simulation objects.
+
+    This class should not be instantiated directly. Use `Simulation` for read-only access
+    or `SimulationWriter` for writable access to simulation data.
 
     Args:
-        name: Name for the simulation.
-        parent: Path to parent/collection directory.
-        comm: MPI communicator. Defaults to MPI.COMM_WORLD.
-        index: Index object. Defaults to the global index file.
+        name (str): Name of the simulation.
+        parent (StrPath): Path to the parent or collection directory.
+        comm (Optional[Comm]): MPI communicator. Defaults to MPI.COMM_WORLD.
+        index (Optional[Index]): Index object. Defaults to the global index file.
 
     Raises:
-        FileNotFoundError: If the simulation doesn't exist.
+        FileNotFoundError: If the simulation does not exist at the specified path.
     """
 
     def __init__(
@@ -217,11 +275,18 @@ class _Simulation(H5Object[_MT], ABC):
 
     @classmethod
     def from_uid(cls, uid: str, **kwargs) -> Self:
-        """Return the `Simulation` with given UID.
+        """
+        Return the `Simulation` instance corresponding to the given UID.
 
         Args:
-            uid: the full id (Collection uid : simulation name)
-            **kwargs: additional arguments to pass to the constructor
+            uid (str): The full simulation UID in the format "<collection_uid>:<simulation_name>".
+            **kwargs: Additional keyword arguments to pass to the constructor.
+
+        Returns:
+            Self: An instance of the simulation class corresponding to the UID.
+
+        Examples:
+            >>> sim = Simulation.from_uid("abc123:mysim")
         """
         collection_uid, name = uid.split(constants.UID_SEPARATOR)
         index = kwargs.pop("index", None) or Index.default
@@ -230,11 +295,32 @@ class _Simulation(H5Object[_MT], ABC):
 
     @property
     def uid(self) -> str:
-        """The full uid of the simulation (collection_uid:simulation_name)."""
+        """
+        Returns the full unique identifier (UID) of the simulation.
+
+        The UID is constructed as "<collection_uid>:<simulation_name>", where
+        `collection_uid` is the unique identifier of the collection containing
+        the simulation, and `simulation_name` is the name of the simulation.
+
+        Returns:
+            str: The full UID of the simulation in the format "collection_uid:simulation_name".
+        """
         return f"{self.collection_uid}{constants.UID_SEPARATOR}{self.name}"
 
     def edit(self) -> SimulationWriter:
-        """Return an object with writing rights to edit the simulation."""
+        """
+        Return a mutable `SimulationWriter` object for editing the simulation.
+
+        This method provides an interface to obtain a mutable version of the current
+        simulation, allowing modifications to simulation data, metadata, and parameters.
+
+        Returns:
+            SimulationWriter: An object with write access to the simulation.
+
+        Examples:
+            >>> with sim.edit() as sim_writer:
+            ...     sim_writer.parameters["new_param"] = 42
+        """
         return SimulationWriter(
             self.name,
             self.path.parent,
@@ -269,14 +355,32 @@ class _Simulation(H5Object[_MT], ABC):
 
     @cached_property
     def parameters(self) -> Parameters[_MT]:
+        """
+        Returns the parameters associated with this simulation.
+
+        Returns:
+            Parameters[_MT]: The parameters object for this simulation.
+        """
         return Parameters(self)
 
     @cached_property
     def metadata(self) -> Metadata[_MT]:
+        """
+        Returns the metadata associated with this simulation.
+
+        Returns:
+            Metadata[_MT]: The metadata object for this simulation.
+        """
         return Metadata(self)
 
     @property
     def status(self) -> StatusInfo:
+        """
+        Returns the current status of the simulation.
+
+        Returns:
+            StatusInfo: The status information for this simulation.
+        """
         try:
             return StatusInfo.parse(self.metadata.__getitem__("status"))
         except KeyError:
@@ -284,27 +388,62 @@ class _Simulation(H5Object[_MT], ABC):
 
     @property
     def created_at(self) -> datetime:
+        """
+        Returns the creation timestamp of the simulation.
+
+        Returns:
+            datetime: The datetime when the simulation was created.
+        """
         return self.metadata.__getitem__("created_at")
 
     @property
     def description(self) -> str:
+        """
+        Returns the description of the simulation.
+
+        Returns:
+            str: The description string.
+        """
         return self.metadata.__getitem__("description")
 
     @cached_property
     def links(self) -> Links[_MT]:
+        """
+        Returns the links associated with this simulation.
+
+        Returns:
+            Links[_MT]: The links object for this simulation.
+        """
         return Links(self)
 
     @cached_property
     def files(self):
+        """
+        Returns a file picker utility for the simulation directory.
+
+        Returns:
+            FilePicker: Utility for browsing files in the simulation directory.
+        """
         return utilities.FilePicker(self.path)
 
     @cached_property
     def git(self) -> GroupGit[_MT]:
+        """
+        Returns the Git group associated with this simulation.
+
+        Returns:
+            GroupGit[_MT]: The Git group object for this simulation.
+        """
         return GroupGit(self)
 
     @cached_property
     def data(self) -> Series[_MT]:
-        """Return the default data series."""
+        """
+        Returns the default data series for this simulation.
+
+        Returns:
+            Series[_MT]: The default data series object.
+        """
         return Series(self, path=constants.PATH_DATA)
 
     @cached_property
@@ -335,10 +474,19 @@ class _Simulation(H5Object[_MT], ABC):
             os.chdir(current_dir)
 
     def require_series(self, path: str) -> Series[_MT]:
-        """Return a series object for the given path.
+        """
+        Return a Series object for the given path.
+
+        A "series" in bamboost is a logical group in the HDF5 file that stores
+        time-dependent or indexed simulation data, such as fields, scalars, or
+        other arrays. Each series is identified by its path and can contain
+        multiple fields and steps.
 
         Args:
-            path: path to the series
+            path: Path to the series group within the simulation HDF5 file.
+
+        Returns:
+            Series[_MT]: The Series object for the specified path.
         """
         return Series(self, path=path)
 
@@ -351,6 +499,28 @@ class _Simulation(H5Object[_MT], ABC):
         filename: Optional[StrPath] = None,
         mesh_name: str = constants.DEFAULT_MESH_NAME,
     ):
+        """
+        Generate an XDMF file for visualization of simulation data.
+
+        This method creates an XDMF file that references the simulation's mesh and
+        time-dependent field data, enabling visualization in tools such as ParaView.
+
+        Args:
+            field_names (Optional[Iterable[str]]): Names of the fields to include in the XDMF file.
+                If None, all available fields in the series are included.
+            timesteps (Optional[Iterable[float]]): List of timesteps to include.
+                If None, all timesteps in the series are included.
+            series (Optional[Series[_MT]]): The data series to use for field and timestep information.
+                If None, uses the default data series (`self.data`).
+            filename (Optional[StrPath]): Path to the output XDMF file.
+                If None, defaults to "<simulation_path>/data.xdmf".
+            mesh_name (str): Name of the mesh to reference in the XDMF file.
+                Defaults to the constant `DEFAULT_MESH_NAME`.
+
+        Examples:
+            >>> sim.create_xdmf(field_names=["velocity", "pressure"])
+            >>> sim.create_xdmf(timesteps=[0.0, 0.1, 0.2], filename="custom.xdmf")
+        """
         from bamboost.core.simulation.xdmf import XDMFWriter
 
         series = series or self.data
@@ -369,6 +539,27 @@ class _Simulation(H5Object[_MT], ABC):
 
 
 class Simulation(_Simulation[Immutable]):
+    """
+    Read-only simulation object.
+
+    The `Simulation` class provides read-only access to simulation data, metadata,
+    and parameters. It is intended for inspecting and analyzing existing simulations
+    without modifying their contents. For editing or managing simulations, use
+    `SimulationWriter` (or `sim_writer = sim.edit()`).
+
+    Args:
+        name (str): Name of the simulation.
+        parent (StrPath): Path to the parent or collection directory.
+        comm (Optional[Comm]): MPI communicator. Defaults to MPI.COMM_WORLD.
+        index (Optional[Index]): Index object. Defaults to the global index file.
+        **kwargs: Additional keyword arguments.
+
+    Examples:
+        >>> sim = Simulation("mysim", "/path/to/collection")
+        >>> print(sim.parameters)
+        >>> print(sim.metadata)
+    """
+
     def __init__(
         self,
         name: str,
@@ -384,6 +575,27 @@ class Simulation(_Simulation[Immutable]):
 
 
 class SimulationWriter(_Simulation[Mutable]):
+    """
+    Mutable simulation object for editing and managing simulations.
+
+    The `SimulationWriter` class provides write access to simulation data, metadata,
+    and parameters. It is intended for creating, editing, and managing simulations.
+    Use this class when you need to modify the contents of a simulation, such as
+    updating parameters, metadata, or simulation data.
+
+    Args:
+        name (str): Name of the simulation.
+        parent (StrPath): Path to the parent or collection directory.
+        comm (Optional[Comm]): MPI communicator. Defaults to MPI.COMM_WORLD.
+        index (Optional[Index]): Index object. Defaults to the global index file.
+        **kwargs: Additional keyword arguments.
+
+    Examples:
+        >>> with SimulationWriter("mysim", "/path/to/collection") as sim_writer:
+        ...     sim_writer.parameters["new_param"] = 42
+        ...     sim_writer.metadata["description"] = "Updated simulation"
+    """
+
     def __init__(
         self,
         name: str,
@@ -411,7 +623,11 @@ class SimulationWriter(_Simulation[Mutable]):
         self.status = Status.FINISHED
 
     def initialize(self) -> None:
-        """Initialize the simulation."""
+        """Initialize the simulation.
+
+        This method sets up the simulation's HDF5 data file and required groups,
+        and records initial metadata such as status and creation time.
+        """
         # create the data file
         with self._file.open(FileMode.APPEND, driver="mpio") as f:
             self.metadata.update(
@@ -533,6 +749,26 @@ class SimulationWriter(_Simulation[Mutable]):
         self.metadata["submitted"] = False
 
     def run_simulation(self, executable: str = "bash") -> None:
+        """
+        Run the simulation using the specified executable and the default run file in
+        the simulation directory.
+
+        This method executes the simulation's run script using the provided executable.
+        By default, it uses "bash" to run the script locally. If "sbatch" is specified,
+        the script will be submitted to a Slurm workload manager.
+
+        Args:
+            executable (str): The executable to use for running the simulation script.
+                Defaults to "bash". Use "sbatch" to submit to a Slurm scheduler.
+
+        Raises:
+            AssertionError: If called during MPI execution.
+            FileNotFoundError: If the run script does not exist.
+
+        Examples:
+            >>> sim_writer.run_simulation()  # Runs locally with bash
+            >>> sim_writer.run_simulation(executable="sbatch")  # Submits to Slurm
+        """
         assert not MPI_ON, "This method is not available during MPI execution."
 
         if not self._bash_file.exists():
@@ -547,4 +783,13 @@ class SimulationWriter(_Simulation[Mutable]):
         self.metadata["submitted"] = True
 
     def submit_simulation(self) -> None:
+        """
+        Submit the simulation to a job scheduler.
+
+        This method submits the simulation's run script to a job scheduler using "sbatch".
+        It is a convenience wrapper around `run_simulation(executable="sbatch")`.
+
+        Examples:
+            >>> sim_writer.submit_simulation()
+        """
         self.run_simulation(executable="sbatch")
