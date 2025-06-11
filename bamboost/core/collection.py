@@ -1,3 +1,21 @@
+"""Collection management module for bamboost.
+
+This module provides the Collection class and related utilities for managing
+collections of simulations in the bamboost framework. It includes functionality
+for creating, filtering, querying, and manipulating simulation collections,
+as well as integration with the underlying index and MPI communication.
+
+Classes:
+    Collection: Main interface for interacting with a simulation collection.
+    NotACollectionError: Exception raised when a path is not a valid collection.
+    _CollectionPicker: Helper for selecting collections by UID.
+    _FilterKeys: Helper for key completion and filtering.
+
+Functions:
+    (See Collection methods for main API.)
+
+"""
+
 from __future__ import annotations
 
 import pkgutil
@@ -73,20 +91,39 @@ class _FilterKeys:
 
 
 class Collection(ElligibleForPlugin):
-    """View of database.
+    """
+    Represents a collection of simulations in the bamboost framework.
+
+    The Collection class provides an interface for managing, querying, and manipulating
+    a group of simulations stored in a directory, with support for filtering, indexing,
+    and MPI communication.
 
     Args:
-        path: path to the directory of the database. If doesn't exist,
-            a new database will be created.
-        comm: MPI communicator
-        uid: UID of the database
+        path: Path to the directory of the collection. If it doesn't exist,
+            a new collection will be created if `create_if_not_exist` is True.
+        uid: Unique identifier (UID) of the collection. If provided, the collection
+            is resolved by UID instead of path.
+        create_if_not_exist: If True (default), creates the collection directory if it does not exist.
+        comm: MPI communicator to use for parallel operations. If not provided,
+            the default communicator is used.
+        index_instance: Custom Index instance to use for managing collections.
+            If not provided, the default index is used.
+        sync_collection: If True (default), synchronizes the collection with the index/database
+            on initialization.
+        filter: Optional filter to apply to the collection, returning a filtered view.
 
     Attributes:
-        ...
+        uid (CollectionUID): Unique identifier for the collection.
+        path (Path): Filesystem path to the collection directory.
+        df (pd.DataFrame): DataFrame view of the collection and its parameter space.
+        k (_FilterKeys): Helper for key completion and filtering.
+        FROZEN (bool): If True, the collection does not look for new simulations after initialization.
 
-    Example:
-        >>> db = Manager("path/to/db")
-        >>> db.df # DataFrame of the database
+    Examples:
+        >>> db = Collection("path/to/collection")
+        >>> db.df  # DataFrame of the collection
+        >>> sim = db["simulation_name"]  # Access a simulation by name
+        >>> filtered = db.filter(db.k["param"] == 42)
     """
 
     FROZEN = False  # TODO: If true, the collection doesn't look for new simulations after initialization
@@ -144,6 +181,17 @@ class Collection(ElligibleForPlugin):
 
     @property
     def _orm(self) -> CollectionORM | FilteredCollection:
+        """
+        Returns the ORM (Object Relational Mapping) object for the collection.
+
+        If a filter is applied to the collection, returns a FilteredCollection
+        object that represents the filtered view. Otherwise, returns the base
+        CollectionORM object for the collection.
+
+        Returns:
+            CollectionORM or FilteredCollection: The ORM object representing the collection,
+            possibly filtered.
+        """
         collection_orm = self._index.collection(self.uid)
         if self._filter is None:
             return collection_orm
@@ -153,6 +201,23 @@ class Collection(ElligibleForPlugin):
         return len(self._orm.simulations)
 
     def __getitem__(self, name_or_index: str | int) -> Simulation:
+        """
+        Retrieve a Simulation from the collection by name or index.
+
+        Args:
+            name_or_index: The name of the simulation (str) or its index (int) in the collection dataframe.
+
+        Returns:
+            Simulation: The corresponding Simulation object.
+
+        Raises:
+            IndexError: If the index is out of range.
+            KeyError: If the simulation name does not exist in the collection.
+
+        Examples:
+            >>> sim = collection["simulation_name"]
+            >>> sim = collection[0]
+        """
         if isinstance(name_or_index, int):
             name = self.df.iloc[name_or_index]["name"]
         else:
@@ -164,9 +229,7 @@ class Collection(ElligibleForPlugin):
         return tuple(s.name for s in self._orm.simulations)
 
     def _repr_html_(self) -> str:
-        """HTML repr for ipython/notebooks. Uses string replacement to fill the
-        template code.
-        """
+        """HTML repr for ipython/notebooks, using jinja2 for templating."""
         from jinja2 import Template
 
         html_string = pkgutil.get_data("bamboost", "_repr/manager.html").decode()
@@ -184,10 +247,15 @@ class Collection(ElligibleForPlugin):
 
     @property
     def df(self) -> pd.DataFrame:
-        """View of the collection and its parametric space.
+        """
+        Returns a pandas DataFrame representing the collection and its parameter space.
+
+        The DataFrame contains all simulations in the collection, including their parameters
+        and metadata. The table is sorted according to the user-specified key and order
+        in the configuration, if available.
 
         Returns:
-            A dataframe of the collection
+            pd.DataFrame: DataFrame of the collection's simulations and parameters.
         """
         df = self._orm.to_pandas()
 
@@ -205,13 +273,23 @@ class Collection(ElligibleForPlugin):
         return df
 
     def filter(self, *operators: Operator) -> Collection:
-        """Filter the collection with the given operators.
+        """
+        Returns a new Collection filtered by the given operators.
+
+        This method applies the specified filter operators to the collection and returns
+        a new Collection instance representing the filtered view. The original collection
+        remains unchanged.
 
         Args:
-            *operators: The operators to filter the collection with.
+            *operators: One or more filter operators (e.g., comparisons using Collection.k)
+                to apply to the collection.
 
         Returns:
-            A new collection with the filtered simulations.
+            Collection: A new Collection instance containing only the simulations that
+            match the specified filter criteria.
+
+        Examples:
+            >>> filtered = collection.filter(collection.k["param"] == 42)
         """
         return Collection(
             path=self.path,
@@ -223,9 +301,28 @@ class Collection(ElligibleForPlugin):
         )
 
     def all_simulation_names(self) -> list[str]:
+        """
+        Returns a list of all simulation names in the collection.
+
+        Returns:
+            list[str]: A list containing the names of all simulations in the collection.
+        """
         return [sim.name for sim in self._orm.simulations]
 
     def sync_cache(self, *, force_all: bool = False) -> None:
+        """
+        Synchronize the database for this collection.
+
+        This method updates the collection's cache by syncing the underlying
+        index and filesystem. It ensures that the collection's metadata and simulation
+        information are up to date. If `force_all` is True, a full rescan and update
+        of all simulations in the collection will be performed, regardless of their
+        current cache state.
+
+        Args:
+            force_all: If True, force a full resync of all simulations in the collection.
+                If False (default), only update simulations that are out of sync.
+        """
         self._index.sync_collection(self.uid, self.path, force_all=force_all)
 
     def create_simulation(
@@ -238,45 +335,48 @@ class Collection(ElligibleForPlugin):
         links: Optional[Dict[str, str]] = None,
         override: bool = False,
     ) -> SimulationWriter:
-        """Get a writer object for a new simulation. This is written for paralell use
-        as it is likely that this may be used in an executable, creating multiple runs
-        for a parametric space, which may be run in paralell.
+        """
+        Create and initialize a new simulation in the collection, returning a SimulationWriter object.
+
+        This method is designed for parallel use, such as in batch scripts or parameter sweeps,
+        where multiple simulations may be created concurrently. It handles creation of the simulation
+        directory, duplicate checking, copying files, and setting up metadata and parameters.
 
         Args:
-            uid: The name/uid for the simulation. If not specified, a random id
-                will be assigned.
-            parameters: Parameter dictionary. If provided, the parameters will be
-                checked against the existing sims for duplication. Otherwise, they may be
-                specified later with `bamboost.core.simulation.Simulation.parameters`.
+            name: The name/UID for the simulation. If not specified, a unique random ID
+                will be generated.
+            parameters: Dictionary of simulation parameters. If provided, these parameters
+                will be checked against existing simulations for duplication. If not provided,
+                parameters can be set later via `bamboost.core.simulation.Simulation.parameters`.
 
                 Note:
-                    The parameters are stored in the h5 file as attributes.
-                    - If the value is a dict, it is flattened using
-                      `bamboost.core.utilities.flatten_dict`.
-                    - If the value is a list/array, it is stored as a dataset.
+                    - Parameters are stored in the HDF5 file as attributes.
+                    - If a value is a dict, it is flattened using `bamboost.core.utilities.flatten_dict`.
+                    - If a value is a list or array, it is stored as a dataset.
 
-            skip_duplicate_check: if True, the duplicate check is skipped.
-            prefix: Prefix for the uid. If not specified, no prefix is used.
-            duplicate_action: how to deal with duplicates. Replace
-                first duplicate ('r'), Create with altered uid (`c`), Create new
-                with new id (`n`), Abort (`a`) default "prompt" for each
-                duplicate on a case by case basis.
-            note: Note for the simulation.
-            files: List of files to copy to the simulation directory.
-            links: Dictionary of links to other simulations.
+            description: Optional description for the simulation.
+            files: Optional iterable of file paths to copy into the simulation directory.
+                Each file will be copied with its original name.
+            links: Optional dictionary of symbolic links to create in the simulation directory,
+                mapping link names to target paths.
+            override: If True, overwrite any existing simulation with the same name.
+                If False (default), raises FileExistsError if a simulation with the same name exists.
 
-        Note:
-            The files and links are copied to the simulation directory. The files are
-            copied with the same name as the original file. The links are copied with
-            the given name.
+        Returns:
+            SimulationWriter: An object for writing data and metadata to the new simulation.
+
+        Raises:
+            FileExistsError: If a simulation with the same name already exists and override is False.
+            ValueError, PermissionError: If there is an error during simulation creation.
 
         Examples:
             >>> db.create_simulation(parameters={"a": 1, "b": 2})
 
-            >>> db.create_simulation(uid="my_sim", parameters={"a": 1, "b": 2}, prefix="test")
+            >>> db.create_simulation(name="my_sim", parameters={"a": 1, "b": 2})
 
-        Returns:
-            A simulation writer object.
+        Note:
+            - The files and links specified are copied or created in the simulation directory.
+            - This method is safe for use in parallel (MPI) environments.
         """
         import shutil
 
@@ -351,17 +451,24 @@ class Collection(ElligibleForPlugin):
         shutil.rmtree(dir_to_delete)
 
     def find(self, parameter_selection: dict[str, Any]) -> pd.DataFrame:
-        """Find simulations with the given parameters.
+        """
+        Find simulations matching the given parameter selection.
 
-        The dictionary can contain callables to filter inequalities or other
-        filters.
+        The parameter_selection dictionary can specify exact values for parameters,
+        or use callables (such as lambda functions) for more complex filtering,
+        such as inequalities or custom logic.
+
+        Args:
+            parameter_selection: Dictionary mapping parameter names to values
+                or callables. If a value is a callable, it will be used as a filter function
+                applied to the corresponding parameter column.
+
+        Returns:
+            pd.DataFrame: DataFrame containing simulations that match the specified criteria.
 
         Examples:
             >>> db.find({"a": 1, "b": lambda x: x > 2})
             >>> db.find({"a": 1, "b": 2})
-
-        Args:
-            parameter_selection (dict): parameter selection dictionary
         """
         parameter_selection = flatten_dict(parameter_selection)
         params = {}
@@ -387,12 +494,17 @@ class Collection(ElligibleForPlugin):
     def _list_duplicates(
         self, parameters: dict, *, df: pd.DataFrame | None = None
     ) -> list[str]:
-        """List ids of duplicates of the given parameters.
+        """
+        List the names (IDs) of simulations in the collection that have duplicate parameter values.
 
         Args:
-            parameters: parameter dictionary
-            df: dataframe to search in. If not provided, the
-                dataframe from the sql database is used.
+            parameters (dict): Parameter dictionary to check for duplicates. Keys are parameter names,
+                values are the values to match against existing simulations.
+            df (pd.DataFrame, optional): DataFrame to search in. If not provided, the
+                DataFrame from the SQL database is used.
+
+        Returns:
+            list[str]: List of simulation names (IDs) that have the same parameter values as provided.
         """
         import pandas as pd
 
@@ -428,15 +540,21 @@ class Collection(ElligibleForPlugin):
     def _check_duplicate(
         self, parameters: dict, uid: str, duplicate_action: str = "prompt"
     ) -> tuple:
-        """Checking whether the parameters dictionary exists already.
-        May need to be improved...
+        """
+        Check whether the given parameters dictionary already exists in the collection.
+
+        This method checks for duplicate simulations with the same parameter values.
+        If duplicates are found, it prompts the user (or uses the specified action)
+        to decide whether to replace, create a new simulation, or abort.
 
         Args:
-            parameters: parameter dictionary to check for
-            uid: uid
+            parameters (dict): Parameter dictionary to check for duplicates.
+            uid (str): The UID for the simulation to be created.
 
         Returns:
-            Tuple(Bool, uid) wheter to continue and with what uid.
+            tuple: (bool, str)
+                - bool: Whether to continue with the operation.
+                - str: The UID to use for the simulation.
         """
 
         duplicates = self._list_duplicates(parameters)
