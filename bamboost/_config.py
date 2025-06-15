@@ -446,7 +446,8 @@ class _Config(_Base):
         )
 
         # Log unknown config options
-        for key in global_config.keys():
+        self._remainder = config
+        for key in config.keys():
             log.info(f"Unknown config table: {key}")
 
     def __repr__(self) -> str:
