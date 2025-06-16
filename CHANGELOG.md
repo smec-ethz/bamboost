@@ -1,5 +1,20 @@
 # Change log for bamboost
 
+## 0.10.1 (2025-06-16)
+
+### Feat
+
+- **collection**: extend getitem such that coll[idx] returns the simulation for the provided index in df
+
+### Fix
+
+- **config**: store remainder of config file (additional config, e.g. for tui)
+
+### Refactor
+
+- **index**: raise InvalidCollectionError if calling resolve_uid with a path that is no collection (#51)
+- **simulation**: assign _file attribute in constructor instead of a cached_property (fixes a type issue)
+
 ## 0.10.0 (2025-06-04)
 
 ### Fix
