@@ -7,7 +7,6 @@ as well as integration with the underlying index and MPI communication.
 
 Classes:
     Collection: Main interface for interacting with a simulation collection.
-    NotACollectionError: Exception raised when a path is not a valid collection.
     _CollectionPicker: Helper for selecting collections by UID.
     _FilterKeys: Helper for key completion and filtering.
 
@@ -31,6 +30,7 @@ from bamboost import BAMBOOST_LOGGER, config
 from bamboost._typing import StrPath
 from bamboost.core.simulation.base import Simulation, SimulationName, SimulationWriter
 from bamboost.core.utilities import flatten_dict
+from bamboost.exceptions import InvalidCollectionError
 from bamboost.index import (
     CollectionUID,
     Index,
@@ -49,17 +49,9 @@ if TYPE_CHECKING:
 
 __all__ = [
     "Collection",
-    "NotACollectionError",
 ]
 
 log = BAMBOOST_LOGGER.getChild("Collection")
-
-
-class NotACollectionError(NotADirectoryError):
-    """Raised when a path is not a valid collection."""
-
-    def __init__(self, path: Path):
-        super().__init__(f"{path} is not a valid collection.")
 
 
 class _CollectionPicker:
@@ -164,8 +156,14 @@ class Collection(ElligibleForPlugin):
                 self.path.mkdir(parents=True, exist_ok=False)  # create the directory
                 log.info(f"Initialized directory for collection at {path}")
 
-        # Resolve or get an UID for the collection (updates the index if necessary)
-        self.uid = CollectionUID(uid or self._index.resolve_uid(self.path))
+        try:
+            # Use uid if provided, otherwise resolve it from the path
+            self.uid = CollectionUID(uid or self._index.resolve_uid(self.path))
+        except InvalidCollectionError:
+            # If the collection does not exist, create it in the index
+            # and generate a new UID
+            self.uid = CollectionUID()
+            self._index.upsert_collection(self.uid, self.path)
 
         # Check if identifier file exists (and create it if necessary)
         if not self.path.joinpath(get_identifier_filename(uid=self.uid)).exists():

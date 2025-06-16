@@ -164,6 +164,7 @@ class _Simulation(H5Object[_MT], ABC):
 
     Raises:
         FileNotFoundError: If the simulation does not exist at the specified path.
+        InvalidCollectionError: If the parent path is no collection or does not exist.
     """
 
     def __init__(
