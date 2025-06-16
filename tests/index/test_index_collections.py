@@ -9,6 +9,7 @@ from bamboost.index.base import (
     _find_uid_from_path,
     _validate_path,
 )
+from bamboost.exceptions import InvalidCollectionError
 
 
 @pytest.fixture
@@ -68,6 +69,13 @@ def test_resolve_uid(index: Index, tmp_path: Path):
 
     resolved_uid = index.resolve_uid(collection_path)
     assert resolved_uid == uid
+
+def test_resolve_uid_not_found(index: Index, tmp_path: Path):
+    collection_path = tmp_path / "collection4"
+    collection_path.mkdir()
+
+    with pytest.raises(InvalidCollectionError):
+        index.resolve_uid(collection_path)
 
 
 def test_scan_for_collections(index, tmp_path):

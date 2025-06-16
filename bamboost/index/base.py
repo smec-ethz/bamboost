@@ -53,6 +53,7 @@ from typing_extensions import Concatenate
 
 from bamboost import BAMBOOST_LOGGER, config, constants
 from bamboost._typing import _P, _T, SimulationMetadataT, SimulationParameterT, StrPath
+from bamboost.exceptions import InvalidCollectionError
 from bamboost.index.sqlmodel import (
     CollectionORM,
     ParameterORM,
@@ -334,6 +335,9 @@ class Index(metaclass=RootProcessMeta):
 
         Args:
             path: Path of the collection
+
+        Raises:
+            NotACollectionError: If not collection is found at the given path.
         """
         path = Path(path)
         cached_uid: str | None = self._s.execute(
@@ -345,13 +349,10 @@ class Index(metaclass=RootProcessMeta):
         log.debug(f"No or invalid uid found in cache for collection <{path}>.")
 
         identified_uid = _find_uid_from_path(path)
-        uid = CollectionUID(
-            identified_uid
-        )  # Note: this generates a new UID if none is found
-        self._s.execute(
-            CollectionORM.upsert({"uid": uid, "path": path.absolute().as_posix()})
-        )
-        return uid
+        if identified_uid:
+            return CollectionUID(identified_uid)
+        else:
+            raise InvalidCollectionError("No collection found at the given path.")
 
     @_sql_transaction
     def sync_collection(

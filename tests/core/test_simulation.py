@@ -24,6 +24,10 @@ from bamboost.core.simulation.series import Series
 
 @pytest.fixture
 def tmp_simulation(tmp_path: Path) -> Simulation:
+    # create collection
+    Collection(tmp_path)
+
+    # create a directory for the simulation (simulates coll.create_simulation)
     tmp_path.joinpath("test").mkdir()
     sim = SimulationWriter("test", tmp_path)
     # create the file
@@ -34,6 +38,10 @@ def tmp_simulation(tmp_path: Path) -> Simulation:
 
 @pytest.fixture
 def tmp_simulation_writer(tmp_path: Path) -> SimulationWriter:
+    # create collection
+    Collection(tmp_path)
+
+    # create a directory for the simulation (simulates coll.create_simulation)
     tmp_path.joinpath("test").mkdir()
     sim = SimulationWriter("test", tmp_path)
     # create the file
