@@ -21,7 +21,7 @@ import pkgutil
 from ctypes import ArgumentError
 from functools import cache
 from pathlib import Path
-from typing import TYPE_CHECKING, Any, Dict, Iterable, Optional, cast
+from typing import TYPE_CHECKING, Any, Dict, Iterable, Literal, Mapping, Optional, cast
 
 import numpy as np
 import pandas as pd
@@ -30,7 +30,7 @@ from bamboost import BAMBOOST_LOGGER, config
 from bamboost._typing import StrPath
 from bamboost.core.simulation.base import Simulation, SimulationName, SimulationWriter
 from bamboost.core.utilities import flatten_dict
-from bamboost.exceptions import InvalidCollectionError
+from bamboost.exceptions import DuplicateSimulationError, InvalidCollectionError
 from bamboost.index import (
     CollectionUID,
     Index,
@@ -326,8 +326,9 @@ class Collection(ElligibleForPlugin):
     def create_simulation(
         self,
         name: Optional[str] = None,
-        parameters: Optional[Dict[str, Any]] = None,
+        parameters: Optional[Mapping[str, Any]] = None,
         *,
+        duplicate_action: Literal["ignore", "replace", "skip", "raise"] = "raise",
         description: Optional[str] = None,
         files: Optional[Iterable[str]] = None,
         links: Optional[Dict[str, str]] = None,
@@ -352,6 +353,9 @@ class Collection(ElligibleForPlugin):
                     - If a value is a dict, it is flattened using `bamboost.core.utilities.flatten_dict`.
                     - If a value is a list or array, it is stored as a dataset.
 
+            duplicate_action: Action to take if a simulation with the same parameters already exists.
+                Options are: "ignore" (create anyway), "replace" (delete existing and create new),
+                "skip" (return existing simulation), "raise" (default, raise DuplicateSimulationError).
             description: Optional description for the simulation.
             files: Optional iterable of file paths to copy into the simulation directory.
                 Each file will be copied with its original name.
@@ -366,6 +370,8 @@ class Collection(ElligibleForPlugin):
         Raises:
             FileExistsError: If a simulation with the same name already exists and override is False.
             ValueError, PermissionError: If there is an error during simulation creation.
+            DuplicateSimulationError: If parameters are provided and a simulation with the same
+                parameters already exists. Specify `duplicate_action` to control behavior.
 
         Examples:
             >>> db.create_simulation(parameters={"a": 1, "b": 2})
@@ -377,6 +383,10 @@ class Collection(ElligibleForPlugin):
             - This method is safe for use in parallel (MPI) environments.
         """
         import shutil
+
+        assert duplicate_action in ("ignore", "replace", "skip", "raise"), (
+            "Invalid duplicate_action. Must be one of: 'ignore', 'replace', 'skip', 'raise'."
+        )
 
         name = SimulationName(name)  # Generates a unique id as name if not provided
         directory = self.path.joinpath(name)
@@ -401,10 +411,31 @@ class Collection(ElligibleForPlugin):
 
         # Root process creates the directory if it does not exist
         if self._comm.rank == 0:
+            # Check for duplicate parameters if provided
+            if parameters and duplicate_action != "ignore" and not override:
+                try:
+                    self._check_duplicate(parameters)
+                except DuplicateSimulationError as e:
+                    if duplicate_action == "raise":
+                        raise
+                    elif duplicate_action == "skip":
+                        log.info(
+                            f"Simulation with parameters {parameters} already exists as"
+                            f"{e.duplicates}. Skipping creation and returning first duplicate."
+                        )
+                        return self[e.duplicates[0]].edit()
+                    elif duplicate_action == "replace":
+                        log.info(
+                            f"Removing (all) existing simulations with the given parameters: {e.duplicates}."
+                        )
+                        self.delete(e.duplicates)
+
             if exists and override:
                 with RootProcessMeta.comm_self(self):
                     self._index._drop_simulation(self.uid, name)
                 shutil.rmtree(directory)  # remove the old directory
+
+            # finally create the new directory
             directory.mkdir(exist_ok=False)
 
         self._comm.barrier()
@@ -481,7 +512,7 @@ class Collection(ElligibleForPlugin):
 
         self._comm.barrier()
 
-    def find(self, parameter_selection: dict[str, Any]) -> pd.DataFrame:
+    def find(self, parameter_selection: Mapping[str, Any]) -> pd.DataFrame:
         """
         Find simulations matching the given parameter selection.
 
@@ -523,7 +554,7 @@ class Collection(ElligibleForPlugin):
         return matches
 
     def _list_duplicates(
-        self, parameters: dict, *, df: pd.DataFrame | None = None
+        self, parameters: Mapping, *, df: pd.DataFrame | None = None
     ) -> list[str]:
         """
         List the names (IDs) of simulations in the collection that have duplicate parameter values.
@@ -548,10 +579,7 @@ class Collection(ElligibleForPlugin):
                 self.ori = np.asarray(ori)
 
             def __eq__(self, other):
-                other = np.asarray(other)
-                if other.shape != self.ori.shape:
-                    return False
-                return (other == self.ori).all()
+                return np.array_equal(np.asarray(other), self.ori)
 
         # make all iterables comparable by converting them to ComparableIterable
         for k in params.keys():
@@ -568,53 +596,18 @@ class Collection(ElligibleForPlugin):
         match = df.loc[(df[s.keys()].apply(lambda row: (s == row).all(), axis=1))]
         return match.name.tolist()
 
-    def _check_duplicate(
-        self, parameters: dict, uid: str, duplicate_action: str = "prompt"
-    ) -> tuple:
+    def _check_duplicate(self, parameters: Mapping) -> Literal[True]:
         """
         Check whether the given parameters dictionary already exists in the collection.
-
-        This method checks for duplicate simulations with the same parameter values.
-        If duplicates are found, it prompts the user (or uses the specified action)
-        to decide whether to replace, create a new simulation, or abort.
+        Returns True if no duplicates are found. Raises `DuplicateSimulationError` if
+        duplicates are found.
 
         Args:
             parameters (dict): Parameter dictionary to check for duplicates.
-            uid (str): The UID for the simulation to be created.
-
-        Returns:
-            tuple: (bool, str)
-                - bool: Whether to continue with the operation.
-                - str: The UID to use for the simulation.
         """
 
         duplicates = self._list_duplicates(parameters)
+        if len(duplicates) == 0:
+            return True
 
-        if not duplicates:
-            return True, uid
-
-        print(
-            "The parameter space already exists. Here are the duplicates:",
-            flush=True,
-        )
-        print(self.df[self.df["name"].isin([i for i in duplicates])], flush=True)
-
-        if duplicate_action == "prompt":
-            # What should be done?
-            prompt = input(
-                f"`r`: Replace first duplicate [{duplicates[0]}]\n"
-                "`n`: Create new with new id\n"
-                "`a`: Abort\n"
-            )
-        else:
-            prompt = duplicate_action
-
-        if prompt == "r":
-            self._delete_simulation(duplicates[0])
-            return True, uid
-        if prompt == "a":
-            return False, uid
-        if prompt == "n":
-            return True, uid
-
-        raise ArgumentError("Answer not valid! Aborting")
+        raise DuplicateSimulationError(duplicates=tuple(duplicates))

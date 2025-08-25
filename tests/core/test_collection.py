@@ -71,7 +71,10 @@ def test_create_simulation_with_files(tmp_collection: Collection, tmp_path: Path
     temp_file.write_text("Test content")
 
     sim_writer = tmp_collection.create_simulation(
-        name="sim_with_file", parameters={"param": 1}, files=[str(temp_file)]
+        name="sim_with_file",
+        parameters={"param": 1},
+        files=[str(temp_file)],
+        override=True,
     )
 
     # Check if file was copied
@@ -118,7 +121,7 @@ def test_create_simulation_error_handling(tmp_collection: Collection):
         ):
             with pytest.raises(PermissionError, match="Sim init failed"):
                 tmp_collection.create_simulation(
-                    name="error_sim", parameters={"param": 1}
+                    name="error_sim", parameters={"param": 1}, override=True
                 )
 
         # Ensure cleanup was attempted
