@@ -6,6 +6,7 @@ import pytest
 
 from bamboost.core.collection import Collection
 from bamboost.core.simulation.base import SimulationWriter
+from bamboost.exceptions import DuplicateSimulationError
 
 # ------------------- Fixtures -------------------
 # also used:
@@ -127,3 +128,24 @@ def test_create_simulation_error_handling(tmp_collection: Collection):
         # Ensure cleanup was attempted
         spy_rmtree.assert_called_once()
         assert not (tmp_collection.path / "error_sim").exists()
+
+
+@pytest.mark.parametrize(
+    "parameters",
+    [
+        {"int": 1, "string": "value", "float": 3.14},
+        {"list": [1, 2, 3]},
+        {"dict": {"a": 1, "b": 2}},
+        {"nested": {"list": [1, 2], "dict": {"key": "value"}}},
+    ],
+)
+def test_create_simulation_duplicate_raises_exception(tmp_collection_burn: Collection, parameters: dict):
+    _ = tmp_collection_burn.create_simulation(
+        name="problematic_sim", parameters=parameters
+    )
+    with pytest.raises(DuplicateSimulationError):
+        _ = tmp_collection_burn.create_simulation(
+            parameters=parameters, duplicate_action="raise"
+        )
+
+    assert len(tmp_collection_burn) == 1  # Only one simulation should exist
