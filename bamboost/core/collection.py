@@ -434,19 +434,52 @@ class Collection(ElligibleForPlugin):
             shutil.rmtree(directory)
             raise
 
-    def _delete_simulation(self, name: str) -> None:
-        """CAUTIOUS. Deletes a simulation.
+    def delete(self, name: str | Iterable[str]) -> None:
+        """
+        CAUTIOUS. Deletes one or more simulations from the collection.
+
+        This method removes the specified simulation(s) from both the filesystem
+        and the index/database. It is a destructive operation and should be used
+        with caution.
 
         Args:
-            name: Name of the simulation to delete.
-        """
-        dir_to_delete = self.path.joinpath(name)
-        if dir_to_delete.parent != self.path:
-            raise ValueError(f"Invalid name given ({name}). Cannot delete.")
+            name: Name of the simulation to delete, or an iterable of names.
 
+        Raises:
+            ValueError: If any of the specified names are invalid or do not exist in the collection.
+            PermissionError: If there is an error deleting the simulation directory.
+
+        Examples:
+            >>> db.delete("simulation_name")
+            >>> db.delete(["sim1", "sim2", "sim3"])
+        """
         import shutil
 
-        shutil.rmtree(dir_to_delete)
+        if isinstance(name, str):
+            names = [name]
+        elif isinstance(name, Iterable):
+            names = list(name)
+        else:
+            raise ArgumentError("name must be a string or an iterable of strings.")
+
+        # Check that all names exist in the collection
+        existing_names = set(self.all_simulation_names())
+        for n in names:
+            if n not in existing_names:
+                raise ValueError(f"Simulation {n} does not exist in the collection.")
+
+        # Only root process performs deletion
+        if self._comm.rank == 0:
+            with RootProcessMeta.comm_self(self), self._index.sql_transaction():
+                for n in names:
+                    self._index._drop_simulation(self.uid, n)
+                    try:
+                        shutil.rmtree(self.path.joinpath(n))
+                    except PermissionError as e:
+                        log.error(f"Error deleting simulation directory for {n}: {e}")
+                        raise
+
+        self._comm.barrier()
 
     def find(self, parameter_selection: dict[str, Any]) -> pd.DataFrame:
         """
