@@ -56,7 +56,7 @@ def tmp_collection_burn(tmp_path: Path):
 
 @pytest.fixture(scope="module")
 def test_collection(tmp_collection: Collection):
-    tmp_collection.create_simulation(
+    tmp_collection.add(
         "testsim1",
         parameters={
             "first_name": "John",
@@ -65,7 +65,7 @@ def test_collection(tmp_collection: Collection):
             "dict": {"a": 1, "b": 2},
         },
     )
-    tmp_collection.create_simulation(
+    tmp_collection.add(
         "testsim2",
         parameters={
             "first_name": "Jane",
@@ -74,7 +74,7 @@ def test_collection(tmp_collection: Collection):
             "dict": {"c": 3, "d": 4},
         },
     )
-    tmp_collection.create_simulation(
+    tmp_collection.add(
         "testsim3",
         parameters={
             "first_name": "Jack",

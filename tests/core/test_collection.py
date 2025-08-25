@@ -48,7 +48,7 @@ def test_df(test_collection: Collection):
     [("testsim1", {"param1": 1, "param2": "value"}), (None, {"param1": 1})],
 )
 def test_create_simulation_basic(tmp_collection_burn: Collection, name, parameters):
-    sim_writer = tmp_collection_burn.create_simulation(name=name, parameters=parameters)
+    sim_writer = tmp_collection_burn.add(name=name, parameters=parameters)
     assert isinstance(sim_writer, SimulationWriter)
     assert sim_writer.parameters._dict == parameters
 
@@ -58,7 +58,7 @@ def test_create_simulation_basic(tmp_collection_burn: Collection, name, paramete
 
 def test_create_simulation_with_description(tmp_collection: Collection):
     description = "This is a test simulation."
-    sim_writer = tmp_collection.create_simulation(
+    sim_writer = tmp_collection.add(
         name="described_sim",
         parameters={"param": 1},
         description=description,
@@ -71,7 +71,7 @@ def test_create_simulation_with_files(tmp_collection: Collection, tmp_path: Path
     temp_file = tmp_path / "testfile.txt"
     temp_file.write_text("Test content")
 
-    sim_writer = tmp_collection.create_simulation(
+    sim_writer = tmp_collection.add(
         name="sim_with_file",
         parameters={"param": 1},
         files=[str(temp_file)],
@@ -85,8 +85,8 @@ def test_create_simulation_with_files(tmp_collection: Collection, tmp_path: Path
 
 
 def test_create_simulation_with_links(tmp_collection: Collection):
-    other = tmp_collection.create_simulation()
-    sim_writer = tmp_collection.create_simulation(
+    other = tmp_collection.add()
+    sim_writer = tmp_collection.add(
         name="sim_with_links",
         parameters={"param": 1},
         links={"linked_sim": other.uid},
@@ -98,12 +98,12 @@ def test_create_simulation_with_links(tmp_collection: Collection):
 
 def test_create_simulation_overrides_existing(tmp_collection_burn: Collection):
     # Create initial simulation
-    sim1 = tmp_collection_burn.create_simulation(
+    sim1 = tmp_collection_burn.add(
         name="override_test", parameters={"param": 1}
     )
 
     # Create it again with override=True
-    sim2 = tmp_collection_burn.create_simulation(
+    sim2 = tmp_collection_burn.add(
         name="override_test", parameters={"param": 2}, override=True
     )
 
@@ -122,7 +122,7 @@ def test_create_simulation_error_handling(tmp_collection: Collection):
             side_effect=PermissionError("Sim init failed"),
         ):
             with pytest.raises(PermissionError, match="Sim init failed"):
-                tmp_collection.create_simulation(
+                tmp_collection.add(
                     name="error_sim", parameters={"param": 1}, override=True
                 )
 
@@ -143,11 +143,11 @@ def test_create_simulation_error_handling(tmp_collection: Collection):
 def test_create_simulation_duplicate_raises_exception(
     tmp_collection_burn: Collection, parameters: dict
 ):
-    _ = tmp_collection_burn.create_simulation(
+    _ = tmp_collection_burn.add(
         name="problematic_sim", parameters=parameters
     )
     with pytest.raises(DuplicateSimulationError):
-        _ = tmp_collection_burn.create_simulation(
+        _ = tmp_collection_burn.add(
             parameters=parameters, duplicate_action="raise"
         )
 

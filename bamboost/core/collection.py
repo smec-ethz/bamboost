@@ -19,12 +19,13 @@ from __future__ import annotations
 
 import pkgutil
 from ctypes import ArgumentError
-from functools import cache
+from functools import cache, wraps
 from pathlib import Path
 from typing import TYPE_CHECKING, Any, Dict, Iterable, Literal, Mapping, Optional, cast
 
 import numpy as np
 import pandas as pd
+from typing_extensions import deprecated
 
 from bamboost import BAMBOOST_LOGGER, config
 from bamboost._typing import StrPath
@@ -323,7 +324,7 @@ class Collection(ElligibleForPlugin):
         """
         self._index.sync_collection(self.uid, self.path, force_all=force_all)
 
-    def create_simulation(
+    def add(
         self,
         name: Optional[str] = None,
         parameters: Optional[Mapping[str, Any]] = None,
@@ -374,9 +375,9 @@ class Collection(ElligibleForPlugin):
                 parameters already exists. Specify `duplicate_action` to control behavior.
 
         Examples:
-            >>> db.create_simulation(parameters={"a": 1, "b": 2})
+            >>> db.add(parameters={"a": 1, "b": 2})
 
-            >>> db.create_simulation(name="my_sim", parameters={"a": 1, "b": 2})
+            >>> db.add(name="my_sim", parameters={"a": 1, "b": 2})
 
         Note:
             - The files and links specified are copied or created in the simulation directory.
@@ -464,6 +465,14 @@ class Collection(ElligibleForPlugin):
             self._index._drop_simulation(self.uid, name)
             shutil.rmtree(directory)
             raise
+
+    @deprecated(
+        "Use `add` instead. This method has been renamed in v0.10.2 and will be"
+        "removed in future versions."
+    )
+    def create_simulation(self, *args, **kwargs) -> SimulationWriter:
+        """Deprecated alias of `add`. See `bamboost.core.collection.Collection.add` method."""
+        return self.add(*args, **kwargs)
 
     def delete(self, name: str | Iterable[str]) -> None:
         """

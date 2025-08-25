@@ -27,7 +27,7 @@ def tmp_simulation(tmp_path: Path) -> Simulation:
     # create collection
     Collection(tmp_path)
 
-    # create a directory for the simulation (simulates coll.create_simulation)
+    # create a directory for the simulation (simulates coll.add)
     tmp_path.joinpath("test").mkdir()
     sim = SimulationWriter("test", tmp_path)
     # create the file
@@ -41,7 +41,7 @@ def tmp_simulation_writer(tmp_path: Path) -> SimulationWriter:
     # create collection
     Collection(tmp_path)
 
-    # create a directory for the simulation (simulates coll.create_simulation)
+    # create a directory for the simulation (simulates coll.add)
     tmp_path.joinpath("test").mkdir()
     sim = SimulationWriter("test", tmp_path)
     # create the file
@@ -63,7 +63,7 @@ def test_import():
 
 
 def test_update_database(tmp_collection: Collection):
-    sim = tmp_collection.create_simulation("test_update_database")
+    sim = tmp_collection.add("test_update_database")
     index = tmp_collection._index
 
     new_metadata = {"ignored": "ignored", "status": "test", "description": "test"}
@@ -116,7 +116,7 @@ def test_simulation_name_generation():
 
 def test_init(tmp_collection: Collection):
     params = {"test": "test"}
-    tmp_collection.create_simulation("test", parameters=params)
+    tmp_collection.add("test", parameters=params)
 
     sim = Simulation("test", tmp_collection.path)
     assert sim.name == "test"
@@ -132,7 +132,7 @@ def test_fail_non_existing(tmp_collection_burn: Collection):
 
 
 def test_html_repr(tmp_collection_burn: Collection):
-    sim = tmp_collection_burn.create_simulation("test")
+    sim = tmp_collection_burn.add("test")
     assert sim._repr_html_() is not None
 
 
