@@ -5,7 +5,7 @@ from unittest.mock import patch
 import pytest
 
 from bamboost.core.collection import Collection
-from bamboost.core.simulation.base import SimulationWriter
+from bamboost.core.simulation.base import Simulation, SimulationWriter
 from bamboost.exceptions import DuplicateSimulationError
 
 # ------------------- Fixtures -------------------
@@ -84,15 +84,16 @@ def test_create_simulation_with_files(tmp_collection: Collection, tmp_path: Path
     assert (sim_folder / "testfile.txt").read_text() == "Test content"
 
 
-@pytest.mark.skip(reason="Test is outdated")
 def test_create_simulation_with_links(tmp_collection: Collection):
-    links = {"linked_sim": "some/other/simulation"}
+    other = tmp_collection.create_simulation()
     sim_writer = tmp_collection.create_simulation(
         name="sim_with_links",
         parameters={"param": 1},
-        links=links,
+        links={"linked_sim": other.uid},
+        duplicate_action="ignore",
     )
-    assert sim_writer.links == links
+    assert isinstance(sim_writer.links["linked_sim"], Simulation)
+    assert sim_writer.links["linked_sim"].uid == other.uid
 
 
 def test_create_simulation_overrides_existing(tmp_collection_burn: Collection):
@@ -139,7 +140,9 @@ def test_create_simulation_error_handling(tmp_collection: Collection):
         {"nested": {"list": [1, 2], "dict": {"key": "value"}}},
     ],
 )
-def test_create_simulation_duplicate_raises_exception(tmp_collection_burn: Collection, parameters: dict):
+def test_create_simulation_duplicate_raises_exception(
+    tmp_collection_burn: Collection, parameters: dict
+):
     _ = tmp_collection_burn.create_simulation(
         name="problematic_sim", parameters=parameters
     )
