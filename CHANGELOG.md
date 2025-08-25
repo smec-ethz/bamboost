@@ -1,5 +1,21 @@
 # Change log for bamboost
 
+## 0.10.2 (2025-08-25)
+
+### Feat
+
+- **collection**: add implementation of duplicate check to `coll.create_simulation` (newly renamed to `coll.add`)
+
+### Fix
+
+- **collection**: update Operand typealias to include datetime & timedelta in filtering
+
+### Refactor
+
+- **collection**: rename `create_simulation` to `add` for simplicity
+- **collection**: bring delete function up to date
+- replace wildcard imports with explicit re-exports
+
 ## 0.10.1 (2025-06-16)
 
 ### Feat
