@@ -15,6 +15,8 @@ def set_log_level(
 
 from bamboost import plugins as plugins
 from bamboost._config import config as config
-from bamboost.core.collection import *
-from bamboost.core.simulation import *
+from bamboost.core.collection import Collection as Collection
+from bamboost.core.simulation import FieldType as FieldType
+from bamboost.core.simulation import Simulation as Simulation
+from bamboost.core.simulation import SimulationWriter as SimulationWriter
 from bamboost.index import Index as Index
