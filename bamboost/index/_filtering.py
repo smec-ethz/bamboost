@@ -1,13 +1,16 @@
 from __future__ import annotations
 
 import operator
+from datetime import datetime, timedelta
 from numbers import Number
 from typing import TYPE_CHECKING, Any, Callable, Sequence, Union, overload
 
 if TYPE_CHECKING:
     from pandas import DataFrame, Series
 
-Operand = Union["_Key", "Operator", str, float, int]
+# Type for operands in expressions. These are dtypes compatible with pandas DataFrame
+# columns. (see https://pandas.pydata.org/docs/reference/api/pandas.DataFrame.dtypes.html)
+Operand = Union["_Key", "Operator", str, float, int, datetime, timedelta]
 
 
 class _SupportsOperators:
