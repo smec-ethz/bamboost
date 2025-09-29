@@ -24,30 +24,16 @@ test:
   rules:
     - if: '$CI_COMMIT_BRANCH != "next"'
 
-build_doc_source:
+trigger_github_docs:
   stage: docs
-  image: python:3
-  variables:
-    GIT_DEPTH: 0 # Ensures all tags are fetched, needed for versioningit
-  before_script:
-    - "which ssh-agent || ( apt-get update -qy && apt-get install openssh-client -qqy )"
-    - eval `ssh-agent -s`
-    - echo "${SSH_PRIVATE_KEY}" | tr -d '\r' | ssh-add - > /dev/null
-    # Setup known ssh hosts
-    - mkdir -p ~/.ssh
-    - chmod 700 ~/.ssh
-    - ssh-keyscan gitlab.com >> ~/.ssh/known_hosts
-    - chmod 644 ~/.ssh/known_hosts
+  image: curlimages/curl:latest
   script:
-    - pip install .
-    # Clone docs repo and update reference docs
-    - git clone git@gitlab.com:zrlf/bamboost-docs.git
-    - cd bamboost-docs/
-    - bash ./generateAPIdoc.sh
-    # Push to docs repo
-    - git config --global user.email "${CI_EMAIL}" && git config --global user.name "${CI_USERNAME}"
-    - git add .
-    - git commit -m "CI_REF_GUIDE_UPDATE:$(python -c "import bamboost; print(bamboost.__version__)")"
-    - git push
+    - |
+      TAG_NAME="${CI_COMMIT_TAG}"
+      echo "Triggering GitHub workflow for tag $TAG_NAME"
+      curl -X POST \
+        -H "Accept: application/vnd.github+json" \
+        -H "Authorization: Bearer $GITHUB_BAMBOOST_DOCS_WF_TOKEN" \
+        https://api.github.com/repos/zrlf/bamboost-docs/actions/workflows/deploy.yml/dispatches
   only:
     - tags
