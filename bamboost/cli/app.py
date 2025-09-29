@@ -51,6 +51,9 @@ def list(
     sync_fs: bool = typer.Option(
         False, "--sync", "-s", help="Sync the collection with the filesystem."
     ),
+    nb_entries: Optional[int] = typer.Option(
+        None, "--entries", "-n", help="Number of entries to display."
+    ),
 ):
     """List all collections, or all simulations in a specified collection. (alias: "ls")"""
     _assert_database_exists()
@@ -63,23 +66,30 @@ def list(
         # if the user has provided a collection UID, list all simulations in that collection
         # specifically handle the case where the collection is empty
         if simulation_name is None:
+            from bamboost.index import Index
+
+            coll = Index.default.collection(collection_uid)
+            if coll is None:
+                raise ValueError(f"Collection with UID {collection_uid} not found.")
+
+            if sync_fs:
+                console.print(f"Syncing collection [bold]{collection_uid}[/bold]...")
+                Index.default.sync_collection(coll.uid)
+
             try:
-                df = _render._list_simulations(collection_uid, sync_fs)
+                df = _render._list_simulations(coll, nb_entries=nb_entries)
             except ValueError as e:
                 return console.print(str(e), style="red")
 
             if df.empty:
                 return console.print(
-                    f"Collection [bold]{collection_uid}[/bold] is empty.\n"
+                    f"Collection [bold]{coll.uid}[/bold] is empty.\n"
                     "[dim]If you expected something here: Use '-s' to sync the collection with the filesystem.[/dim]"
                 )
 
-            collection_path = INDEX.query(
-                "SELECT path FROM collections WHERE uid = ?", (collection_uid,)
-            )[0][0]
             return console.print(
-                f"[dim]> Displaying collection [bold]{collection_uid}[/bold] "
-                f"([default]{collection_path}[/default]):\n",
+                f"[dim]> Displaying collection [bold]{coll.uid}[/bold] "
+                f"([default]{coll.path}[/default]):\n",
                 df,
             )
 
