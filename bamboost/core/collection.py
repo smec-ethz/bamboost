@@ -19,12 +19,15 @@ from __future__ import annotations
 
 import pkgutil
 from ctypes import ArgumentError
-from functools import cache, wraps
+from dataclasses import asdict, dataclass, field
+from datetime import datetime
+from functools import cache, cached_property
 from pathlib import Path
 from typing import TYPE_CHECKING, Any, Dict, Iterable, Literal, Mapping, Optional, cast
 
 import numpy as np
 import pandas as pd
+import yaml
 from typing_extensions import deprecated
 
 from bamboost import BAMBOOST_LOGGER, config
@@ -81,6 +84,69 @@ class _FilterKeys:
             "status",
         )
         return (*self.collection._orm.get_parameter_keys()[0], *metadata_keys)
+
+
+@dataclass
+class CollectionMetadata:
+    uid: str
+    created_at: datetime
+    tags: list[str] = field(default_factory=list)
+    aliases: list[str] = field(default_factory=list)
+    description: str = field(default="")
+
+    # private, not part of YAML
+    _path: Path | None = field(default=None, repr=False, compare=False)
+
+    def to_dict(self) -> dict[str, Any]:
+        return {k: v for k, v in asdict(self).items() if not k.startswith("_") and v}
+
+    @classmethod
+    def from_dict(cls, data: dict[str, Any], *, _path: Path) -> "CollectionMetadata":
+        return cls(
+            uid=data["uid"],
+            created_at=datetime.fromisoformat(data["created_at"])
+            if isinstance(data["created_at"], str)
+            else data["created_at"],
+            tags=data.get("tags", []),
+            aliases=data.get("aliases", []),
+            _path=_path,
+        )
+
+    def save(self) -> None:
+        if not self._path:
+            raise RuntimeError("No path associated with this metadata.")
+        with self._path.open("w") as f:
+            yaml.safe_dump(self.to_dict(), f, sort_keys=False, indent=2)
+
+
+def _load_collection_metadata(path: Path) -> CollectionMetadata:
+    def _get_uid_from_path() -> str:
+        return path.stem.split("-")[-1]
+
+    try:
+        raw = yaml.safe_load(path.read_text())
+    except Exception:
+        # fallback strategy: create new metadata
+        meta = CollectionMetadata(
+            uid=_get_uid_from_path(), created_at=datetime.now(), _path=path
+        )
+        meta.save()
+        return meta
+
+    # Migration step
+    if raw is None or "Date of creation" in raw:
+        raw.update(
+            {
+                "uid": raw.get("uid", _get_uid_from_path()),
+                "created_at": raw.get("Date of creation", datetime.now()),
+            }
+        )
+        meta = CollectionMetadata.from_dict(raw, _path=path)
+        meta.save()
+        return meta
+
+    meta = CollectionMetadata.from_dict(raw, _path=path)
+    return meta
 
 
 class Collection(ElligibleForPlugin):
@@ -243,6 +309,20 @@ class Collection(ElligibleForPlugin):
             db_size=len(self),
             filtered=self._filter is not None,
             filter=str(self._filter),
+        )
+
+    @cached_property
+    def metadata(self) -> CollectionMetadata:
+        """Returns the metadata of the collection.
+
+        The metadata can include information such as the collection's UID,
+        creation date, tags, and aliases.
+
+        Returns:
+            CollectionMetadata: An object containing the collection's metadata.
+        """
+        return _load_collection_metadata(
+            self.path.joinpath(get_identifier_filename(self.uid))
         )
 
     @property
