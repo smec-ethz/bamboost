@@ -188,8 +188,7 @@ class _Simulation(H5Object[_MT], ABC):
         self._ranks = np.array([i for i in range(self._psize)])
 
         # Reference to the database
-        # 06.03.2025: Maybe use the default index instance instead of a new one...
-        self._index: Index = index or Index(comm=self._comm)
+        self._index: Index = index or Index.default
 
         # Shortcut to collection uid if available, otherwise resolve it
         self.collection_uid: CollectionUID = kwargs.pop(
