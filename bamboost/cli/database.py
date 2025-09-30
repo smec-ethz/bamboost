@@ -3,6 +3,8 @@ from __future__ import annotations
 import rich
 import typer
 
+from bamboost.cli import _completion
+
 app = typer.Typer(
     name="index", help="API for displaying and managing the collection index."
 )
@@ -45,5 +47,28 @@ def scan():
             console.print("[green]:heavy_check_mark: Index scanned.")
             # tab = _get_collections_table(found_colls)
             # console.print(tab)
+        except Exception as e:
+            console.print(f"[bold red]Task failed: {e}")
+
+
+@app.command()
+def drop(
+    uid: str = typer.Argument(
+        ...,
+        autocompletion=_completion._get_uids_from_db,
+        help="The unique ID of the collection to drop from the index.",
+    ),
+) -> None:
+    """Drop a collection from the index by its unique ID (or an alias)."""
+    with console.status(
+        f"[bold blue]Dropping collection '{uid}' from index...", spinner="dots"
+    ) as status:
+        try:
+            from bamboost.index import Index
+
+            Index.default._drop_collection(uid)
+            console.print(
+                f"[green]:heavy_check_mark: Collection '{uid}' dropped from index."
+            )
         except Exception as e:
             console.print(f"[bold red]Task failed: {e}")
