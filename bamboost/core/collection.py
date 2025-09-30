@@ -42,7 +42,7 @@ from bamboost.index import (
     get_identifier_filename,
 )
 from bamboost.index._filtering import Filter, Operator, _Key
-from bamboost.index.sqlmodel import CollectionRecord, FilteredCollectionRecord
+from bamboost.index.store import CollectionRecord, FilteredCollectionRecord
 from bamboost.mpi import Communicator
 from bamboost.mpi.utilities import RootProcessMeta
 from bamboost.plugins import ElligibleForPlugin

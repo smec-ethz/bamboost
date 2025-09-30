@@ -6,7 +6,7 @@ import pytest
 from sqlalchemy.exc import SQLAlchemyError
 
 from bamboost.index.base import Index
-from bamboost.index.sqlmodel import simulations_upsert_stmt
+from bamboost.index.store import simulations_upsert_stmt
 
 
 @pytest.fixture

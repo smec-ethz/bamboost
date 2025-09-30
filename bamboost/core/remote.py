@@ -33,7 +33,7 @@ from bamboost.index.base import (
     create_identifier_file,
     get_identifier_filename,
 )
-from bamboost.index.sqlmodel import json_deserializer, json_serializer
+from bamboost.index.store import json_deserializer, json_serializer
 from bamboost.utilities import PathSet
 
 if TYPE_CHECKING:

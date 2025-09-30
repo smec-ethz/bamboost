@@ -40,11 +40,11 @@ from bamboost.core.simulation.dict import Links, Metadata, Parameters
 from bamboost.core.simulation.groups import GroupGit, GroupMesh, GroupMeshes
 from bamboost.core.simulation.series import Series
 from bamboost.index import CollectionUID, Index
-from bamboost.index.sqlmodel import SimulationRecord
 from bamboost.mpi import MPI_ON, Communicator
 from bamboost.utilities import StrPath
 
 if TYPE_CHECKING:
+    from bamboost.index.store import SimulationRecord
     from bamboost.mpi import Comm
 
 

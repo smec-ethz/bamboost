@@ -51,10 +51,10 @@ from sqlalchemy.exc import SQLAlchemyError
 from sqlalchemy.orm import Session, sessionmaker
 from typing_extensions import Concatenate
 
-import bamboost.index.sqlmodel as store
 from bamboost import BAMBOOST_LOGGER, config, constants
 from bamboost._typing import _P, _T, SimulationMetadataT, SimulationParameterT, StrPath
 from bamboost.exceptions import InvalidCollectionError
+from bamboost.index import store
 from bamboost.index.schema import collections_table, simulations_table
 from bamboost.mpi import Communicator
 from bamboost.mpi.utilities import RootProcessMeta
