@@ -30,3 +30,26 @@ def _get_simulation_names(ctx: typer.Context, incomplete: str):
         return [row[0] for row in names]
     except Exception:
         return []
+
+
+def _get_aliases_of_collection(ctx: typer.Context, incomplete: str):
+    """Dynamically fetch aliases based on the selected collection UID."""
+    collection_uid = ctx.params.get("uid")  # Get the currently selected collection
+    if not collection_uid:
+        return []  # No collection selected yet, no autocompletion
+
+    try:
+        aliases = INDEX.query(
+            "SELECT aliases FROM collections WHERE uid = ?", (collection_uid,)
+        )
+        if aliases:
+            import json
+
+            return [
+                alias
+                for alias in json.loads(aliases[0][0])
+                if alias.startswith(incomplete)
+            ]
+        return []
+    except Exception:
+        return []

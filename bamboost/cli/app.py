@@ -1,18 +1,19 @@
 from pathlib import Path
 from typing import Optional
 
-import rich
 import typer
 from typing_extensions import Annotated
 
 import bamboost.cli.database as database_cli
 from bamboost.cli import _completion, _render
-from bamboost.cli._fast_index_query import INDEX
+from bamboost.cli.common import console
 
 app = typer.Typer(no_args_is_help=True)
-app.add_typer(database_cli.app)
-app.registered_commands.extend(database_cli.app.registered_commands)
-console = rich.get_console()
+app.add_typer(database_cli.app, rich_help_panel="Subgroups")
+
+# add from database_cli.app: scan, clean
+app.command()(database_cli.scan)
+app.command()(database_cli.clean)
 
 
 @app.callback(context_settings={"help_option_names": ["-h", "--help"]})
@@ -22,6 +23,7 @@ def _app_callback(ctx: typer.Context):
     You can use this to list collections or simulations, create collections/simulations,
     and run simulations.
     """
+    pass
 
 
 @database_cli.app.command("ls")
@@ -126,9 +128,21 @@ def show_config(
     console.print(config)
 
 
-@app.command()
+@app.command(no_args_is_help=True)
 def new(
     path: Annotated[str, typer.Argument(..., help="Path of the collection to create.")],
+    *,
+    alias: Annotated[
+        Optional[str], typer.Option("--alias", "-a", help="Alias for the collection.")
+    ] = None,
+    description: Annotated[
+        Optional[str],
+        typer.Option("--description", "-d", help="Description for the collection."),
+    ] = None,
+    tags: Annotated[
+        Optional[str],
+        typer.Option("--tags", "-t", help="Comma-separated tags for the collection."),
+    ] = None,
 ) -> None:
     """Create a new collection."""
     path_object = Path(path).resolve()
@@ -141,6 +155,20 @@ def new(
         from bamboost.core import Collection
 
         coll = Collection(path_object, create_if_not_exist=True)
+
+        if alias or description or tags:
+            from bamboost.index import Index
+
+            Index.default.upsert_collection(
+                coll.uid,
+                path_object,
+                {
+                    "aliases": [alias] if alias else [],
+                    "description": description or "",
+                    "tags": [t.strip() for t in tags.split(",")] if tags else [],
+                },
+            )
+
         console.print("[green]:heavy_check_mark: New collection created")
         console.print(f"[default]{'UID:':<5} {coll.uid}")
         console.print(f"[default]{'Path:':<5} {coll.path}")

@@ -17,6 +17,7 @@ def _get_collections_table(collections: Iterable[tuple]) -> "Table":
         "UID",
         Column("Path", style="blue"),
         Column("Aliases", style="green"),
+        Column("Tags", style="magenta"),
         title_justify="left",
         highlight=True,
         pad_edge=False,
@@ -28,7 +29,8 @@ def _get_collections_table(collections: Iterable[tuple]) -> "Table":
             str(i),
             coll[0],
             f"[link={coll[1].as_uri()}]{coll[1].as_posix()}[/link]",
-            coll[2],
+            ", ".join(coll[2]),
+            ", ".join(coll[3]),
         )
 
     return tab
@@ -38,8 +40,10 @@ def _list_collections() -> "RenderableType":
     from pathlib import Path
 
     tab = _get_collections_table(
-        (i, Path(j), str(", ".join(json.loads(a)) or ""))
-        for i, j, a in INDEX.query("SELECT uid, path, aliases FROM collections")
+        (i, Path(j), json.loads(a), json.loads(t))
+        for i, j, a, t in INDEX.query(
+            "SELECT uid, path, aliases, tags FROM collections"
+        )
     )
     return tab
 
