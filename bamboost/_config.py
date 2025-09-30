@@ -40,6 +40,7 @@ from typing import (
 
 from bamboost import BAMBOOST_LOGGER as log
 from bamboost._typing import StrPath
+from bamboost.constants import DEFAULT_CONFIG_FILE_NAME, DEFAULT_DATABASE_FILE_NAME
 from bamboost.utilities import PathSet
 
 if TYPE_CHECKING:
@@ -56,11 +57,10 @@ __all__ = [
 ]
 
 CONFIG_DIR = Path("~/.config/bamboost").expanduser()
-CONFIG_FILE = CONFIG_DIR.joinpath("config-next.toml")
+CONFIG_FILE = CONFIG_DIR.joinpath(DEFAULT_CONFIG_FILE_NAME)
 _LOCAL_DIR = "~/.local/share/bamboost"
 LOCAL_DIR = Path(_LOCAL_DIR).expanduser()
 CACHE_DIR = Path("~/.cache/bamboost-next").expanduser()
-DATABASE_FILE_NAME = "bamboost-next.sqlite"
 # fmt: off
 DEFAULT_EXCLUDE_DIRS: set[str] = {
     # version-control metadata
@@ -363,7 +363,7 @@ class _IndexOptions(_Base):
     """If True, sqlite lists are converted to np.arrays. If false, they are left as
     lists."""
 
-    databaseFileName: str = field(default=DATABASE_FILE_NAME)
+    databaseFileName: str = field(default=DEFAULT_DATABASE_FILE_NAME)
     """The basename of the database file."""
 
     databaseFile: Path = field(init=False)

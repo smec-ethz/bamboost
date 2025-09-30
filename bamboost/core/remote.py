@@ -92,7 +92,9 @@ class Remote(Index):
     """
 
     DATABASE_BASE_NAME = "bamboost.sqlite"
-    DATABASE_REMOTE_PATH = Path(_config._LOCAL_DIR).joinpath(_config.DATABASE_FILE_NAME)
+    DATABASE_REMOTE_PATH = Path(_config._LOCAL_DIR).joinpath(
+        constants.DEFAULT_DATABASE_FILE_NAME
+    )
     WORKSPACE_SPLITTER = "_WS_"
 
     def __init__(
