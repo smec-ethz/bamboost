@@ -47,6 +47,7 @@ from typing import (
 )
 
 from sqlalchemy import Engine, create_engine, delete, event, select
+import yaml
 from sqlalchemy.exc import SQLAlchemyError
 from sqlalchemy.orm import Session, joinedload, sessionmaker
 from typing_extensions import Concatenate
@@ -682,6 +683,116 @@ def simulation_metadata_from_h5(
         params: SimulationParameterT = dict(f["parameters"].attrs)
 
         return meta, params
+
+
+def _load_collection_metadata(path: Path, uid: str) -> dict[str, Any] | None:
+    metadata_file = Path(path).joinpath(get_identifier_filename(uid))
+    if not metadata_file.exists():
+        return None
+
+    try:
+        raw = yaml.safe_load(metadata_file.read_text())
+    except FileNotFoundError:
+        return None
+    except Exception as exc:  # pragma: no cover - defensive logging
+        log.debug(
+            "Failed to load metadata for collection %s from %s: %s",
+            uid,
+            metadata_file,
+            exc,
+        )
+        return None
+
+    if raw is None:
+        raw = {}
+
+    if not isinstance(raw, Mapping):
+        log.debug("Unexpected metadata format for collection %s: %r", uid, raw)
+        return {
+            "description": "",
+            "tags": [],
+            "aliases": [],
+        }
+
+    return _normalize_collection_metadata(raw)
+
+
+def _normalize_collection_metadata(data: Mapping[str, Any]) -> dict[str, Any]:
+    """Normalize the metadata of a collection.
+
+    This also handles backward compatibility for the "Date of creation" field.
+
+    Args:
+        data: The raw metadata dictionary.
+    """
+    metadata: dict[str, Any] = {}
+
+    created_at_value = None
+    # "Date of creation" is for backward compatibility only
+    # we will write "created_at" from now on
+    for key in ("created_at", "Date of creation"):
+        if key in data and data[key] is not None:
+            created_at_value = data[key]
+            break
+
+    parsed_created_at = _parse_datetime_value(created_at_value)
+    if parsed_created_at is not None:
+        metadata["created_at"] = parsed_created_at
+
+    metadata["description"] = str(data.get("description") or "")
+    metadata["tags"] = _deduplicate_sequence(data.get("tags"))
+    metadata["aliases"] = _deduplicate_sequence(data.get("aliases"), casefold=True)
+
+    return metadata
+
+
+def _deduplicate_sequence(values: Any, *, casefold: bool = False) -> list[str]:
+    """Deduplicate a sequence of strings.
+
+    Args:
+        values: The sequence of strings to deduplicate.
+        casefold: Whether to ignore case when deduplicating.
+    """
+    if values is None:
+        iterable: Iterable[Any] = []
+    elif isinstance(values, (str, bytes)):
+        iterable = [values]
+    else:
+        try:
+            iterable = list(values)
+        except TypeError:
+            iterable = [values]
+
+    seen: set[str] = set()
+    result: list[str] = []
+
+    for value in iterable:
+        text = str(value).strip()
+        if not text:
+            continue
+
+        key = text.casefold() if casefold else text
+        if key in seen:
+            continue
+
+        seen.add(key)
+        result.append(text)
+
+    return result
+
+
+def _parse_datetime_value(value: Any) -> datetime | None:
+    if isinstance(value, datetime):
+        return value
+    if isinstance(value, str):
+        candidate = value.strip()
+        if not candidate:
+            return None
+        try:
+            return datetime.fromisoformat(candidate)
+        except ValueError:
+            return None
+    return None
 
 
 def create_identifier_file(path: StrPath, uid: str) -> None:
