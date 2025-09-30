@@ -225,8 +225,9 @@ class Index(metaclass=RootProcessMeta):
             yield self._s
             self._s.commit()
         except SQLAlchemyError as e:
-            # self._s.rollback()  # Is this necessary?
             log.warning(f"Caching transaction failed: {e}")
+            self._s.rollback()
+            raise
         finally:
             self._s.close()  # Not decided yet if we should close the session
 
@@ -734,9 +735,12 @@ def _normalize_collection_metadata(data: Mapping[str, Any]) -> dict[str, Any]:
     if parsed_created_at is not None:
         metadata["created_at"] = parsed_created_at
 
-    metadata["description"] = str(data.get("description") or "")
-    metadata["tags"] = _deduplicate_sequence(data.get("tags"))
-    metadata["aliases"] = _deduplicate_sequence(data.get("aliases"), casefold=True)
+    if desc := data.get("description"):
+        metadata["description"] = str(desc)
+    if tags := data.get("tags"):
+        metadata["tags"] = _deduplicate_sequence(tags)
+    if aliases := data.get("aliases"):
+        metadata["aliases"] = _deduplicate_sequence(aliases, casefold=True)
 
     return metadata
 

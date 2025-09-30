@@ -140,6 +140,7 @@ class SimulationRecord:
             "submitted": self.submitted,
         }
 
+    @property
     def parameter_dict(self) -> dict[str, Any]:
         return {parameter.key: parameter.value for parameter in self.parameters}
 
@@ -155,7 +156,7 @@ class SimulationRecord:
         }
         if standalone:
             data["id"] = self.id
-        return data | self.parameter_dict()
+        return data | self.parameter_dict
 
 
 @dataclass
@@ -391,8 +392,8 @@ def fetch_simulation(
     )
     if row is None:
         return None
-    parameters = _fetch_parameters_for(session, [row["id"]])
-    return _build_simulation(row, parameters.values())  # pyright: ignore[reportArgumentType]
+    parameters_map = _fetch_parameters_for(session, [row["id"]])
+    return _build_simulation(row, parameters_map.get(row["id"], []))
 
 
 def fetch_simulations(session: Session) -> list[SimulationRecord]:
