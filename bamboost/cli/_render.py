@@ -1,3 +1,4 @@
+import json
 from typing import TYPE_CHECKING, Iterable
 
 from bamboost.cli._fast_index_query import INDEX
@@ -7,8 +8,6 @@ if TYPE_CHECKING:
     from rich.console import RenderableType
     from rich.table import Table
 
-    from bamboost.index.sqlmodel import CollectionORM
-
 
 def _get_collections_table(collections: Iterable[tuple]) -> "Table":
     from rich.table import Column, Table
@@ -17,6 +16,7 @@ def _get_collections_table(collections: Iterable[tuple]) -> "Table":
         "",
         "UID",
         Column("Path", style="blue"),
+        Column("Aliases", style="green"),
         title_justify="left",
         highlight=True,
         pad_edge=False,
@@ -25,7 +25,10 @@ def _get_collections_table(collections: Iterable[tuple]) -> "Table":
 
     for i, coll in enumerate(collections):
         tab.add_row(
-            str(i), coll[0], f"[link={coll[1].as_uri()}]{coll[1].as_posix()}[/link]"
+            str(i),
+            coll[0],
+            f"[link={coll[1].as_uri()}]{coll[1].as_posix()}[/link]",
+            coll[2],
         )
 
     return tab
@@ -35,14 +38,13 @@ def _list_collections() -> "RenderableType":
     from pathlib import Path
 
     tab = _get_collections_table(
-        (i, Path(j)) for i, j in INDEX.query("SELECT uid, path FROM collections")
+        (i, Path(j), str(", ".join(json.loads(a)) or ""))
+        for i, j, a in INDEX.query("SELECT uid, path, aliases FROM collections")
     )
     return tab
 
 
-def _list_simulations(
-    coll: "CollectionORM", *, nb_entries: int | None = None
-) -> "DataFrame":
+def _list_simulations(coll, *, nb_entries: int | None = None) -> "DataFrame":
     from datetime import datetime
 
     tab = coll.to_pandas()

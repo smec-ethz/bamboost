@@ -68,13 +68,16 @@ def list(
         if simulation_name is None:
             from bamboost.index import Index
 
-            coll = Index.default.collection(collection_uid)
-            if coll is None:
-                raise ValueError(f"Collection with UID {collection_uid} not found.")
+            with Index.default.sql_transaction():
+                coll_uid = Index.default._find_collection_uid_by_alias(collection_uid)
+                if coll_uid is None:
+                    raise ValueError(f"Collection with UID {collection_uid} not found.")
 
             if sync_fs:
                 console.print(f"Syncing collection [bold]{collection_uid}[/bold]...")
-                Index.default.sync_collection(coll.uid)
+                Index.default.sync_collection(coll_uid)
+
+            coll = Index.default.collection(coll_uid)
 
             try:
                 df = _render._list_simulations(coll, nb_entries=nb_entries)
