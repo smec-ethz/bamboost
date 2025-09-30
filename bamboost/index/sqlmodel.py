@@ -1,81 +1,89 @@
-"""
-SQLAlchemy ORM models for the bamboost index database.
-
-The SQL model consists of three tables:
-- `collections`: Contains information about the collections, namely uids and corresponding
-  paths.
-- `simulations`: Contains information about the simulations, including names, statuses,
-  and parameters.
-- `parameters`: Contains the parameters associated with the simulations.
-
-Simulations are linked to collections via a foreign key, and parameters are linked to
-simulations via foreign keys.
-"""
+"""SQLAlchemy Core helper utilities for the BAMBOOST index database."""
 
 from __future__ import annotations
 
 import json
+from dataclasses import dataclass, field
 from datetime import datetime
-from typing import (
-    TYPE_CHECKING,
-    Any,
-    Callable,
-    Dict,
-    List,
-    Optional,
-    Sequence,
-    Tuple,
-    TypeVar,
-)
+from typing import TYPE_CHECKING, Any, Callable, Mapping, Sequence
 
-from sqlalchemy import (
-    JSON,
-    Boolean,
-    DateTime,
-    ForeignKey,
-    Insert,
-    String,
-    UniqueConstraint,
-)
+from sqlalchemy import RowMapping, Table, delete, select
 from sqlalchemy.dialects.sqlite import insert
-from sqlalchemy.orm import Mapped, declarative_base, mapped_column, relationship
-from sqlalchemy.sql.dml import ReturningInsert
-from typing_extensions import NotRequired, TypedDict
+from sqlalchemy.orm import Session
+from sqlalchemy.sql.dml import Insert, ReturningInsert
 
 from bamboost import BAMBOOST_LOGGER
-from bamboost.constants import (
-    TABLENAME_COLLECTIONS,
-    TABLENAME_PARAMETERS,
-    TABLENAME_SIMULATIONS,
-)
 from bamboost.core.utilities import flatten_dict
 from bamboost.index._filtering import Filter
 
 if TYPE_CHECKING:
     from pandas import DataFrame
 
+from .schema import collections_table, create_all, parameters_table, simulations_table
+
+__all__ = [
+    "CollectionRecord",
+    "FilteredCollectionRecord",
+    "ParameterRecord",
+    "SimulationRecord",
+    "collections_table",
+    "create_all",
+    "collections_upsert_stmt",
+    "simulations_upsert_stmt",
+    "parameters_upsert_stmt",
+    "fetch_collection",
+    "fetch_collections",
+    "fetch_collection_uid_by_alias",
+    "fetch_simulation",
+    "fetch_simulations",
+    "fetch_parameters",
+    "delete_collection_stmt",
+    "delete_simulation_stmt",
+    "json_serializer",
+    "json_deserializer",
+]
 
 log = BAMBOOST_LOGGER.getChild(__name__)
 
-_Base = declarative_base()
-create_all = _Base.metadata.create_all
+# ------------------------------------------------
+# JSON helpers retained for engine configuration
+# ------------------------------------------------
 
-
-_APIMethod = TypeVar("_APIMethod", bound=Callable[..., Any])
-
-
-_encoders: Dict[type, Callable[[Any], Any]] = {
+_ENCODERS: dict[type, Callable[[Any], Any]] = {
     datetime: lambda obj: obj.isoformat(),
     complex: lambda obj: {"real": obj.real, "imag": obj.imag},
 }
-_decoders: Dict[type, Callable[[Any], Any]] = {
-    datetime: lambda obj: datetime.fromisoformat(obj),
-    complex: lambda obj: complex(obj["real"], obj["imag"]),
+
+_DECODERS: dict[type, Callable[[Any], Any]] = {
+    datetime: datetime.fromisoformat,
+    complex: lambda payload: complex(payload["real"], payload["imag"]),
 }
 
 
+def json_serializer(value: Any) -> str:
+    """Convert a value to a JSON string."""
+
+    return json.dumps(value, cls=SqliteJSONEncoder)
+
+
+def json_deserializer(value: str) -> Any:
+    """Convert a JSON string to a Python value."""
+
+    payload = json.loads(value)
+
+    if isinstance(payload, dict) and "__type__" in payload and "__value__" in payload:
+        type_name = payload["__type__"]
+        converter = next(
+            (decoder for t, decoder in _DECODERS.items() if t.__name__ == type_name),
+            None,
+        )
+        if converter is not None:
+            return converter(payload["__value__"])
+    return payload
+
+
 class SqliteJSONEncoder(json.JSONEncoder):
-    """Custom JSON encoder for numpy types."""
+    """JSON encoder that handles numpy and datetime types."""
 
     def default(self, obj: Any) -> Any:
         import numpy as np
@@ -85,355 +93,403 @@ class SqliteJSONEncoder(json.JSONEncoder):
         if isinstance(obj, (np.generic, np.number)):
             return obj.item()
 
-        for typ, encoder in _encoders.items():
+        for typ, encoder in _ENCODERS.items():
             if isinstance(obj, typ):
                 return {"__type__": typ.__name__, "__value__": encoder(obj)}
 
         try:
             return super().default(obj)
         except TypeError:
-            # Handle objects that cannot be serialized by default
-            return f"{str(obj)} (unserializable)"
+            return f"{obj!s} (unserializable)"
 
 
-def json_serializer(value: Any) -> str:
-    """Convert a value to a JSON string.
-
-    Args:
-        value: value to convert
-
-    Returns:
-        str: JSON string
-    """
-    return json.dumps(value, cls=SqliteJSONEncoder)
+# ------------------------------------------------
+# Dataclasses representing the loaded records
+# ------------------------------------------------
 
 
-def json_deserializer(value: str) -> Any:
-    """Convert a JSON string to a value.
-
-    Args:
-        value: JSON string to convert
-
-    Returns:
-        Any: Converted value
-    """
-    obj = json.loads(value)
-
-    def decode_dict(obj: dict) -> Any:
-        if "__type__" in obj and "__value__" in obj:
-            typ = obj["__type__"]
-            value = obj["__value__"]
-            for typ_key, decoder in _decoders.items():
-                if typ_key.__name__ == typ:
-                    return decoder(value)
-        return obj
-
-    return decode_dict(obj) if isinstance(obj, dict) else obj
+@dataclass
+class ParameterRecord:
+    id: int
+    simulation_id: int
+    key: str
+    value: Any
 
 
-class _CollectionMixin:
-    """Methods for collections."""
+@dataclass
+class SimulationRecord:
+    id: int
+    collection_uid: str
+    name: str
+    created_at: datetime
+    modified_at: datetime
+    description: str | None
+    status: str
+    submitted: bool
+    parameters: list[ParameterRecord] = field(default_factory=list)
 
-    simulations: Mapped[List[SimulationORM]]
+    def as_dict_metadata(self) -> dict[str, Any]:
+        return {
+            "id": self.id,
+            "collection_uid": self.collection_uid,
+            "name": self.name,
+            "created_at": self.created_at,
+            "modified_at": self.modified_at,
+            "description": self.description,
+            "status": self.status,
+            "submitted": self.submitted,
+        }
 
-    @property
-    def parameters(self) -> List[ParameterORM]:
-        """Retrieves all parameters associated with the collections's simulations.
+    def parameter_dict(self) -> dict[str, Any]:
+        return {parameter.key: parameter.value for parameter in self.parameters}
 
-        Returns:
-            List of parameters belonging to simulations in the collection.
-        """
-        return [p for s in self.simulations for p in s.parameters]
-
-    def get_parameter_keys(self) -> tuple[list[str], list[int]]:
-        """Extracts unique parameter keys and their occurences across all simulations.
-
-        Returns:
-            A tuple containing a list of unique parameter keys and a corresponding count list.
-        """
-        unique_params = list(set(p.key for p in self.parameters))
-        counts = [sum(p.key == k for p in self.parameters) for k in unique_params]
-        return unique_params, counts
-
-    def to_pandas(self, flatten: bool = True) -> "DataFrame":
-        """Converts the collection to a pandas DataFrame.
-
-        Args:
-            flatten: If True, flatten dictionaries with dot notation.
-
-        Returns:
-            pandas.DataFrame: DataFrame representation of the collection.
-        """
-        import pandas as pd
-
-        if flatten:
-            return pd.DataFrame.from_records(
-                [
-                    flatten_dict(sim.as_dict(standalone=False))
-                    for sim in self.simulations
-                ]
-            )
-        else:
-            return pd.DataFrame.from_records(
-                [sim.as_dict(standalone=False) for sim in self.simulations]
-            )
+    def as_dict(self, standalone: bool = True) -> dict[str, Any]:
+        data = {
+            "collection_uid": self.collection_uid,
+            "name": self.name,
+            "created_at": self.created_at,
+            "modified_at": self.modified_at,
+            "description": self.description,
+            "status": self.status,
+            "submitted": self.submitted,
+        }
+        if standalone:
+            data["id"] = self.id
+        return data | self.parameter_dict()
 
 
-class CollectionORM(_Base, _CollectionMixin):
-    """ORM model representing a collection of simulations.
+@dataclass
+class CollectionRecord:
+    uid: str
+    path: str
+    created_at: datetime | None
+    description: str
+    tags: list[str]
+    aliases: list[str]
+    simulations: list[SimulationRecord] | property = field(default_factory=list)
 
-    Attributes:
-        uid: Unique identifier for the collection (primary key)
-        path: file system path where the collection is stored.
-        simulations: Relationship to the associated simulations, with cascade delete-orphan.
-    """
+    def __repr__(self) -> str:  # pragma: no cover - debugging helper
+        return f"CollectionRecord(uid={self.uid!r}, path={self.path!r}, simulations={len(self.simulations)})"
 
-    __tablename__ = TABLENAME_COLLECTIONS
-
-    uid: Mapped[str] = mapped_column(primary_key=True)
-    path: Mapped[str] = mapped_column(String)
-
-    # Relationships
-    simulations: Mapped[List[SimulationORM]] = relationship(
-        "SimulationORM", back_populates="collection", cascade="all, delete-orphan"
-    )
-
-    def __repr__(self) -> str:
-        return f"Collection {self.uid} {self.path}"
-
-    def _repr_html_(self) -> str:
+    def _repr_html_(self) -> str:  # pragma: no cover - Jupyter helper
         return f"Collection <b>{self.uid}</b><br/>Location: <a href={self.path}><i>{self.path}</i></a>"
 
-    @classmethod
-    def upsert(cls, data: Sequence[Dict[str, str]] | Dict[str, str]) -> Insert:
-        """Inserts or updates collection records based on the unique uid.
-
-        Args:
-            data: Data to be upserted. Can be a single dictionary or a sequence of dictionaries.
-
-        Returns:
-            SQLAlchemy insert statement with conflict resolution.
-        """
-        stmt = insert(cls).values(data)
-        return stmt.on_conflict_do_update(["uid"], set_=dict(stmt.excluded))
-
-
-class FilteredCollection(_CollectionMixin):
-    """In-memory filtered view of a CollectionORM."""
-
-    def __init__(self, base: CollectionORM, filter: Filter):
-        self._base = base
-        self._filter = filter
-
     @property
-    def simulations(self) -> list[SimulationORM]:
-        """List of simulations in the collection that match the filter criteria."""
-        df = self.to_pandas()
-        return [sim for sim in self._base.simulations if sim.name in df["name"].values]
+    def parameters(self) -> list[ParameterRecord]:
+        return [
+            parameter
+            for simulation in self.simulations
+            for parameter in simulation.parameters
+        ]
 
-    def to_pandas(self) -> "DataFrame":
-        """Converts the collection to a pandas DataFrame.
+    def get_parameter_keys(self) -> tuple[list[str], list[int]]:
+        unique = list({parameter.key for parameter in self.parameters})
+        counts = [
+            sum(1 for parameter in self.parameters if parameter.key == key)
+            for key in unique
+        ]
+        return unique, counts
 
-        Returns:
-            pandas.DataFrame: DataFrame representation of the collection.
-        """
+    def to_pandas(self, flatten: bool = True) -> "DataFrame":
         import pandas as pd
 
-        df = pd.DataFrame.from_records(
-            [
-                flatten_dict(sim.as_dict(standalone=False))
-                for sim in self._base.simulations
-            ]
-        )
+        records = [
+            simulation.as_dict(standalone=False) for simulation in self.simulations
+        ]
+        if flatten:
+            records = [flatten_dict(record) for record in records]
+        return pd.DataFrame.from_records(records)
+
+
+class FilteredCollectionRecord(CollectionRecord):
+    def __init__(self, base: CollectionRecord, filter_: Filter) -> None:
+        self._base = base
+        self._filter = filter_
+
+    @property
+    def simulations(self) -> list[SimulationRecord]:
+        df = self.to_pandas()
+        return [
+            simulation
+            for simulation in self._base.simulations
+            if simulation.name in df["name"].values
+        ]
+
+    def to_pandas(self) -> "DataFrame":
+        df = super().to_pandas()
         return self._filter.apply(df)  # pyright: ignore[reportReturnType]
 
-    @property
-    def uid(self) -> str:
-        return self._base.uid
-
-    @property
-    def path(self) -> str:
-        return self._base.path
-
-    def __repr__(self) -> str:
+    def __repr__(self) -> str:  # pragma: no cover - debugging helper
         return f"FilteredCollection {self.uid} with {len(self.simulations)} simulations"
 
-    def _repr_html_(self) -> str:
+    def _repr_html_(self) -> str:  # pragma: no cover - Jupyter helper
         return f"<b>FilteredCollection {self.uid}</b><br/>{len(self.simulations)} simulations"
 
 
-class SimulationORM(_Base):
-    """ORM model representing a simulation in a collection.
+# ------------------------------------------------
+# Upsert statement factories
+# ------------------------------------------------
 
-    Attributes:
-        id: Unique simulation ID (primary key)
-        collection_uid: Foreign key linking to `bamboost.index.sqlmodel.CollectionORM`
-        name: Name of the simulation
-        created_at: Timestamp when the simulation was created
-        modified_at: Timestamp when the simulation was last modified
-        description: Optional description of the simulation
-        status: Current status of the simulation
-        submitted: Indicates whether the simulation has been submitted
-        collection: Relationship to the parent collection
-        parameters: List of associated parameters
+
+def collections_upsert_stmt(
+    data: Sequence[Mapping[str, Any]] | Mapping[str, Any],
+) -> Insert:
+    """Create an upsert statement for collections.
+
+    Args:
+        data: A single dictionary or a sequence of dictionaries representing the
+            collections to be inserted or updated.
     """
+    payload, _ = _normalize_payload(data, collections_table)
+    update_columns = _collect_update_columns(payload, {"uid"})
 
-    __tablename__ = TABLENAME_SIMULATIONS
-    __table_args__ = (
-        UniqueConstraint("collection_uid", "name", name="uix_collection_name"),
+    stmt = insert(collections_table).values(payload)
+    set_clause = {column: getattr(stmt.excluded, column) for column in update_columns}
+    return stmt.on_conflict_do_update(
+        index_elements=[collections_table.c.uid], set_=set_clause
     )
 
-    class _dataT(TypedDict):
-        collection_uid: str
-        name: str
-        created_at: NotRequired[datetime]
-        modified_at: NotRequired[datetime]
-        description: NotRequired[str]
-        status: NotRequired[str]
 
-    id: Mapped[int] = mapped_column(primary_key=True, autoincrement=True, unique=True)
-    collection_uid: Mapped[str] = mapped_column(ForeignKey(CollectionORM.uid))
-    name: Mapped[str] = mapped_column(String, nullable=False)
+def simulations_upsert_stmt(
+    data: Sequence[Mapping[str, Any]] | Mapping[str, Any],
+) -> ReturningInsert[Any]:
+    """Create an upsert statement for simulations.
 
-    # Metadata
-    created_at: Mapped[DateTime] = mapped_column(
-        DateTime, nullable=False, default=datetime.now
-    )
-    modified_at: Mapped[DateTime] = mapped_column(
-        DateTime, nullable=False, default=datetime.now
-    )
-    description: Mapped[Optional[str]] = mapped_column(String)
-    status: Mapped[str] = mapped_column(String, nullable=False, default="initialized")
-    submitted: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
+    Args:
+        data: A single dictionary or a sequence of dictionaries representing the
+            simulations to be inserted or updated.
 
-    # Relationships
-    collection: Mapped[CollectionORM] = relationship(
-        "CollectionORM", back_populates="simulations"
-    )
-    parameters: Mapped[List[ParameterORM]] = relationship(
-        "ParameterORM", back_populates="simulation", cascade="all, delete-orphan"
-    )
-
-    def __repr__(self) -> str:
-        return f"Simulation {self.collection_uid}+{self.name} [id: {self.id}]"
-
-    @classmethod
-    def upsert(cls, data: Sequence[dict] | dict) -> ReturningInsert[Tuple[int]]:
-        """Generate an upsert (insert or update) statement.
-
-        Args:
-            data: Data to upsert, either a single record or a sequence of records.
-
-        Returns:
-            SQLAlchemy insert statement with conflict resolution. Returning the simulation ID.
-        """
-        valid_columns = cls.__table__.columns
-
-        def filter_data(record: dict) -> dict:
-            return {k: v for k, v in record.items() if k in valid_columns}
-
-        if isinstance(data, dict):
-            filtered_data = filter_data(data)
-        else:
-            filtered_data = [filter_data(record) for record in data]
-
-        stmt = insert(cls).values(filtered_data)
-
-        # Get keys to update. Do not touch keys that are not in the data.
-        all_keys = (
-            filtered_data.keys()
-            if isinstance(filtered_data, dict)
-            else filtered_data[0].keys()
-        )
-
-        stmt = stmt.on_conflict_do_update(
-            ["collection_uid", "name"],
-            set_={k: v for k, v in stmt.excluded.items() if k in all_keys},
-        )
-        stmt = stmt.returning(cls.id)
-        return stmt
-
-    def as_dict_metadata(self) -> Dict[str, Any]:
-        return {k.name: getattr(self, k.name) for k in self.__table__.columns}
-
-    def as_dict(self, standalone: bool = True) -> Dict[str, Any]:
-        """Return the simulation as a dictionary.
-
-        Args:
-            standalone (bool, optional): If False, "id", "collection_uid", and "modified_at" are
-                excluded. Defaults to True.
-
-        Returns:
-            Dictionary representation of the simulation.
-        """
-        excluded_columns = (
-            {
-                "id",
-                "collection_uid",
-                "modified_at",
-            }
-            if not standalone
-            else set()
-        )
-        column_names = [
-            c.name for c in self.__table__.columns if c.name not in excluded_columns
-        ]
-
-        return {k: getattr(self, k) for k in column_names} | self.parameter_dict
-
-    @property
-    def parameter_dict(self) -> Dict[str, Any]:
-        """Return a dictionary of parameters associated with the simulation."""
-        return {p.key: p.value for p in self.parameters}
-
-
-class ParameterORM(_Base):
-    """ORM model representing a parameter associated with a simulation.
-
-    Attributes:
-        id: Unique parameter ID (primary key)
-        simulation_id: Foreign key linking to `bamboost.index.sqlmodel.SimulationORM`
-        key: Parameter key (name)
-        value: Parameter value (stored as JSON)
-        simulation: Relationship to the parent simulation
+    Returns:
+        A SQLAlchemy Insert statement with a RETURNING clause for the simulation IDs.
     """
+    payload, _ = _normalize_payload(data, simulations_table)
+    update_columns = _collect_update_columns(payload, {"id"})
 
-    __tablename__ = TABLENAME_PARAMETERS
-    __table_args__ = (
-        UniqueConstraint("simulation_id", "key", name="uix_simulation_key"),
+    stmt = insert(simulations_table).values(payload)
+    set_clause = {column: getattr(stmt.excluded, column) for column in update_columns}
+    stmt = stmt.on_conflict_do_update(
+        index_elements=[simulations_table.c.collection_uid, simulations_table.c.name],
+        set_=set_clause,
+    )
+    return stmt.returning(simulations_table.c.id)
+
+
+def parameters_upsert_stmt(
+    data: Sequence[Mapping[str, Any]] | Mapping[str, Any],
+) -> Insert:
+    payload, _ = _normalize_payload(data, parameters_table)
+    stmt = insert(parameters_table).values(payload)
+    return stmt.on_conflict_do_update(
+        index_elements=[parameters_table.c.simulation_id, parameters_table.c.key],
+        set_={"value": stmt.excluded.value},
     )
 
-    class _dataT(TypedDict):
-        simulation_id: int
-        key: str
-        value: Any
 
-    id: Mapped[int] = mapped_column(primary_key=True, autoincrement=True)
-    simulation_id: Mapped[int] = mapped_column(
-        ForeignKey(SimulationORM.id, ondelete="CASCADE"), nullable=False
+def _normalize_payload(
+    data: Sequence[Mapping[str, Any]] | Mapping[str, Any],
+    table: Table,
+) -> tuple[Sequence[dict[str, Any]] | dict[str, Any], bool]:
+    """Ensure the payload is a list of dictionaries with only valid keys for the table.
+
+    Args:
+        data: A single dictionary or a sequence of dictionaries representing the records to be
+            inserted or updated.
+        table: The SQLAlchemy Table object representing the target database table.
+
+    Returns:
+        A tuple containing:
+            - A list of dictionaries (or a single dictionary if the input was a single record)
+              with keys filtered to match the table's columns.
+            - A boolean indicating whether the input was a single record (True) or
+              multiple records (False).
+    """
+    if isinstance(data, Mapping):
+        items: Sequence[Mapping[str, Any]] = [data]
+        single = True
+    else:
+        items = list(data)
+        single = False
+
+    filtered: list[dict[str, Any]] = []
+    valid_keys = set(table.c.keys())
+    for record in items:
+        filtered.append({key: record[key] for key in record.keys() & valid_keys})
+    return (filtered[0] if single else filtered), single
+
+
+def _collect_update_columns(
+    payload: Sequence[dict[str, Any]] | dict[str, Any],
+    excluded_keys: set[str],
+) -> set[str]:
+    """Collect the set of columns to be updated in an upsert operation.
+
+    Args:
+        payload: A single dictionary or a sequence of dictionaries representing the
+            records to be inserted or updated.
+        excluded_keys: A set of keys to exclude from the update operation (e.g., primary keys).
+    """
+    if isinstance(payload, dict):
+        keys = set(payload.keys())
+    else:
+        keys = set().union(*(record.keys() for record in payload))
+    return keys - excluded_keys
+
+
+# ------------------------------------------------
+# Fetch helpers
+# ------------------------------------------------
+
+
+def fetch_collection(session: Session, uid: str) -> CollectionRecord | None:
+    row = (
+        session.execute(select(collections_table).where(collections_table.c.uid == uid))
+        .mappings()
+        .first()
     )
-    key: Mapped[str] = mapped_column(String, nullable=False)
-    value: Mapped[JSON] = mapped_column(JSON, nullable=False)
+    if row is None:
+        return None
+    return _build_collection(session, row)
 
-    # Relationships
-    simulation: Mapped[SimulationORM] = relationship(
-        "SimulationORM", back_populates="parameters"
-    )
 
-    def __repr__(self) -> str:
-        return f"Parameter {self.key} = {self.value} [id: {self.id}]"
+def fetch_collections(session: Session) -> list[CollectionRecord]:
+    rows = session.execute(select(collections_table)).mappings().all()
+    return [_build_collection(session, row) for row in rows]
 
-    @classmethod
-    def upsert(cls, data: Sequence[_dataT] | _dataT) -> Insert:
-        """Generate an upsert (insert or update) statement.
 
-        Args:
-            data: Data to upsert, either a single record or a sequence of records.
+def fetch_collection_uid_by_alias(session: Session, alias: str) -> str | None:
+    if not alias:
+        return None
+    alias_key = alias.casefold()
+    rows = session.execute(
+        select(collections_table.c.uid, collections_table.c.aliases)
+    ).all()
 
-        Returns:
-            Insert statement with conflict resolution.
-        """
-        stmt = insert(cls).values(data)
-        return stmt.on_conflict_do_update(
-            ["simulation_id", "key"], set_=dict(value=stmt.excluded.value)
+    for uid, aliases in rows:
+        # if direct match on uid, return it
+        if uid.casefold() == alias_key:
+            return uid
+
+        if aliases and any(
+            str(item).casefold() == alias_key for item in aliases if item
+        ):
+            return uid
+    return None
+
+
+def fetch_simulation(
+    session: Session, collection_uid: str, name: str
+) -> SimulationRecord | None:
+    row = (
+        session.execute(
+            select(simulations_table).where(
+                simulations_table.c.collection_uid == collection_uid,
+                simulations_table.c.name == name,
+            )
         )
+        .mappings()
+        .first()
+    )
+    if row is None:
+        return None
+    parameters = _fetch_parameters_for(session, [row["id"]])
+    return _build_simulation(row, parameters.values())  # pyright: ignore[reportArgumentType]
+
+
+def fetch_simulations(session: Session) -> list[SimulationRecord]:
+    rows = session.execute(select(simulations_table)).mappings().all()
+    simulation_ids = [row["id"] for row in rows]
+    parameters_map = _fetch_parameters_for(session, simulation_ids)
+    return [_build_simulation(row, parameters_map.get(row["id"], [])) for row in rows]
+
+
+def fetch_parameters(session: Session) -> list[ParameterRecord]:
+    rows = session.execute(select(parameters_table)).mappings().all()
+    return [_build_parameter(row) for row in rows]
+
+
+def delete_collection_stmt(uid: str):
+    return delete(collections_table).where(collections_table.c.uid == uid)
+
+
+def delete_simulation_stmt(collection_uid: str, name: str):
+    return delete(simulations_table).where(
+        simulations_table.c.collection_uid == collection_uid,
+        simulations_table.c.name == name,
+    )
+
+
+def _build_collection(session: Session, row: RowMapping) -> CollectionRecord:
+    collection_uid = row["uid"]
+    simulations_rows = (
+        session.execute(
+            select(simulations_table).where(
+                simulations_table.c.collection_uid == collection_uid
+            )
+        )
+        .mappings()
+        .all()
+    )
+
+    simulation_ids = [sim_row["id"] for sim_row in simulations_rows]
+    parameters_map = _fetch_parameters_for(session, simulation_ids)
+    simulations = [
+        _build_simulation(sim_row, parameters_map.get(sim_row["id"], []))
+        for sim_row in simulations_rows
+    ]
+
+    return CollectionRecord(
+        uid=collection_uid,
+        path=row["path"],
+        created_at=row.get("created_at"),
+        description=row.get("description", ""),
+        tags=list(row.get("tags") or []),
+        aliases=list(row.get("aliases") or []),
+        simulations=simulations,
+    )
+
+
+def _build_simulation(
+    row: RowMapping,
+    parameters: Sequence[ParameterRecord] | None,
+) -> SimulationRecord:
+    return SimulationRecord(
+        id=row["id"],
+        collection_uid=row["collection_uid"],
+        name=row["name"],
+        created_at=row["created_at"],
+        modified_at=row["modified_at"],
+        description=row.get("description"),
+        status=row.get("status", ""),
+        submitted=bool(row.get("submitted", False)),
+        parameters=list(parameters or []),
+    )
+
+
+def _build_parameter(row: RowMapping) -> ParameterRecord:
+    return ParameterRecord(
+        id=row["id"],
+        simulation_id=row["simulation_id"],
+        key=row["key"],
+        value=row["value"],
+    )
+
+
+def _fetch_parameters_for(
+    session: Session, simulation_ids: Sequence[int]
+) -> dict[int, list[ParameterRecord]]:
+    if not simulation_ids:
+        return {}
+    rows = (
+        session.execute(
+            select(parameters_table).where(
+                parameters_table.c.simulation_id.in_(simulation_ids)
+            )
+        )
+        .mappings()
+        .all()
+    )
+    result: dict[int, list[ParameterRecord]] = {}
+    for row in rows:
+        parameter = _build_parameter(row)
+        result.setdefault(parameter.simulation_id, []).append(parameter)
+    return result

@@ -40,7 +40,7 @@ from bamboost.core.simulation.dict import Links, Metadata, Parameters
 from bamboost.core.simulation.groups import GroupGit, GroupMesh, GroupMeshes
 from bamboost.core.simulation.series import Series
 from bamboost.index import CollectionUID, Index
-from bamboost.index.sqlmodel import SimulationORM
+from bamboost.index.sqlmodel import SimulationRecord
 from bamboost.mpi import MPI_ON, Communicator
 from bamboost.utilities import StrPath
 
@@ -271,7 +271,7 @@ class _Simulation(H5Object[_MT], ABC):
         return self._file.mutable
 
     @property
-    def _orm(self) -> SimulationORM:
+    def _orm(self) -> SimulationRecord | None:
         return self._index.simulation(self.collection_uid, self.name)
 
     @classmethod

@@ -42,13 +42,12 @@ from bamboost.index import (
     get_identifier_filename,
 )
 from bamboost.index._filtering import Filter, Operator, _Key
-from bamboost.index.sqlmodel import FilteredCollection
+from bamboost.index.sqlmodel import CollectionRecord, FilteredCollectionRecord
 from bamboost.mpi import Communicator
 from bamboost.mpi.utilities import RootProcessMeta
 from bamboost.plugins import ElligibleForPlugin
 
 if TYPE_CHECKING:
-    from bamboost.index.sqlmodel import CollectionORM
     from bamboost.mpi import Comm
 
 __all__ = [
@@ -246,22 +245,23 @@ class Collection(ElligibleForPlugin):
             self._comm.barrier()
 
     @property
-    def _orm(self) -> CollectionORM | FilteredCollection:
+    def _orm(self) -> CollectionRecord | FilteredCollectionRecord:
         """
-        Returns the ORM (Object Relational Mapping) object for the collection.
+        Returns the in-memory representation of the collection.
 
         If a filter is applied to the collection, returns a FilteredCollection
         object that represents the filtered view. Otherwise, returns the base
-        CollectionORM object for the collection.
+        CollectionRecord object for the collection.
 
         Returns:
-            CollectionORM or FilteredCollection: The ORM object representing the collection,
+            CollectionRecord or FilteredCollection: The object representing the collection,
             possibly filtered.
         """
         collection_orm = self._index.collection(self.uid)
+        assert collection_orm is not None, "Collection not found in index."
         if self._filter is None:
             return collection_orm
-        return FilteredCollection(collection_orm, self._filter)
+        return FilteredCollectionRecord(collection_orm, self._filter)
 
     def __len__(self) -> int:
         return len(self._orm.simulations)
