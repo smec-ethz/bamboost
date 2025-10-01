@@ -4,16 +4,21 @@ from typing import Optional
 import typer
 from typing_extensions import Annotated
 
-import bamboost.cli.database as database_cli
-from bamboost.cli import _completion, _render
+from bamboost.cli import _completion, indexing
+from bamboost.cli.alias import subapp_alias
 from bamboost.cli.common import console
+from bamboost.cli.config import app_config
 
-app = typer.Typer(no_args_is_help=True)
-app.add_typer(database_cli.app, rich_help_panel="Subgroups")
+app = typer.Typer(no_args_is_help=True, pretty_exceptions_show_locals=False)
+app.add_typer(indexing.app_index, rich_help_panel="Subgroups")
+app.add_typer(subapp_alias, name="alias", rich_help_panel="Subgroups")
+app.add_typer(app_config, name="config", rich_help_panel="Subgroups")
 
-# add from database_cli.app: scan, clean
-app.command()(database_cli.scan)
-app.command()(database_cli.clean)
+# add from database_cli.app: list, scan, clean
+app.command()(indexing.list)
+app.command("ls", hidden=True)(indexing.list)
+app.command()(indexing.scan)
+app.command()(indexing.clean)
 
 
 @app.callback(context_settings={"help_option_names": ["-h", "--help"]})
@@ -24,108 +29,6 @@ def _app_callback(ctx: typer.Context):
     and run simulations.
     """
     pass
-
-
-@database_cli.app.command("ls")
-def list_collections():
-    """List all collections."""
-    _assert_database_exists()
-    console.print(_render._list_collections())
-
-
-@app.command()
-@app.command("ls", hidden=True)
-def list(
-    collection_uid: Annotated[
-        Optional[str],
-        typer.Argument(
-            autocompletion=_completion._get_uids_from_db,
-            help="UID of the collection to list simulations for.",
-        ),
-    ] = None,
-    simulation_name: Annotated[
-        Optional[str],
-        typer.Argument(
-            help="Name of the simulation to display. If not provided, the collection is listed.",
-            autocompletion=_completion._get_simulation_names,
-        ),
-    ] = None,
-    sync_fs: bool = typer.Option(
-        False, "--sync", "-s", help="Sync the collection with the filesystem."
-    ),
-    nb_entries: Optional[int] = typer.Option(
-        None, "--entries", "-n", help="Number of entries to display."
-    ),
-):
-    """List all collections, or all simulations in a specified collection. (alias: "ls")"""
-    _assert_database_exists()
-
-    # If the user has not provided a collection UID, list all collections
-    if collection_uid is None:
-        return console.print(_render._list_collections())
-
-    with console.status("[bold blue]Fetching data...", spinner="dots"):
-        # if the user has provided a collection UID, list all simulations in that collection
-        # specifically handle the case where the collection is empty
-        if simulation_name is None:
-            from bamboost.index import Index
-
-            with Index.default.sql_transaction():
-                coll_uid = Index.default._find_collection_uid_by_alias(collection_uid)
-                if coll_uid is None:
-                    raise ValueError(f"Collection with UID {collection_uid} not found.")
-
-            if sync_fs:
-                console.print(f"Syncing collection [bold]{collection_uid}[/bold]...")
-                Index.default.sync_collection(coll_uid)
-
-            coll = Index.default.collection(coll_uid)
-
-            try:
-                df = _render._list_simulations(coll, nb_entries=nb_entries)
-            except ValueError as e:
-                return console.print(str(e), style="red")
-
-            if df.empty:
-                return console.print(
-                    f"Collection [bold]{coll.uid}[/bold] is empty.\n"
-                    "[dim]If you expected something here: Use '-s' to sync the collection with the filesystem.[/dim]"
-                )
-
-            return console.print(
-                f"[dim]> Displaying collection [bold]{coll.uid}[/bold] "
-                f"([default]{coll.path}[/default]):\n",
-                df,
-            )
-
-        # if the user has provided a simulation name, display the simulation details
-        else:
-            from bamboost.index import Index
-
-            sim = Index.default.simulation(collection_uid, simulation_name)
-            if sim is None:
-                return console.print(
-                    f"Simulation [bold]{simulation_name}[/bold] not found in collection [bold]{collection_uid}[/bold].",
-                    style="red",
-                )
-            return console.print(sim.as_dict())
-
-
-@app.command()
-def show_config(
-    dir: Optional[str] = typer.Option(
-        None, "--dir", "-d", help="Directory to show the config for."
-    ),
-):
-    """Show the active configuration."""
-    if dir:
-        from bamboost._config import _Config
-
-        config = _Config(dir)
-    else:
-        from bamboost import config
-
-    console.print(config)
 
 
 @app.command(no_args_is_help=True)
@@ -174,13 +77,27 @@ def new(
         console.print(f"[default]{'Path:':<5} {coll.path}")
 
 
-def _assert_database_exists() -> bool:
-    """Check if the database exists."""
-    from bamboost._config import config
+@app.command()
+def yank(
+    uid: Annotated[
+        str,
+        typer.Argument(
+            ...,
+            help="UID of the collection to yank.",
+            autocompletion=_completion._get_uids_from_db,
+        ),
+    ],
+) -> None:
+    """Copy the UID of a collection to the clipboard. Only useful with completion."""
+    import subprocess
 
-    if config.index.databaseFile.exists():
-        return True
+    from bamboost import config
 
-    console.print(f"Creating database file {config.index.databaseFile}")
-    database_cli.scan()
-    return True
+    copy_cmd = config.options.clipboardCommand
+    if not copy_cmd:
+        return console.print(
+            "[red]:cross_mark: Clipboard command not set in config. Please set it first. E.g.\n"
+            '\n\toptions.clipboard_command = "wl-copy"  # for Linux with wl-clipboard'
+            "\n"
+        )
+    subprocess.run(copy_cmd, input=uid.encode(), check=True)
