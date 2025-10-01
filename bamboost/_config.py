@@ -426,9 +426,10 @@ class _Config(_Base):
 
     def __init__(self, project_dir: Optional[StrPath] = None) -> None:
         global_config = _get_global_config(CONFIG_FILE)
+        project_dir = Path(project_dir).expanduser() if project_dir else None
         project_dir = project_dir or _find_root_dir()
         if project_dir:
-            project_config = _get_project_config(Path(project_dir))
+            project_config = _get_project_config(project_dir)
         else:
             project_config = {}
 
