@@ -2,7 +2,9 @@
 
 from __future__ import annotations
 
+from dataclasses import asdict, dataclass, field, fields
 from datetime import datetime
+from typing import TYPE_CHECKING, Annotated, Any, get_args, get_origin
 
 from sqlalchemy import (
     JSON,
@@ -17,14 +19,141 @@ from sqlalchemy import (
     UniqueConstraint,
 )
 
+from bamboost._typing import AuthorInfo
 from bamboost.constants import (
     TABLENAME_COLLECTIONS,
     TABLENAME_PARAMETERS,
     TABLENAME_SIMULATIONS,
 )
+from bamboost.core.utilities import flatten_dict
+
+if TYPE_CHECKING:
+    from pandas import DataFrame
 
 metadata = MetaData()
 
+
+def create_all(engine) -> None:
+    """Create all tables defined in this module."""
+
+    metadata.create_all(engine, checkfirst=True)
+
+
+# ------------------------------------------------
+# Dataclasses representing the loaded records
+# ------------------------------------------------
+
+
+@dataclass(frozen=True)
+class ParameterRecord:
+    id: int
+    simulation_id: int
+    key: str
+    value: Any
+
+
+@dataclass(frozen=True)
+class SimulationRecord:
+    id: int
+    collection_uid: str
+    name: str
+    created_at: datetime
+    modified_at: datetime
+    description: str | None
+    status: str
+    submitted: bool
+    parameters: list[ParameterRecord] = field(default_factory=list)
+
+    def as_dict_metadata(self) -> dict[str, Any]:
+        return {
+            "id": self.id,
+            "collection_uid": self.collection_uid,
+            "name": self.name,
+            "created_at": self.created_at,
+            "modified_at": self.modified_at,
+            "description": self.description,
+            "status": self.status,
+            "submitted": self.submitted,
+        }
+
+    @property
+    def parameter_dict(self) -> dict[str, Any]:
+        return {parameter.key: parameter.value for parameter in self.parameters}
+
+    def as_dict(self, standalone: bool = True) -> dict[str, Any]:
+        data = {
+            "name": self.name,
+            "created_at": self.created_at,
+            "description": self.description,
+            "status": self.status,
+            "submitted": self.submitted,
+        }
+        if standalone:
+            data.update(
+                {
+                    "id": self.id,
+                    "collection_uid": self.collection_uid,
+                    "modified_at": self.modified_at,
+                }
+            )
+        return data | self.parameter_dict
+
+
+@dataclass(frozen=False)
+class CollectionMetadata:
+    uid: str
+    created_at: datetime
+    tags: list[str] = field(default_factory=list)
+    aliases: list[str] = field(default_factory=list)
+    author: str | dict | None = field(default=None)
+    description: str | None = field(default=None)
+
+    def to_dict(self) -> dict[str, Any]:
+        return asdict(self)
+
+    @classmethod
+    def from_dict(cls, data: dict[str, Any], *_) -> "CollectionMetadata":
+        return cls(**data)
+
+
+@dataclass(frozen=False)
+class CollectionRecord(CollectionMetadata):
+    path: str | None = field(default=None)
+    simulations: list[SimulationRecord] | property = field(
+        default_factory=list, repr=False
+    )
+
+    @property
+    def parameters(self) -> list[ParameterRecord]:
+        return [
+            parameter
+            for simulation in self.simulations
+            for parameter in simulation.parameters
+        ]
+
+    def get_parameter_keys(self) -> tuple[list[str], list[int]]:
+        unique = list({parameter.key for parameter in self.parameters})
+        counts = [
+            sum(1 for parameter in self.parameters if parameter.key == key)
+            for key in unique
+        ]
+        return unique, counts
+
+    def to_pandas(self, flatten: bool = True) -> "DataFrame":
+        import pandas as pd
+
+        records = [
+            simulation.as_dict(standalone=False) for simulation in self.simulations
+        ]
+        if flatten:
+            records = [flatten_dict(record) for record in records]
+        return pd.DataFrame.from_records(records)
+
+
+# ------------------------------------------------
+# Table definitions
+# these should match the dataclasses above
+# ------------------------------------------------
 
 collections_table = Table(
     TABLENAME_COLLECTIONS,
@@ -78,9 +207,3 @@ parameters_table = Table(
     Column("value", JSON, nullable=False),
     UniqueConstraint("simulation_id", "key", name="uix_simulation_key"),
 )
-
-
-def create_all(engine) -> None:
-    """Create all tables defined in this module."""
-
-    metadata.create_all(engine, checkfirst=True)
