@@ -3,9 +3,9 @@
 from __future__ import annotations
 
 import json
-from dataclasses import dataclass, field
+from dataclasses import asdict, dataclass, field
 from datetime import datetime
-from typing import TYPE_CHECKING, Any, Callable, Mapping, Sequence
+from typing import TYPE_CHECKING, Any, Callable, Mapping, Sequence, TypedDict
 
 from sqlalchemy import RowMapping, Table, delete, select
 from sqlalchemy.dialects.sqlite import insert
@@ -13,6 +13,7 @@ from sqlalchemy.orm import Session
 from sqlalchemy.sql.dml import Insert, ReturningInsert
 
 from bamboost import BAMBOOST_LOGGER
+from bamboost._typing import AuthorInfo
 from bamboost.core.utilities import flatten_dict
 from bamboost.index._filtering import Filter
 
@@ -108,7 +109,7 @@ class SqliteJSONEncoder(json.JSONEncoder):
 # ------------------------------------------------
 
 
-@dataclass
+@dataclass(frozen=True)
 class ParameterRecord:
     id: int
     simulation_id: int
@@ -116,7 +117,7 @@ class ParameterRecord:
     value: Any
 
 
-@dataclass
+@dataclass(frozen=True)
 class SimulationRecord:
     id: int
     collection_uid: str
@@ -146,34 +147,46 @@ class SimulationRecord:
 
     def as_dict(self, standalone: bool = True) -> dict[str, Any]:
         data = {
-            "collection_uid": self.collection_uid,
             "name": self.name,
             "created_at": self.created_at,
-            "modified_at": self.modified_at,
             "description": self.description,
             "status": self.status,
             "submitted": self.submitted,
         }
         if standalone:
-            data["id"] = self.id
+            data.update(
+                {
+                    "id": self.id,
+                    "collection_uid": self.collection_uid,
+                    "modified_at": self.modified_at,
+                }
+            )
         return data | self.parameter_dict
 
 
-@dataclass
-class CollectionRecord:
+@dataclass(frozen=False)
+class CollectionMetadata:
     uid: str
-    path: str
-    created_at: datetime | None
-    description: str
-    tags: list[str]
-    aliases: list[str]
-    simulations: list[SimulationRecord] | property = field(default_factory=list)
+    created_at: datetime
+    tags: list[str] = field(default_factory=list)
+    aliases: list[str] = field(default_factory=list)
+    author: str | AuthorInfo | None = field(default=None)
+    description: str | None = field(default=None)
 
-    def __repr__(self) -> str:  # pragma: no cover - debugging helper
-        return f"CollectionRecord(uid={self.uid!r}, path={self.path!r}, simulations={len(self.simulations)})"
+    def to_dict(self) -> dict[str, Any]:
+        return asdict(self)
 
-    def _repr_html_(self) -> str:  # pragma: no cover - Jupyter helper
-        return f"Collection <b>{self.uid}</b><br/>Location: <a href={self.path}><i>{self.path}</i></a>"
+    @classmethod
+    def from_dict(cls, data: dict[str, Any], *_) -> "CollectionMetadata":
+        return cls(**data)
+
+
+@dataclass(frozen=False)
+class CollectionRecord(CollectionMetadata):
+    path: str | None = field(default=None)
+    simulations: list[SimulationRecord] | property = field(
+        default_factory=list, repr=False
+    )
 
     @property
     def parameters(self) -> list[ParameterRecord]:
@@ -203,9 +216,10 @@ class CollectionRecord:
 
 
 class FilteredCollectionRecord(CollectionRecord):
-    def __init__(self, base: CollectionRecord, filter_: Filter) -> None:
+    def __init__(self, base: CollectionRecord, filter: Filter) -> None:
+        super().__init__(**asdict(base))
+        self._filter = filter
         self._base = base
-        self._filter = filter_
 
     @property
     def simulations(self) -> list[SimulationRecord]:
@@ -217,14 +231,91 @@ class FilteredCollectionRecord(CollectionRecord):
         ]
 
     def to_pandas(self) -> "DataFrame":
-        df = super().to_pandas()
+        df = self._base.to_pandas()
         return self._filter.apply(df)  # pyright: ignore[reportReturnType]
 
-    def __repr__(self) -> str:  # pragma: no cover - debugging helper
-        return f"FilteredCollection {self.uid} with {len(self.simulations)} simulations"
 
-    def _repr_html_(self) -> str:  # pragma: no cover - Jupyter helper
-        return f"<b>FilteredCollection {self.uid}</b><br/>{len(self.simulations)} simulations"
+# ------------------------------------------------
+# Builders for dataclasses from database rows
+# ------------------------------------------------
+
+
+def _build_collection(session: Session, row: RowMapping) -> CollectionRecord:
+    collection_uid = row["uid"]
+    simulations_rows = (
+        session.execute(
+            select(simulations_table).where(
+                simulations_table.c.collection_uid == collection_uid
+            )
+        )
+        .mappings()
+        .all()
+    )
+
+    simulation_ids = [sim_row["id"] for sim_row in simulations_rows]
+    parameters_map = _fetch_parameters_for(session, simulation_ids)
+    simulations = [
+        _build_simulation(sim_row, parameters_map.get(sim_row["id"], []))
+        for sim_row in simulations_rows
+    ]
+
+    return CollectionRecord(
+        uid=collection_uid,
+        path=row["path"],
+        created_at=row.get("created_at"),
+        description=row.get("description", ""),
+        tags=list(row.get("tags") or []),
+        aliases=list(row.get("aliases") or []),
+        author=row.get("author"),
+        simulations=simulations,
+    )
+
+
+def _build_simulation(
+    row: RowMapping,
+    parameters: Sequence[ParameterRecord] | None,
+) -> SimulationRecord:
+    return SimulationRecord(
+        id=row["id"],
+        collection_uid=row["collection_uid"],
+        name=row["name"],
+        created_at=row["created_at"],
+        modified_at=row["modified_at"],
+        description=row.get("description"),
+        status=row.get("status", ""),
+        submitted=bool(row.get("submitted", False)),
+        parameters=list(parameters or []),
+    )
+
+
+def _build_parameter(row: RowMapping) -> ParameterRecord:
+    return ParameterRecord(
+        id=row["id"],
+        simulation_id=row["simulation_id"],
+        key=row["key"],
+        value=row["value"],
+    )
+
+
+def _fetch_parameters_for(
+    session: Session, simulation_ids: Sequence[int]
+) -> dict[int, list[ParameterRecord]]:
+    if not simulation_ids:
+        return {}
+    rows = (
+        session.execute(
+            select(parameters_table).where(
+                parameters_table.c.simulation_id.in_(simulation_ids)
+            )
+        )
+        .mappings()
+        .all()
+    )
+    result: dict[int, list[ParameterRecord]] = {}
+    for row in rows:
+        parameter = _build_parameter(row)
+        result.setdefault(parameter.simulation_id, []).append(parameter)
+    return result
 
 
 # ------------------------------------------------
@@ -417,80 +508,3 @@ def delete_simulation_stmt(collection_uid: str, name: str):
         simulations_table.c.collection_uid == collection_uid,
         simulations_table.c.name == name,
     )
-
-
-def _build_collection(session: Session, row: RowMapping) -> CollectionRecord:
-    collection_uid = row["uid"]
-    simulations_rows = (
-        session.execute(
-            select(simulations_table).where(
-                simulations_table.c.collection_uid == collection_uid
-            )
-        )
-        .mappings()
-        .all()
-    )
-
-    simulation_ids = [sim_row["id"] for sim_row in simulations_rows]
-    parameters_map = _fetch_parameters_for(session, simulation_ids)
-    simulations = [
-        _build_simulation(sim_row, parameters_map.get(sim_row["id"], []))
-        for sim_row in simulations_rows
-    ]
-
-    return CollectionRecord(
-        uid=collection_uid,
-        path=row["path"],
-        created_at=row.get("created_at"),
-        description=row.get("description", ""),
-        tags=list(row.get("tags") or []),
-        aliases=list(row.get("aliases") or []),
-        simulations=simulations,
-    )
-
-
-def _build_simulation(
-    row: RowMapping,
-    parameters: Sequence[ParameterRecord] | None,
-) -> SimulationRecord:
-    return SimulationRecord(
-        id=row["id"],
-        collection_uid=row["collection_uid"],
-        name=row["name"],
-        created_at=row["created_at"],
-        modified_at=row["modified_at"],
-        description=row.get("description"),
-        status=row.get("status", ""),
-        submitted=bool(row.get("submitted", False)),
-        parameters=list(parameters or []),
-    )
-
-
-def _build_parameter(row: RowMapping) -> ParameterRecord:
-    return ParameterRecord(
-        id=row["id"],
-        simulation_id=row["simulation_id"],
-        key=row["key"],
-        value=row["value"],
-    )
-
-
-def _fetch_parameters_for(
-    session: Session, simulation_ids: Sequence[int]
-) -> dict[int, list[ParameterRecord]]:
-    if not simulation_ids:
-        return {}
-    rows = (
-        session.execute(
-            select(parameters_table).where(
-                parameters_table.c.simulation_id.in_(simulation_ids)
-            )
-        )
-        .mappings()
-        .all()
-    )
-    result: dict[int, list[ParameterRecord]] = {}
-    for row in rows:
-        parameter = _build_parameter(row)
-        result.setdefault(parameter.simulation_id, []).append(parameter)
-    return result

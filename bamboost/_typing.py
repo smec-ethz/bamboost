@@ -24,6 +24,11 @@ class SimulationMetadataT(TypedDict, total=False):
 SimulationParameterT: TypeAlias = Mapping[str, Any]
 
 
+class AuthorInfo(TypedDict):
+    name: str
+    email: str
+
+
 class _MutabilitySentinel(type):
     """A metaclass for creating mutability sentinel types.
 

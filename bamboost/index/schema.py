@@ -35,6 +35,7 @@ collections_table = Table(
     Column("description", String, nullable=False, default="", server_default=""),
     Column("tags", JSON, nullable=False, default=list, server_default="[]"),
     Column("aliases", JSON, nullable=False, default=list, server_default="[]"),
+    Column("author", JSON, nullable=True, default=None, server_default="null"),
 )
 
 

@@ -263,7 +263,7 @@ class Index(metaclass=RootProcessMeta):
                     "uid": normalized_uid,
                     "path": found_path.as_posix(),
                 }
-                metadata = _load_collection_metadata(found_path, normalized_uid)
+                metadata = load_collection_metadata(found_path, normalized_uid)
                 if metadata is not None:
                     record.update(metadata)
                 collections_data.append(record)
@@ -515,7 +515,7 @@ class Index(metaclass=RootProcessMeta):
         """
         record: dict[str, Any] = {"uid": uid.upper(), "path": path.as_posix()}
         normalized_uid = record["uid"]
-        metadata_mapping = metadata or _load_collection_metadata(path, normalized_uid)
+        metadata_mapping = metadata or load_collection_metadata(path, normalized_uid)
         if metadata_mapping is not None:
             record.update(_normalize_collection_metadata(metadata_mapping))
 
@@ -651,37 +651,13 @@ class Index(metaclass=RootProcessMeta):
         return store.fetch_simulation(self._s, collection_uid, simulation_name)
 
 
-def simulation_metadata_from_h5(
-    file: Path,
-) -> Tuple[SimulationMetadataT, SimulationParameterT]:
-    """Extract metadata and parameters from a BAMBOOST simulation HDF5 file.
-
-    Reads the metadata and parameters from the HDF5 file and returns them as a
-    tuple.
+def load_collection_metadata(path: Path, uid: str) -> dict[str, Any] | None:
+    """Load the metadata of a collection from its identifier file.
 
     Args:
-        file: Path to the HDF5 file.
+        path: Path to the collection directory
+        uid: UID of the collection
     """
-    if not file.is_file():
-        raise FileNotFoundError(f"File not found: {file}")
-
-    from bamboost.core.hdf5.file import HDF5File
-
-    with HDF5File(file).open("r") as f:
-        meta: SimulationMetadataT = {
-            "created_at": datetime.fromisoformat(f.attrs.get("created_at", 0))
-            if f.attrs.get("created_at")
-            else datetime.now(),
-            "modified_at": datetime.fromtimestamp(file.stat().st_mtime),
-            "description": f.attrs.get("notes", ""),
-            "status": f.attrs.get("status", ""),
-        }
-        params: SimulationParameterT = dict(f["parameters"].attrs)
-
-        return meta, params
-
-
-def _load_collection_metadata(path: Path, uid: str) -> dict[str, Any] | None:
     metadata_file = Path(path).joinpath(get_identifier_filename(uid))
     if not metadata_file.exists():
         return None
@@ -721,7 +697,10 @@ def _normalize_collection_metadata(data: Mapping[str, Any]) -> dict[str, Any]:
     Args:
         data: The raw metadata dictionary.
     """
-    metadata: dict[str, Any] = {}
+    metadata: dict[str, Any] = {
+        k: data[k]
+        for k in (store.CollectionRecord.__dataclass_fields__.keys() and data.keys())
+    }
 
     created_at_value = None
     # "Date of creation" is for backward compatibility only
@@ -735,8 +714,6 @@ def _normalize_collection_metadata(data: Mapping[str, Any]) -> dict[str, Any]:
     if parsed_created_at is not None:
         metadata["created_at"] = parsed_created_at
 
-    if desc := data.get("description"):
-        metadata["description"] = str(desc)
     if tags := data.get("tags"):
         metadata["tags"] = _deduplicate_sequence(tags)
     if aliases := data.get("aliases"):

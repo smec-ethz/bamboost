@@ -31,7 +31,7 @@ import yaml
 from typing_extensions import deprecated
 
 from bamboost import BAMBOOST_LOGGER, config
-from bamboost._typing import StrPath
+from bamboost._typing import AuthorInfo, StrPath
 from bamboost.core.simulation.base import Simulation, SimulationName, SimulationWriter
 from bamboost.core.utilities import flatten_dict
 from bamboost.exceptions import DuplicateSimulationError, InvalidCollectionError
@@ -42,7 +42,12 @@ from bamboost.index import (
     get_identifier_filename,
 )
 from bamboost.index._filtering import Filter, Operator, _Key
-from bamboost.index.store import CollectionRecord, FilteredCollectionRecord
+from bamboost.index.base import load_collection_metadata
+from bamboost.index.store import (
+    CollectionMetadata,
+    CollectionRecord,
+    FilteredCollectionRecord,
+)
 from bamboost.mpi import Communicator
 from bamboost.mpi.utilities import RootProcessMeta
 from bamboost.plugins import ElligibleForPlugin
@@ -85,14 +90,8 @@ class _FilterKeys:
         return (*self.collection._orm.get_parameter_keys()[0], *metadata_keys)
 
 
-@dataclass
-class CollectionMetadata:
-    uid: str
-    created_at: datetime
-    tags: list[str] = field(default_factory=list)
-    aliases: list[str] = field(default_factory=list)
-    description: str = field(default="")
-
+@dataclass(frozen=False)
+class CollectionMetadataStore(CollectionMetadata):
     # private, not part of YAML
     _path: Path | None = field(default=None, repr=False, compare=False)
 
@@ -100,52 +99,22 @@ class CollectionMetadata:
         return {k: v for k, v in asdict(self).items() if not k.startswith("_") and v}
 
     @classmethod
-    def from_dict(cls, data: dict[str, Any], *, _path: Path) -> "CollectionMetadata":
-        return cls(
-            uid=data["uid"],
-            created_at=datetime.fromisoformat(data["created_at"])
-            if isinstance(data["created_at"], str)
-            else data["created_at"],
-            tags=data.get("tags", []),
-            aliases=data.get("aliases", []),
-            _path=_path,
-        )
+    def from_dict(
+        cls, data: dict[str, Any] | None, *, _path: Path
+    ) -> "CollectionMetadataStore":
+        if data is None:
+            data = {
+                "uid": _path.stem.split("-")[-1],
+                "created_at": datetime.now(),
+            }
+
+        return cls(**data, _path=_path)
 
     def save(self) -> None:
         if not self._path:
             raise RuntimeError("No path associated with this metadata.")
         with self._path.open("w") as f:
             yaml.safe_dump(self.to_dict(), f, sort_keys=False, indent=2)
-
-
-def _load_collection_metadata(path: Path) -> CollectionMetadata:
-    def _get_uid_from_path() -> str:
-        return path.stem.split("-")[-1]
-
-    try:
-        raw = yaml.safe_load(path.read_text())
-    except Exception:
-        # fallback strategy: create new metadata
-        meta = CollectionMetadata(
-            uid=_get_uid_from_path(), created_at=datetime.now(), _path=path
-        )
-        meta.save()
-        return meta
-
-    # Migration step
-    if raw is None or "Date of creation" in raw:
-        raw.update(
-            {
-                "uid": raw.get("uid", _get_uid_from_path()),
-                "created_at": raw.get("Date of creation", datetime.now()),
-            }
-        )
-        meta = CollectionMetadata.from_dict(raw, _path=path)
-        meta.save()
-        return meta
-
-    meta = CollectionMetadata.from_dict(raw, _path=path)
-    return meta
 
 
 class Collection(ElligibleForPlugin):
@@ -312,7 +281,7 @@ class Collection(ElligibleForPlugin):
         )
 
     @cached_property
-    def metadata(self) -> CollectionMetadata:
+    def metadata(self) -> CollectionMetadataStore:
         """Returns the metadata of the collection.
 
         The metadata can include information such as the collection's UID,
@@ -321,9 +290,9 @@ class Collection(ElligibleForPlugin):
         Returns:
             CollectionMetadata: An object containing the collection's metadata.
         """
-        return _load_collection_metadata(
-            self.path.joinpath(get_identifier_filename(self.uid))
-        )
+        meta_file = self.path.joinpath(get_identifier_filename(self.uid))
+        data = load_collection_metadata(self.path, self.uid)
+        return CollectionMetadataStore.from_dict(data, _path=meta_file)
 
     @property
     def df(self) -> pd.DataFrame:
