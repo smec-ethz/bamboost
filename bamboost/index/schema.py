@@ -114,9 +114,8 @@ class CollectionMetadata:
         self._fields = {f.name for f in fields(self) if f.init}  # ignore _extras
 
     def to_dict(self) -> dict[str, Any]:
-        d = {
-            k: v for k, v in asdict(self).items() if k in self._fields and v is not None
-        }
+        d = {k: getattr(self, k) for k in self._fields}
+        d = {k: v for k, v in d.items() if v is not None}  # remove None values
         d.update(self._extras)
         return d
 

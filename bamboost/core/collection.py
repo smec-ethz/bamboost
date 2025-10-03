@@ -53,6 +53,7 @@ from bamboost.mpi.utilities import RootProcessMeta
 from bamboost.plugins import ElligibleForPlugin
 
 if TYPE_CHECKING:
+    from bamboost.core.collection import Collection
     from bamboost.mpi import Comm
 
 __all__ = [
@@ -91,14 +92,33 @@ class _FilterKeys:
 
 
 @dataclass(frozen=False)
-class CollectionMetadataStore(CollectionMetadata):
-    _path: Path | None = field(default=None, repr=False, compare=False, init=False)
+class CollectionMetadataStore(CollectionMetadata, metaclass=RootProcessMeta):
+    _collection: Collection | None = field(
+        default=None, repr=False, compare=False, init=False
+    )
+    _comm: Communicator = field(
+        default_factory=Communicator, repr=False, compare=False, init=False
+    )
 
     @classmethod
-    def from_dict(cls, data: dict[str, Any], *, _path: Path) -> Self:
+    def from_dict(cls, data: dict[str, Any], *, _collection: Collection) -> Self:
         obj = super().from_dict(data)
-        obj._path = _path
+        obj._collection = _collection
+        obj._comm = _collection._comm
+        # attempting to preserve the order of keys as in the yaml file
+        obj._keys_ordered = tuple(data.keys())  # type: ignore
         return obj
+
+    def to_dict(self) -> dict[str, Any]:
+        d = super().to_dict()
+
+        # preserve the order of keys as in the yaml file
+        if hasattr(self, "_keys_ordered"):
+            order = self._keys_ordered  # type: ignore
+            d = {k: d[k] for k in order if k in d} | {
+                k: v for k, v in d.items() if k not in order
+            }
+        return d
 
     def __getitem__(self, key: str) -> Any:
         if key in self._extras:
@@ -109,9 +129,12 @@ class CollectionMetadataStore(CollectionMetadata):
         return tuple(self._fields) + tuple(self._extras.keys())
 
     def save(self) -> None:
-        if not self._path:
+        file_path = self._collection.path.joinpath(
+            get_identifier_filename(self._collection.uid)
+        )
+        if not file_path:
             raise RuntimeError("No path associated with this metadata.")
-        with self._path.open("w") as f:
+        with file_path.open("w") as f:
             yaml.safe_dump(self.to_dict(), f, sort_keys=False, indent=2)
 
     def update(self, data: dict[str, Any]) -> None:
@@ -302,18 +325,17 @@ class Collection(ElligibleForPlugin):
             CollectionMetadata: An object containing the collection's metadata.
         """
         data: dict[str, Any]
-        meta_file = self.path.joinpath(get_identifier_filename(self.uid))
 
         if self._comm.rank == 0:
             data = load_collection_metadata(self.path, self.uid) or {}
-            data.setdefault("uid", self.uid)
+            data.setdefault("uid", str(self.uid))
             data.setdefault("created_at", datetime.now())
         else:
             data = {}
 
         data = self._comm.bcast(data, 0)
 
-        return CollectionMetadataStore.from_dict(data, _path=meta_file)
+        return CollectionMetadataStore.from_dict(data, _collection=self)
 
     @property
     def df(self) -> pd.DataFrame:
