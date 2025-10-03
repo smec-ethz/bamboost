@@ -43,11 +43,7 @@ from bamboost.index import (
 )
 from bamboost.index._filtering import Filter, Operator, _Key
 from bamboost.index.base import load_collection_metadata
-from bamboost.index.store import (
-    CollectionMetadata,
-    CollectionRecord,
-    FilteredCollectionRecord,
-)
+from bamboost.index.schema import CollectionMetadata, CollectionRecord
 from bamboost.mpi import Communicator
 from bamboost.mpi.utilities import RootProcessMeta
 from bamboost.plugins import ElligibleForPlugin
@@ -88,7 +84,7 @@ class _FilterKeys:
             "description",
             "status",
         )
-        return (*self.collection._orm.get_parameter_keys()[0], *metadata_keys)
+        return (*self.collection._record.get_parameter_keys()[0], *metadata_keys)
 
 
 @dataclass(frozen=False)
@@ -248,7 +244,7 @@ class Collection(ElligibleForPlugin):
             self._comm.barrier()
 
     @property
-    def _orm(self) -> CollectionRecord | FilteredCollectionRecord:
+    def _record(self) -> CollectionRecord:
         """
         Returns the in-memory representation of the collection.
 
@@ -260,14 +256,12 @@ class Collection(ElligibleForPlugin):
             CollectionRecord or FilteredCollection: The object representing the collection,
             possibly filtered.
         """
-        collection_orm = self._index.collection(self.uid)
-        assert collection_orm is not None, "Collection not found in index."
-        if self._filter is None:
-            return collection_orm
-        return FilteredCollectionRecord(collection_orm, self._filter)
+        collection_record = self._index.collection(self.uid)
+        assert collection_record is not None, "Collection not found in index."
+        return collection_record.filtered(self._filter)
 
     def __len__(self) -> int:
-        return len(self._orm.simulations)
+        return len(self._record.simulations)
 
     def __getitem__(self, name_or_index: str | int) -> Simulation:
         """
@@ -295,7 +289,7 @@ class Collection(ElligibleForPlugin):
 
     @cache
     def _ipython_key_completions_(self):
-        return tuple(s.name for s in self._orm.simulations)
+        return tuple(s.name for s in self._record.simulations)
 
     def _repr_html_(self) -> str:
         """HTML repr for ipython/notebooks, using jinja2 for templating."""
@@ -349,7 +343,11 @@ class Collection(ElligibleForPlugin):
         Returns:
             pd.DataFrame: DataFrame of the collection's simulations and parameters.
         """
-        df = self._orm.to_pandas()
+        df = self._record.to_pandas()
+
+        # apply filtering if necessary
+        if self._filter is not None:
+            df = cast(pd.DataFrame, self._filter.apply(df))
 
         # Try to sort the dataframe with the user specified key
         try:
@@ -399,7 +397,7 @@ class Collection(ElligibleForPlugin):
         Returns:
             list[str]: A list containing the names of all simulations in the collection.
         """
-        return [sim.name for sim in self._orm.simulations]
+        return [sim.name for sim in self._record.simulations]
 
     def sync_cache(self, *, force_all: bool = False) -> None:
         """
@@ -673,7 +671,7 @@ class Collection(ElligibleForPlugin):
         import pandas as pd
 
         if df is None:
-            df = self._orm.to_pandas()
+            df = self._record.to_pandas()
         params = flatten_dict(parameters)
 
         class ComparableIterable:

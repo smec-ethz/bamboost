@@ -3,9 +3,8 @@
 from __future__ import annotations
 
 import json
-from dataclasses import asdict, dataclass, field
 from datetime import datetime
-from typing import TYPE_CHECKING, Any, Callable, Mapping, Sequence, TypedDict
+from typing import TYPE_CHECKING, Any, Callable, Mapping, Sequence
 
 from sqlalchemy import RowMapping, Table, delete, select
 from sqlalchemy.dialects.sqlite import insert
@@ -13,15 +12,11 @@ from sqlalchemy.orm import Session
 from sqlalchemy.sql.dml import Insert, ReturningInsert
 
 from bamboost import BAMBOOST_LOGGER
-from bamboost._typing import AuthorInfo
-from bamboost.core.utilities import flatten_dict
-from bamboost.index._filtering import Filter
 
 if TYPE_CHECKING:
-    from pandas import DataFrame
+    pass
 
 from .schema import (
-    CollectionMetadata,
     CollectionRecord,
     ParameterRecord,
     SimulationRecord,
@@ -32,7 +27,6 @@ from .schema import (
 )
 
 __all__ = [
-    "FilteredCollectionRecord",
     "collections_table",
     "create_all",
     "collections_upsert_stmt",
@@ -108,26 +102,6 @@ class SqliteJSONEncoder(json.JSONEncoder):
             return super().default(obj)
         except TypeError:
             return f"{obj!s} (unserializable)"
-
-
-class FilteredCollectionRecord(CollectionRecord):
-    def __init__(self, base: CollectionRecord, filter: Filter) -> None:
-        super().__init__(**asdict(base))
-        self._filter = filter
-        self._base = base
-
-    @property
-    def simulations(self) -> list[SimulationRecord]:
-        df = self.to_pandas()
-        return [
-            simulation
-            for simulation in self._base.simulations
-            if simulation.name in df["name"].values
-        ]
-
-    def to_pandas(self) -> "DataFrame":
-        df = self._base.to_pandas()
-        return self._filter.apply(df)  # pyright: ignore[reportReturnType]
 
 
 # ------------------------------------------------

@@ -26,6 +26,7 @@ from bamboost.constants import (
     TABLENAME_SIMULATIONS,
 )
 from bamboost.core.utilities import flatten_dict
+from bamboost.index._filtering import Filter
 
 if TYPE_CHECKING:
     from pandas import DataFrame
@@ -176,6 +177,24 @@ class CollectionRecord(CollectionMetadata):
         if flatten:
             records = [flatten_dict(record) for record in records]
         return pd.DataFrame.from_records(records)
+
+    def filtered(self, filter: Filter | None) -> Self:
+        if filter is None:
+            return self
+
+        df = self.to_pandas()
+        df = filter.apply(df)
+        simulations = [sim for sim in self.simulations if sim.name in df["name"].values]  # type: ignore
+        return self.__class__(
+            uid=self.uid,
+            path=self.path,
+            created_at=self.created_at,
+            description=self.description,
+            tags=self.tags,
+            aliases=self.aliases,
+            author=self.author,
+            simulations=simulations,
+        )
 
 
 # ------------------------------------------------
