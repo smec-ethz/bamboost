@@ -673,18 +673,19 @@ def load_collection_metadata(path: Path, uid: str) -> dict[str, Any] | None:
             metadata_file,
             exc,
         )
-        return None
+        raise Exception(
+            f"Failed to load metadata for collection {uid} (file: {metadata_file})"
+        ) from exc
 
     if raw is None:
         raw = {}
 
     if not isinstance(raw, Mapping):
         log.debug("Unexpected metadata format for collection %s: %r", uid, raw)
-        return {
-            "description": "",
-            "tags": [],
-            "aliases": [],
-        }
+        raise TypeError(
+            f"Unexpected metadata format for collection {uid}: {type(raw)}. "
+            "Revise the identifier/metadata file."
+        )
 
     return _normalize_collection_metadata(raw)
 
