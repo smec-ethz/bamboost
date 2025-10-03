@@ -19,7 +19,7 @@ from __future__ import annotations
 
 import pkgutil
 from ctypes import ArgumentError
-from dataclasses import asdict, dataclass, field
+from dataclasses import dataclass, field
 from datetime import datetime
 from functools import cache, cached_property
 from pathlib import Path
@@ -31,7 +31,7 @@ import yaml
 from typing_extensions import Self, deprecated
 
 from bamboost import BAMBOOST_LOGGER, config
-from bamboost._typing import AuthorInfo, StrPath
+from bamboost._typing import StrPath
 from bamboost.core.simulation.base import Simulation, SimulationName, SimulationWriter
 from bamboost.core.utilities import flatten_dict
 from bamboost.exceptions import DuplicateSimulationError, InvalidCollectionError
@@ -301,11 +301,17 @@ class Collection(ElligibleForPlugin):
         Returns:
             CollectionMetadata: An object containing the collection's metadata.
         """
+        data: dict[str, Any]
         meta_file = self.path.joinpath(get_identifier_filename(self.uid))
-        data = load_collection_metadata(self.path, self.uid)
-        data = data or {}
-        data.setdefault("uid", self.uid)
-        data.setdefault("created_at", datetime.now())
+
+        if self._comm.rank == 0:
+            data = load_collection_metadata(self.path, self.uid) or {}
+            data.setdefault("uid", self.uid)
+            data.setdefault("created_at", datetime.now())
+        else:
+            data = {}
+
+        data = self._comm.bcast(data, 0)
 
         return CollectionMetadataStore.from_dict(data, _path=meta_file)
 

@@ -7,7 +7,6 @@ import h5py
 import numpy as np
 
 from bamboost import constants
-from bamboost._typing import SimulationParameterT
 from bamboost.core import utilities
 from bamboost.core.hdf5.attrsdict import AttrsDict, AttrsEncoder, mutable_only
 from bamboost.core.hdf5.file import _MT, FileMode, Mutable, with_file_open
@@ -18,7 +17,6 @@ if TYPE_CHECKING:
 
 class Parameters(AttrsDict[_MT]):
     _simulation: _Simulation
-    _dict: SimulationParameterT
 
     def __init__(self, simulation: _Simulation[_MT]):
         super().__init__(simulation._file, constants.PATH_PARAMETERS)

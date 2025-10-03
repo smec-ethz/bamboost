@@ -1,12 +1,3 @@
-# This file is part of bamboost, a Python library built for datamanagement
-# using the HDF5 file format.
-#
-# https://gitlab.ethz.ch/compmechmat/research/libs/dbmanager
-#
-# Copyright 2023 Flavio Lorez and contributors
-#
-# There is no warranty for this code
-
 import xml.etree.ElementTree as ET
 from pathlib import Path
 from typing import TYPE_CHECKING, Iterable, cast

@@ -97,7 +97,7 @@ class CollectionMetadata:
 
     uid: str
     """Unique identifier of the collection."""
-    created_at: datetime
+    created_at: datetime | None = field(default=None)
     """Creation timestamp."""
     tags: list[str] = field(default_factory=list)
     """List of tags associated with the collection."""
@@ -143,8 +143,10 @@ class CollectionRecord(CollectionMetadata):
     (read only) a record in the collection table in the sql database.
     """
 
-    path: str | None = field(default=None)
-    """Path to the collection on disk, can be None if not applicable."""
+    path: str = field(
+        default=""
+    )  # default to empty string for compatibility, it should always be set
+    """Path to the collection on disk. Guaranteed to be not null."""
     simulations: list[SimulationRecord] | property = field(
         default_factory=list, repr=False
     )

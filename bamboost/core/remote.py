@@ -21,7 +21,7 @@ from pathlib import Path
 from typing import TYPE_CHECKING, Callable, Optional, cast
 
 from sqlalchemy import create_engine
-from sqlalchemy.orm import remote, sessionmaker
+from sqlalchemy.orm import sessionmaker
 
 from bamboost import BAMBOOST_LOGGER, _config, constants
 from bamboost._config import config
