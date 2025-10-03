@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from dataclasses import asdict, dataclass, field, fields
 from datetime import datetime
-from typing import TYPE_CHECKING, Annotated, Any, get_args, get_origin
+from typing import TYPE_CHECKING, Any
 
 from sqlalchemy import (
     JSON,
@@ -18,8 +18,8 @@ from sqlalchemy import (
     Table,
     UniqueConstraint,
 )
+from typing_extensions import Self
 
-from bamboost._typing import AuthorInfo
 from bamboost.constants import (
     TABLENAME_COLLECTIONS,
     TABLENAME_PARAMETERS,
@@ -30,20 +30,10 @@ from bamboost.core.utilities import flatten_dict
 if TYPE_CHECKING:
     from pandas import DataFrame
 
-metadata = MetaData()
-
-
-def create_all(engine) -> None:
-    """Create all tables defined in this module."""
-
-    metadata.create_all(engine, checkfirst=True)
-
 
 # ------------------------------------------------
 # Dataclasses representing the loaded records
 # ------------------------------------------------
-
-
 @dataclass(frozen=True)
 class ParameterRecord:
     id: int
@@ -101,27 +91,64 @@ class SimulationRecord:
 
 @dataclass(frozen=False)
 class CollectionMetadata:
+    """Collection metadata container. Can load/save from/to dicts, storing unknown
+    fields in an extras dictionary.
+    """
+
     uid: str
+    """Unique identifier of the collection."""
     created_at: datetime
+    """Creation timestamp."""
     tags: list[str] = field(default_factory=list)
+    """List of tags associated with the collection."""
     aliases: list[str] = field(default_factory=list)
+    """List of aliases for the collection."""
     author: str | dict | None = field(default=None)
+    """Author information, can be a string or a dictionary."""
     description: str | None = field(default=None)
+    """Completely optional description of the collection."""
+
+    _extras: dict[str, Any] = field(default_factory=dict, init=False, repr=False)
+
+    def __post_init__(self):
+        self._fields = {f.name for f in fields(self) if f.init}  # ignore _extras
 
     def to_dict(self) -> dict[str, Any]:
-        return asdict(self)
+        d = {
+            k: v for k, v in asdict(self).items() if k in self._fields and v is not None
+        }
+        d.update(self._extras)
+        return d
 
     @classmethod
-    def from_dict(cls, data: dict[str, Any], *_) -> "CollectionMetadata":
-        return cls(**data)
+    def from_dict(cls, data: dict[str, Any], *_) -> Self:
+        """Create an instance from a dictionary, storing unknown fields in the extras
+        dictionary.
+
+        Args:
+            data: The input dictionary.
+        """
+        _fields = {f.name for f in fields(cls) if f.init}  # ignore _extras
+        known = {k: v for k, v in data.items() if k in _fields}
+        extras = {k: v for k, v in data.items() if k not in _fields}
+
+        obj = cls(**known)
+        obj._extras = extras
+        return obj
 
 
 @dataclass(frozen=False)
 class CollectionRecord(CollectionMetadata):
+    """Collection record, including metadata and associated simulations. Used for exposing
+    (read only) a record in the collection table in the sql database.
+    """
+
     path: str | None = field(default=None)
+    """Path to the collection on disk, can be None if not applicable."""
     simulations: list[SimulationRecord] | property = field(
         default_factory=list, repr=False
     )
+    """List of simulations associated with the collection."""
 
     @property
     def parameters(self) -> list[ParameterRecord]:
@@ -151,9 +178,17 @@ class CollectionRecord(CollectionMetadata):
 
 
 # ------------------------------------------------
-# Table definitions
+# SQL table definitions
 # these should match the dataclasses above
 # ------------------------------------------------
+metadata = MetaData()
+
+
+def create_all(engine) -> None:
+    """Create all tables defined in this module."""
+
+    metadata.create_all(engine, checkfirst=True)
+
 
 collections_table = Table(
     TABLENAME_COLLECTIONS,

@@ -28,7 +28,7 @@ from typing import TYPE_CHECKING, Any, Dict, Iterable, Literal, Mapping, Optiona
 import numpy as np
 import pandas as pd
 import yaml
-from typing_extensions import deprecated
+from typing_extensions import Self, deprecated
 
 from bamboost import BAMBOOST_LOGGER, config
 from bamboost._typing import AuthorInfo, StrPath
@@ -92,29 +92,40 @@ class _FilterKeys:
 
 @dataclass(frozen=False)
 class CollectionMetadataStore(CollectionMetadata):
-    # private, not part of YAML
-    _path: Path | None = field(default=None, repr=False, compare=False)
-
-    def to_dict(self) -> dict[str, Any]:
-        return {k: v for k, v in asdict(self).items() if not k.startswith("_") and v}
+    _path: Path | None = field(default=None, repr=False, compare=False, init=False)
 
     @classmethod
-    def from_dict(
-        cls, data: dict[str, Any] | None, *, _path: Path
-    ) -> "CollectionMetadataStore":
-        if data is None:
-            data = {
-                "uid": _path.stem.split("-")[-1],
-                "created_at": datetime.now(),
-            }
+    def from_dict(cls, data: dict[str, Any], *, _path: Path) -> Self:
+        obj = super().from_dict(data)
+        obj._path = _path
+        return obj
 
-        return cls(**data, _path=_path)
+    def __getitem__(self, key: str) -> Any:
+        if key in self._extras:
+            return self._extras[key]
+        return getattr(self, key)
+
+    def _ipython_key_completions_(self):
+        return tuple(self._fields) + tuple(self._extras.keys())
 
     def save(self) -> None:
         if not self._path:
             raise RuntimeError("No path associated with this metadata.")
         with self._path.open("w") as f:
             yaml.safe_dump(self.to_dict(), f, sort_keys=False, indent=2)
+
+    def update(self, data: dict[str, Any]) -> None:
+        """Update the instance with values from a dictionary, storing unknown fields in
+        the extras dictionary.
+
+        Args:
+            data: The input dictionary.
+        """
+        for k, v in data.items():
+            if k in self._fields:
+                setattr(self, k, v)
+            else:
+                self._extras[k] = v
 
 
 class Collection(ElligibleForPlugin):
@@ -292,6 +303,10 @@ class Collection(ElligibleForPlugin):
         """
         meta_file = self.path.joinpath(get_identifier_filename(self.uid))
         data = load_collection_metadata(self.path, self.uid)
+        data = data or {}
+        data.setdefault("uid", self.uid)
+        data.setdefault("created_at", datetime.now())
+
         return CollectionMetadataStore.from_dict(data, _path=meta_file)
 
     @property

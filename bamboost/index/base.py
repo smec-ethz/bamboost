@@ -698,10 +698,7 @@ def _normalize_collection_metadata(data: Mapping[str, Any]) -> dict[str, Any]:
     Args:
         data: The raw metadata dictionary.
     """
-    metadata: dict[str, Any] = {
-        k: data[k]
-        for k in (store.CollectionRecord.__dataclass_fields__.keys() and data.keys())
-    }
+    metadata: dict[str, Any] = dict(**data)
 
     created_at_value = None
     # "Date of creation" is for backward compatibility only
