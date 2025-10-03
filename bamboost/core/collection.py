@@ -130,6 +130,13 @@ class CollectionMetadataStore(CollectionMetadata, metaclass=RootProcessMeta):
         )
         if not file_path:
             raise RuntimeError("No path associated with this metadata.")
+
+        # update the metadata in the database
+        self._collection._index.upsert_collection(
+            self.uid, self._collection.path, self.to_dict()
+        )
+
+        # update the yaml file
         with file_path.open("w") as f:
             yaml.safe_dump(self.to_dict(), f, sort_keys=False, indent=2)
 

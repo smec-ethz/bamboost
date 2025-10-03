@@ -24,16 +24,17 @@ def add(
         f"[bold blue]Adding alias '{alias}' to collection '{uid}'...", spinner="dots"
     ) as status:
         try:
-            from pathlib import Path
+            from bamboost.core.collection import Collection
 
-            from bamboost.index import Index
+            coll = Collection(uid=uid)
+            meta = coll.metadata
+            if alias in meta.aliases:
+                raise ValueError(
+                    f"Alias '{alias}' already exists in collection '{uid}'."
+                )
 
-            coll_record = Index.default.collection(uid)
-            Index.default.upsert_collection(
-                coll_record.uid,
-                Path(coll_record.path),
-                {"aliases": coll_record.aliases + [alias]},
-            )
+            meta.aliases.append(alias)
+            meta.save()
             console.print(
                 f"[green]:heavy_check_mark: Alias '{alias}' added to collection '{uid}'."
             )
@@ -59,22 +60,21 @@ def remove(
         f"[bold blue]Removing alias '{alias}' from collection '{uid}'...",
         spinner="dots",
     ) as status:
-        from pathlib import Path
+        try:
+            from bamboost.core.collection import Collection
 
-        from bamboost.index import Index
+            coll = Collection(uid=uid)
+            meta = coll.metadata
+            if alias not in meta.aliases:
+                raise ValueError(f"Alias '{alias}' not found in collection '{uid}'.")
 
-        coll_record = Index.default.collection(uid)
-        if alias not in coll_record.aliases:
-            raise ValueError(f"Alias '{alias}' not found in collection '{uid}'.")
-        new_aliases = [a for a in coll_record.aliases if a != alias]
-        Index.default.upsert_collection(
-            coll_record.uid,
-            Path(coll_record.path),
-            {"aliases": new_aliases},
-        )
-        console.print(
-            f"[green]:heavy_check_mark: Alias '{alias}' removed from collection '{uid}'."
-        )
+            meta.aliases.remove(alias)
+            meta.save()
+            console.print(
+                f"[green]:heavy_check_mark: Alias '{alias}' removed from collection '{uid}'."
+            )
+        except Exception as e:
+            console.print(f"[bold red]Task failed: {e}")
 
 
 @subapp_alias.command()
