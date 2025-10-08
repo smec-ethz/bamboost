@@ -1,5 +1,11 @@
 # Change log for bamboost
 
+## 0.10.3 (2025-10-08)
+
+### Fix
+
+- **config**: ensure that the local directory to store the database exists (9535306)
+
 ## 0.10.2 (2025-08-25)
 
 ### Feat
