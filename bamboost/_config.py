@@ -25,6 +25,7 @@ import sys
 from collections.abc import MutableMapping
 from dataclasses import dataclass, field, fields
 from itertools import chain
+from os import makedirs
 from pathlib import Path
 from typing import (
     TYPE_CHECKING,
@@ -391,6 +392,8 @@ class _IndexOptions(_Base):
             )
             self.searchPaths = PathSet([self.projectDir])
         else:
+            # ensure that localDir exists
+            makedirs(LOCAL_DIR, exist_ok=True)
             self.databaseFile = LOCAL_DIR.joinpath(self.databaseFileName)
 
         # Handle extendDefaultExcludeDirs
