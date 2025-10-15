@@ -124,6 +124,7 @@ class Collection(ElligibleForPlugin):
     path: Path
     fromUID = _CollectionPicker()
     _comm = Communicator()
+    _filter: Optional[Filter] = None
 
     def __init__(
         self,

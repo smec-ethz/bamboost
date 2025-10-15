@@ -92,7 +92,7 @@ class Remote(Index):
     """
 
     DATABASE_BASE_NAME = "bamboost.sqlite"
-    DATABASE_REMOTE_PATH = _config.LOCAL_DIR.joinpath(_config.DATABASE_FILE_NAME)
+    DATABASE_REMOTE_PATH = Path(_config._LOCAL_DIR).joinpath(_config.DATABASE_FILE_NAME)
     WORKSPACE_SPLITTER = "_WS_"
 
     def __init__(
@@ -265,12 +265,13 @@ class RemoteCollection(Collection):
             .replace("$db_size", str(len(self)))
         )
 
-    def __getitem__(self, name: str) -> RemoteSimulation:
+    def __getitem__(self, name_or_idx: str | int) -> RemoteSimulation:
+        if isinstance(name_or_idx, int):
+            name: str = self.df.iloc[name_or_idx]["name"]
+        else:
+            name = name_or_idx
         return RemoteSimulation(
-            name,
-            collection_uid=self.uid,
-            index=self._index,
-            comm=self._comm,
+            name, self.path, collection_uid=self.uid, index=self._index, comm=self._comm
         )
 
     @property
@@ -297,7 +298,9 @@ class RemoteCollection(Collection):
             source = self.remote_path.joinpath(name)
             dest = self.path.joinpath(name)
         else:
-            source = self.remote_path
+            # source will be past to rsync as <remote_url>:<source>
+            # source should be the glob: <remote_path>/*
+            source = self.remote_path.joinpath("*")
             dest = self.path
 
         stream_popen_output(self._index.rsync)(source, dest)
@@ -308,11 +311,20 @@ class RemoteSimulation(Simulation):
     def __init__(
         self,
         name: str,
+        parent: StrPath,
         collection_uid: CollectionUID,
         index: Remote,
         comm: Optional[Comm] = None,
         **kwargs,
     ):
+        super().__init__(
+            name,
+            parent,
+            index=index,
+            comm=comm,
+            collection_uid=collection_uid,
+            **kwargs,
+        )
         self.name: str = name
         self.path: Path = index.get_local_path(collection_uid).joinpath(name)
         self.remote_path: Path = index._get_collection_path(collection_uid).joinpath(
