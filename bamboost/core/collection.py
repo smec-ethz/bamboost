@@ -181,7 +181,6 @@ class Collection(ElligibleForPlugin):
         path (Path): Filesystem path to the collection directory.
         df (pd.DataFrame): DataFrame view of the collection and its parameter space.
         k (_FilterKeys): Helper for key completion and filtering.
-        FROZEN (bool): If True, the collection does not look for new simulations after initialization.
 
     Examples:
         >>> db = Collection("path/to/collection")
@@ -190,7 +189,6 @@ class Collection(ElligibleForPlugin):
         >>> filtered = db.filter(db.k["param"] == 42)
     """
 
-    FROZEN = False  # TODO: If true, the collection doesn't look for new simulations after initialization
     uid: CollectionUID
     path: Path
     fromUID = _CollectionPicker()
