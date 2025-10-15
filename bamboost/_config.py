@@ -57,8 +57,8 @@ __all__ = [
 
 CONFIG_DIR = Path("~/.config/bamboost").expanduser()
 CONFIG_FILE = CONFIG_DIR.joinpath("config-next.toml")
-LOCAL_DIR_RAW = Path("~/.local/share/bamboost")
-LOCAL_DIR = Path("~/.local/share/bamboost").expanduser()
+_LOCAL_DIR = "~/.local/share/bamboost"
+LOCAL_DIR = Path(_LOCAL_DIR).expanduser()
 CACHE_DIR = Path("~/.cache/bamboost-next").expanduser()
 DATABASE_FILE_NAME = "bamboost-next.sqlite"
 # fmt: off
