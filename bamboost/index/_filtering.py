@@ -113,3 +113,35 @@ class Filter:
 
     def __repr__(self) -> str:
         return "Filter({})".format(" & ".join(str(op) for op in self._ops))
+
+
+class SortInstruction:
+    def __init__(self, key: str, ascending: bool = True) -> None:
+        self.key = key
+        self.ascending = ascending
+
+    def __repr__(self) -> str:
+        order = "ASC" if self.ascending else "DESC"
+        return f"SortInstruction({self.key} {order})"
+
+
+class Sorter:
+    """Sorter applied to a collection."""
+
+    def __init__(self, *instructions: SortInstruction) -> None:
+        self._instructions: Sequence[SortInstruction] = instructions
+
+    def __and__(self, other: Sorter | None) -> Sorter:
+        return Sorter(*self._instructions, *other._instructions) if other else self
+
+    def apply(self, df: DataFrame) -> DataFrame:
+        if not self._instructions:
+            return df
+        by = [instr.key for instr in self._instructions]
+        ascending = [instr.ascending for instr in self._instructions]
+        return df.sort_values(by=by, ascending=ascending)
+
+    def __repr__(self) -> str:
+        return "Sorter({})".format(
+            ", ".join(str(instr) for instr in self._instructions)
+        )

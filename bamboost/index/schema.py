@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import dataclasses
 from dataclasses import asdict, dataclass, field, fields
 from datetime import datetime
 from typing import TYPE_CHECKING, Any
@@ -26,7 +27,7 @@ from bamboost.constants import (
     TABLENAME_SIMULATIONS,
 )
 from bamboost.core.utilities import flatten_dict
-from bamboost.index._filtering import Filter
+from bamboost.index._filtering import Filter, Sorter
 
 if TYPE_CHECKING:
     from pandas import DataFrame
@@ -178,23 +179,30 @@ class CollectionRecord(CollectionMetadata):
             records = [flatten_dict(record) for record in records]
         return pd.DataFrame.from_records(records)
 
-    def filtered(self, filter: Filter | None) -> Self:
-        if filter is None:
+    def filtered(self, filter: Filter | None, sorter: Sorter | None) -> Self:
+        # TODO: this method is not efficient!
+        if (filter is None) and (sorter is None):
             return self
 
         df = self.to_pandas()
-        df = filter.apply(df)
-        simulations = [sim for sim in self.simulations if sim.name in df["name"].values]  # type: ignore
-        return self.__class__(
-            uid=self.uid,
-            path=self.path,
-            created_at=self.created_at,
-            description=self.description,
-            tags=self.tags,
-            aliases=self.aliases,
-            author=self.author,
-            simulations=simulations,
-        )
+        if filter is not None:
+            df = filter.apply(df)
+        if sorter is not None:
+            tmp_map = {
+                sim.name: sim
+                for sim in self.simulations
+                if sim.name in df["name"].values  # type: ignore
+            }
+            df = sorter.apply(df)  # type: ignore
+            simulations = [tmp_map[name] for name in df["name"].values]
+        else:
+            simulations = [
+                sim
+                for sim in self.simulations
+                if sim.name in df["name"].values  # type: ignore
+            ]
+
+        return dataclasses.replace(self, simulations=simulations)
 
 
 # ------------------------------------------------

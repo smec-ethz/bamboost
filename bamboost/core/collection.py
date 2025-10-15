@@ -23,7 +23,17 @@ from dataclasses import dataclass, field
 from datetime import datetime
 from functools import cache, cached_property
 from pathlib import Path
-from typing import TYPE_CHECKING, Any, Dict, Iterable, Literal, Mapping, Optional, cast
+from typing import (
+    TYPE_CHECKING,
+    Any,
+    Dict,
+    Generator,
+    Iterable,
+    Literal,
+    Mapping,
+    Optional,
+    cast,
+)
 
 import numpy as np
 import pandas as pd
@@ -41,7 +51,7 @@ from bamboost.index import (
     create_identifier_file,
     get_identifier_filename,
 )
-from bamboost.index._filtering import Filter, Operator, _Key
+from bamboost.index._filtering import Filter, Operator, Sorter, SortInstruction, _Key
 from bamboost.index.base import load_collection_metadata
 from bamboost.index.schema import CollectionMetadata, CollectionRecord
 from bamboost.mpi import Communicator
@@ -201,12 +211,14 @@ class Collection(ElligibleForPlugin):
         index_instance: Optional[Index] = None,
         sync_collection: bool = True,
         filter: Optional[Filter] = None,
+        sorter: Optional[Sorter] = None,
     ):
         assert path or uid, "Either path or uid must be provided."
         assert not (path and uid), "Only one of path or uid must be provided."
 
         self._index = index_instance or Index.default
         self._filter = filter
+        self._sorter = sorter
 
         # A key store with completion of all the parameters and metadata keys
         self.k = _FilterKeys(self)
@@ -243,22 +255,6 @@ class Collection(ElligibleForPlugin):
 
             # Wait for root process to finish syncing
             self._comm.barrier()
-
-    @property
-    def _record(self) -> CollectionRecord:
-        """Returns the in-memory representation of the collection.
-
-        If a filter is applied to the collection, returns a FilteredCollection
-        object that represents the filtered view. Otherwise, returns the base
-        CollectionRecord object for the collection.
-
-        Returns:
-            CollectionRecord or FilteredCollection: The object representing the collection,
-            possibly filtered.
-        """
-        collection_record = self._index.collection(self.uid)
-        assert collection_record is not None, "Collection not found in index."
-        return collection_record.filtered(self._filter)
 
     def __len__(self) -> int:
         return len(self._record.simulations)
@@ -307,6 +303,22 @@ class Collection(ElligibleForPlugin):
             filtered=self._filter is not None,
             filter=str(self._filter),
         )
+
+    @property
+    def _record(self) -> CollectionRecord:
+        """Returns the in-memory representation of the collection.
+
+        If a filter is applied to the collection, returns a FilteredCollection
+        object that represents the filtered view. Otherwise, returns the base
+        CollectionRecord object for the collection.
+
+        Returns:
+            CollectionRecord or FilteredCollection: The object representing the collection,
+            possibly filtered.
+        """
+        collection_record = self._index.collection(self.uid)
+        assert collection_record is not None, "Collection not found in index."
+        return collection_record.filtered(self._filter, self._sorter)
 
     @cached_property
     def metadata(self) -> CollectionMetadataStore:
@@ -386,6 +398,45 @@ class Collection(ElligibleForPlugin):
             comm=self._comm,
             index_instance=self._index,
             filter=Filter(*operators) & self._filter,
+            sorter=self._sorter,
+        )
+
+    def sort(self, key: _Key | str, ascending: bool = True) -> Collection:
+        """Returns a new Collection sorted by the given instructions.
+
+        This method applies the specified sort instructions to the collection and returns
+        a new Collection instance representing the sorted view. The original collection
+        remains unchanged.
+
+        Args:
+            key: A SortInstruction object or a string representing the parameter or
+                metadata key to sort by.
+            ascending: If True (default), sorts in ascending order. If False, sorts in
+                descending order.
+
+        Returns:
+            Collection: A new Collection instance with simulations sorted according to
+            the specified instructions.
+
+        Examples:
+            >>> sorted_collection = collection.sort(SortInstruction("param", ascending=False))
+        """
+        if isinstance(key, _Key):
+            key = key._value
+
+        if self._sorter is None:
+            new_sorter = Sorter(SortInstruction(key, ascending))
+        else:
+            new_sorter = self._sorter & Sorter(SortInstruction(key, ascending))
+
+        return Collection(
+            path=self.path,
+            create_if_not_exist=False,
+            sync_collection=False,
+            comm=self._comm,
+            index_instance=self._index,
+            filter=self._filter,
+            sorter=new_sorter,
         )
 
     def all_simulation_names(self) -> list[str]:
