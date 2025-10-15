@@ -25,8 +25,9 @@ from sqlalchemy.orm import sessionmaker
 
 from bamboost import BAMBOOST_LOGGER, _config, constants
 from bamboost._config import config
-from bamboost.core.collection import Collection
+from bamboost.core.collection import Collection, _FilterKeys
 from bamboost.core.simulation.base import Simulation
+from bamboost.index._filtering import Filter, Operator
 from bamboost.index.base import (
     CollectionUID,
     Index,
@@ -240,9 +241,14 @@ class RemoteCollection(Collection):
         self,
         uid: str,
         remote: Remote,
+        *,
+        filter: Optional[Filter] = None,
     ):
         self.uid = CollectionUID(uid)
         self._index = remote
+
+        # A key store with completion of all the parameters and metadata keys
+        self.k = _FilterKeys(self)
 
         # Resolve the path (this updates the index if necessary)
         self.path = remote._local_path.joinpath(uid)
@@ -254,6 +260,8 @@ class RemoteCollection(Collection):
         # Check if identifier file exists (and create it if necessary)
         if not self.path.joinpath(get_identifier_filename(uid=self.uid)).exists():
             create_identifier_file(self.path, self.uid)
+
+        self._filter = filter
 
     def _repr_html_(self) -> str:
         import pkgutil
@@ -274,6 +282,13 @@ class RemoteCollection(Collection):
             name = name_or_idx
         return RemoteSimulation(
             name, self.path, collection_uid=self.uid, index=self._index, comm=self._comm
+        )
+
+    def filter(self, *operators: Operator) -> RemoteCollection:
+        return self.__class__(
+            self.uid,
+            self._index,
+            filter=Filter(*operators) & self._filter,
         )
 
     @property
