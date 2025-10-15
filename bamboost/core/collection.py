@@ -283,6 +283,11 @@ class Collection(ElligibleForPlugin):
             name = name_or_index
         return Simulation(name, self.path, self._comm, collection_uid=self.uid)
 
+    def __iter__(self) -> Generator[Simulation, None, None]:
+        """Iterate over all simulations in the collection."""
+        for sim in self._record.simulations:
+            yield Simulation(sim.name, self.path, self._comm, collection_uid=self.uid)
+
     @cache
     def _ipython_key_completions_(self):
         return tuple(s.name for s in self._record.simulations)
