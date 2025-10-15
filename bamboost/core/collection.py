@@ -155,8 +155,7 @@ class CollectionMetadataStore(CollectionMetadata, metaclass=RootProcessMeta):
 
 
 class Collection(ElligibleForPlugin):
-    """
-    Represents a collection of simulations in the bamboost framework.
+    """Represents a collection of simulations in the bamboost framework.
 
     The Collection class provides an interface for managing, querying, and manipulating
     a group of simulations stored in a directory, with support for filtering, indexing,
@@ -176,12 +175,6 @@ class Collection(ElligibleForPlugin):
             on initialization.
         filter: Optional filter to apply to the collection, returning a filtered view.
 
-    Attributes:
-        uid (CollectionUID): Unique identifier for the collection.
-        path (Path): Filesystem path to the collection directory.
-        df (pd.DataFrame): DataFrame view of the collection and its parameter space.
-        k (_FilterKeys): Helper for key completion and filtering.
-
     Examples:
         >>> db = Collection("path/to/collection")
         >>> db.df  # DataFrame of the collection
@@ -190,8 +183,11 @@ class Collection(ElligibleForPlugin):
     """
 
     uid: CollectionUID
+    """Unique identifier of the collection."""
     path: Path
+    """Path to the collection directory."""
     fromUID = _CollectionPicker()
+    """Helper for selecting collections by UID."""
     _comm = Communicator()
     _filter: Optional[Filter] = None
 
@@ -250,8 +246,7 @@ class Collection(ElligibleForPlugin):
 
     @property
     def _record(self) -> CollectionRecord:
-        """
-        Returns the in-memory representation of the collection.
+        """Returns the in-memory representation of the collection.
 
         If a filter is applied to the collection, returns a FilteredCollection
         object that represents the filtered view. Otherwise, returns the base
@@ -269,11 +264,11 @@ class Collection(ElligibleForPlugin):
         return len(self._record.simulations)
 
     def __getitem__(self, name_or_index: str | int) -> Simulation:
-        """
-        Retrieve a Simulation from the collection by name or index.
+        """Retrieve a Simulation from the collection by name or index.
 
         Args:
-            name_or_index: The name of the simulation (str) or its index (int) in the collection dataframe.
+            name_or_index: The name of the simulation (str) or its index (int) in the
+                collection dataframe.
 
         Returns:
             Simulation: The corresponding Simulation object.
@@ -338,12 +333,11 @@ class Collection(ElligibleForPlugin):
 
     @property
     def df(self) -> pd.DataFrame:
-        """
-        Returns a pandas DataFrame representing the collection and its parameter space.
+        """Returns a pandas DataFrame representing the collection and its parameter space.
 
-        The DataFrame contains all simulations in the collection, including their parameters
-        and metadata. The table is sorted according to the user-specified key and order
-        in the configuration, if available.
+        The DataFrame contains all simulations in the collection, including their
+        parameters and metadata. The table is sorted according to the user-specified key
+        and order in the configuration, if available.
 
         Returns:
             pd.DataFrame: DataFrame of the collection's simulations and parameters.
@@ -368,11 +362,10 @@ class Collection(ElligibleForPlugin):
         return df
 
     def filter(self, *operators: Operator) -> Collection:
-        """
-        Returns a new Collection filtered by the given operators.
+        """Returns a new Collection filtered by the given operators.
 
-        This method applies the specified filter operators to the collection and returns
-        a new Collection instance representing the filtered view. The original collection
+        This method applies the specified filter operators to the collection and returns a
+        new Collection instance representing the filtered view. The original collection
         remains unchanged.
 
         Args:
@@ -396,8 +389,7 @@ class Collection(ElligibleForPlugin):
         )
 
     def all_simulation_names(self) -> list[str]:
-        """
-        Returns a list of all simulation names in the collection.
+        """Returns a list of all simulation names in the collection.
 
         Returns:
             list[str]: A list containing the names of all simulations in the collection.
@@ -405,14 +397,13 @@ class Collection(ElligibleForPlugin):
         return [sim.name for sim in self._record.simulations]
 
     def sync_cache(self, *, force_all: bool = False) -> None:
-        """
-        Synchronize the database for this collection.
+        """Synchronize the database for this collection.
 
-        This method updates the collection's cache by syncing the underlying
-        index and filesystem. It ensures that the collection's metadata and simulation
-        information are up to date. If `force_all` is True, a full rescan and update
-        of all simulations in the collection will be performed, regardless of their
-        current cache state.
+        This method updates the collection's cache by syncing the underlying index and
+        filesystem. It ensures that the collection's metadata and simulation information
+        are up to date. If `force_all` is True, a full rescan and update of all
+        simulations in the collection will be performed, regardless of their current cache
+        state.
 
         Args:
             force_all: If True, force a full resync of all simulations in the collection.
@@ -431,12 +422,13 @@ class Collection(ElligibleForPlugin):
         links: Optional[Dict[str, str]] = None,
         override: bool = False,
     ) -> SimulationWriter:
-        """
-        Create and initialize a new simulation in the collection, returning a SimulationWriter object.
+        """Create and initialize a new simulation in the collection, returning a
+        SimulationWriter object.
 
-        This method is designed for parallel use, such as in batch scripts or parameter sweeps,
-        where multiple simulations may be created concurrently. It handles creation of the simulation
-        directory, duplicate checking, copying files, and setting up metadata and parameters.
+        This method is designed for parallel use, such as in batch scripts or parameter
+        sweeps, where multiple simulations may be created concurrently. It handles
+        creation of the simulation directory, duplicate checking, copying files, and
+        setting up metadata and parameters.
 
         Args:
             name: The name/UID for the simulation. If not specified, a unique random ID
@@ -456,13 +448,15 @@ class Collection(ElligibleForPlugin):
             description: Optional description for the simulation.
             files: Optional iterable of file paths to copy into the simulation directory.
                 Each file will be copied with its original name.
-            links: Optional dictionary of symbolic links to create in the simulation directory,
-                mapping link names to target paths.
-            override: If True, overwrite any existing simulation with the same name.
-                If False (default), raises FileExistsError if a simulation with the same name exists.
+            links: Optional dictionary of symbolic links to create in the simulation
+                directory, mapping link names to target paths.
+            override: If True, overwrite any existing simulation with the same name. If
+                False (default), raises FileExistsError if a simulation with the same name
+                exists.
 
         Returns:
-            SimulationWriter: An object for writing data and metadata to the new simulation.
+            SimulationWriter: An object for writing data and metadata to the new
+            simulation.
 
         Raises:
             FileExistsError: If a simulation with the same name already exists and override is False.
@@ -476,8 +470,9 @@ class Collection(ElligibleForPlugin):
             >>> db.add(name="my_sim", parameters={"a": 1, "b": 2})
 
         Note:
-            - The files and links specified are copied or created in the simulation directory.
             - This method is safe for use in parallel (MPI) environments.
+            - Be cautious when using `duplicate_action="replace"` as it will delete
+              existing simulations with matching parameters, without asking again.
         """
         import shutil
 
@@ -571,18 +566,17 @@ class Collection(ElligibleForPlugin):
         return self.add(*args, **kwargs)
 
     def delete(self, name: str | Iterable[str]) -> None:
-        """
-        CAUTIOUS. Deletes one or more simulations from the collection.
+        """CAUTION. Deletes one or more simulations from the collection.
 
-        This method removes the specified simulation(s) from both the filesystem
-        and the index/database. It is a destructive operation and should be used
-        with caution.
+        This method removes the specified simulation(s) from both the filesystem and the
+        index/database. It is a destructive operation and should be used with caution.
 
         Args:
             name: Name of the simulation to delete, or an iterable of names.
 
         Raises:
-            ValueError: If any of the specified names are invalid or do not exist in the collection.
+            ValueError: If any of the specified names are invalid or do not exist in the
+                collection.
             PermissionError: If there is an error deleting the simulation directory.
 
         Examples:
@@ -618,20 +612,20 @@ class Collection(ElligibleForPlugin):
         self._comm.barrier()
 
     def find(self, parameter_selection: Mapping[str, Any]) -> pd.DataFrame:
-        """
-        Find simulations matching the given parameter selection.
+        """Find simulations matching the given parameter selection.
 
-        The parameter_selection dictionary can specify exact values for parameters,
-        or use callables (such as lambda functions) for more complex filtering,
-        such as inequalities or custom logic.
+        The parameter_selection dictionary can specify exact values for parameters, or use
+        callables (such as lambda functions) for more complex filtering, such as
+        inequalities or custom logic.
 
         Args:
-            parameter_selection: Dictionary mapping parameter names to values
-                or callables. If a value is a callable, it will be used as a filter function
+            parameter_selection: Dictionary mapping parameter names to values or
+                callables. If a value is a callable, it will be used as a filter function
                 applied to the corresponding parameter column.
 
         Returns:
-            pd.DataFrame: DataFrame containing simulations that match the specified criteria.
+            pd.DataFrame: DataFrame containing simulations that match the specified
+            criteria.
 
         Examples:
             >>> db.find({"a": 1, "b": lambda x: x > 2})
@@ -661,17 +655,18 @@ class Collection(ElligibleForPlugin):
     def _list_duplicates(
         self, parameters: Mapping, *, df: pd.DataFrame | None = None
     ) -> list[str]:
-        """
-        List the names (IDs) of simulations in the collection that have duplicate parameter values.
+        """List the names (IDs) of simulations in the collection that have duplicate
+        parameter values.
 
         Args:
-            parameters (dict): Parameter dictionary to check for duplicates. Keys are parameter names,
-                values are the values to match against existing simulations.
-            df (pd.DataFrame, optional): DataFrame to search in. If not provided, the
-                DataFrame from the SQL database is used.
+            parameters: Parameter dictionary to check for duplicates. Keys are parameter
+                names, values are the values to match against existing simulations.
+            df: DataFrame to search in. If not provided, the DataFrame from the SQL
+                database is used.
 
         Returns:
-            list[str]: List of simulation names (IDs) that have the same parameter values as provided.
+            list[str]: List of simulation names (IDs) that have the same parameter values
+            as provided.
         """
         import pandas as pd
 
@@ -702,8 +697,7 @@ class Collection(ElligibleForPlugin):
         return match.name.tolist()
 
     def _check_duplicate(self, parameters: Mapping) -> Literal[True]:
-        """
-        Check whether the given parameters dictionary already exists in the collection.
+        """Check whether the given parameters dictionary already exists in the collection.
         Returns True if no duplicates are found. Raises `DuplicateSimulationError` if
         duplicates are found.
 
