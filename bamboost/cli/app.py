@@ -101,3 +101,82 @@ def yank(
             "\n"
         )
     subprocess.run(copy_cmd, input=uid.encode(), check=True)
+
+
+@app.command()
+def migrate() -> None:
+    """Create the new database file from a previous database schema. Useful if you have
+    upgraded from 0.10.x to 0.11.x."""
+    import sqlite3
+
+    from bamboost import config
+    from bamboost.index import Index
+
+    # db name of version 0.10.x
+    db_name_0_10 = "bamboost-next.sqlite"
+
+    db_file_0_10 = Path(config.paths.localDir).joinpath(db_name_0_10)
+
+    if not db_file_0_10.exists():
+        return console.print(
+            f"[red]:cross_mark: Nothing to migrate. Database file for version 0.10.x not found at {db_file_0_10}"
+        )
+
+    console.print("[yellow]🔄 Starting migration from 0.10.x → 0.11.x...")
+
+    # make sure the new database file exists by initializing an Index instance
+    Index()
+    # after, we use manual sqlite3 commands to copy data
+    new_db_file = config.index.databaseFile
+
+    # from 0.10 to 0.11 here's what we have to do:
+    # - collection table: read uid, path -> upsert collections
+    # - simulation table: clone simulation table to new database
+    # - parameters table: clone parameters table to new database
+    # open both DBs
+    with (
+        sqlite3.connect(db_file_0_10) as conn_old,
+        sqlite3.connect(new_db_file) as conn_new,
+    ):
+        cur_old = conn_old.cursor()
+        cur_new = conn_new.cursor()
+
+        # === collections ===
+        cur_old.execute("SELECT uid, path FROM collections")
+        collections = cur_old.fetchall()
+        cur_new.executemany(
+            """
+            INSERT OR IGNORE INTO collections (uid, path, description, tags, aliases, author)
+            VALUES (?, ?, '', '[]', '[]', 'null')
+            """,
+            [(uid, path) for uid, path in collections],
+        )
+
+        # === simulations ===
+        cur_old.execute(
+            "SELECT id, collection_uid, name, created_at, modified_at, description, status, submitted FROM simulations"
+        )
+        simulations = cur_old.fetchall()
+        cur_new.executemany(
+            """
+            INSERT OR IGNORE INTO simulations
+            (id, collection_uid, name, created_at, modified_at, description, status, submitted)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+            """,
+            simulations,
+        )
+
+        # === parameters ===
+        cur_old.execute("SELECT id, simulation_id, key, value FROM parameters")
+        parameters = cur_old.fetchall()
+        cur_new.executemany(
+            """
+            INSERT OR IGNORE INTO parameters (id, simulation_id, key, value)
+            VALUES (?, ?, ?, ?)
+            """,
+            parameters,
+        )
+
+        conn_new.commit()
+
+    console.print("[green]✅ Migration completed successfully.")
