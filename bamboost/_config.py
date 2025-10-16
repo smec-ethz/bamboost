@@ -389,11 +389,9 @@ class _IndexOptions(_Base):
 
         # Handle isolated mode
         if self.isolated and self.projectDir:
-            self.projectDir.joinpath(".bamboost_cache").mkdir(
-                parents=True, exist_ok=True
-            )
+            self.projectDir.joinpath(".bamboost").mkdir(parents=True, exist_ok=True)
             self.databaseFile = self.projectDir.joinpath(
-                ".bamboost_cache", "bamboost.sqlite"
+                ".bamboost", DEFAULT_DATABASE_FILE_NAME
             )
             self.searchPaths = PathSet([self.projectDir])
         else:
