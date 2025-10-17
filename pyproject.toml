@@ -87,3 +87,9 @@ exclude = [
 reportOptionalMemberAccess = false
 reportOptionalSubscript = false
 reportIncompatibleMethodOverride = false
+
+[tool.coverage.run]
+source = ["bamboost"]
+omit = [
+    "bamboost/cli/*",
+]
