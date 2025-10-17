@@ -1,5 +1,42 @@
 # Change log for bamboost
 
+## 0.11.0 (2025-10-17)
+
+### Feat
+
+- **cli**: add a migrate function to create the new 0.11 database from old one (c28b455)
+- **collection**: add & and | operators to filtering (cf136c5)
+- **collection**: explicitly define the iteration behaviour (6b820b4)
+- **collection**: add sort functionality (e3eed58)
+- **collection**: add support for any metadata fields (1bd8148)
+- **cli**: add "yank" to copy uid, "config show/print" to open config file, "alias get/add/remove" to manage aliases (e7a1489)
+- **config**: add clipboardCommand option to set the platform specific clipboard command (f11fd17)
+- **cli**: add command to add and remove collection aliases (+ improvements) (071f1bc)
+- **cli**: add drop command to drop collections from the database (6e18935)
+- **collection**: add collection metadata and persistent storage in yaml (7adb633)
+
+### Fix
+
+- **hdf5**: fix __str__ (print) of attrsdict instances, e.g. parameters (494fd1e)
+- **cli**: metadata save will update both the yaml and sqlite files (7305c29)
+- **collection**: filter logic updated (a337b9a)
+- **collection**: make metadata store mpi safe (0241fe0)
+- **collection**: raise error if metafile is weird, instead of overwriting with new content (5679df7)
+- **config**: eagerly convert project dir to path object (cc4a6b1)
+- **cli**: fix display when syncing fs + add aliases in ls (f618dcd)
+- **remote**: fix destination in rsync of remote collection (eeb54bf)
+- **remote**: fix path to remote database (7f7156d)
+
+### Refactor
+
+- **collection**: refactor metadata handling (+add author field) (017b2a8)
+- **config**: rename config file to config.toml, rename sqlite file to bamboost.sqlite (ded7308)
+- **index**: rename sqlmodel.py -> store.py (566be79)
+- **index**: fix two minor mistakes (7653324)
+- **index**: completely replace ORM with a sqlalchemy core flow (d52facd)
+- **index**: add methods to load and parse collection metadata (8f2aba4)
+- **cli**: minor improvement to cli (add --entries argument to ls to limit print lines) (a4de3f3)
+
 ## 0.10.3 (2025-10-08)
 
 ### Fix
