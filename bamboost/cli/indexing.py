@@ -125,13 +125,13 @@ def clean():
 @app_index.command()
 def scan():
     """Scan the search paths for collections."""
-    with console.status(
-        "[bold blue]Scanning search paths...", spinner="dots"
-    ) as status:
+    with task_status(
+        "[bold blue]Scanning search paths...",
+        "Index scanned.",
+    ):
         from bamboost.index import Index
 
-        _found_colls = Index.default.scan_for_collections()
-        console.print("[green]:heavy_check_mark: Index scanned.")
+        Index.default.scan_for_collections()
 
 
 @app_index.command()
