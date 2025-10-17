@@ -19,13 +19,26 @@ from __future__ import annotations
 
 import pkgutil
 from ctypes import ArgumentError
-from functools import cache, wraps
+from dataclasses import dataclass, field
+from datetime import datetime
+from functools import cache, cached_property
 from pathlib import Path
-from typing import TYPE_CHECKING, Any, Dict, Iterable, Literal, Mapping, Optional, cast
+from typing import (
+    TYPE_CHECKING,
+    Any,
+    Dict,
+    Generator,
+    Iterable,
+    Literal,
+    Mapping,
+    Optional,
+    cast,
+)
 
 import numpy as np
 import pandas as pd
-from typing_extensions import deprecated
+import yaml
+from typing_extensions import Self, deprecated
 
 from bamboost import BAMBOOST_LOGGER, config
 from bamboost._typing import StrPath
@@ -38,14 +51,15 @@ from bamboost.index import (
     create_identifier_file,
     get_identifier_filename,
 )
-from bamboost.index._filtering import Filter, Operator, _Key
-from bamboost.index.sqlmodel import FilteredCollection
+from bamboost.index._filtering import Filter, Operator, Sorter, SortInstruction, _Key
+from bamboost.index.base import load_collection_metadata
+from bamboost.index.schema import CollectionMetadata, CollectionRecord
 from bamboost.mpi import Communicator
 from bamboost.mpi.utilities import RootProcessMeta
 from bamboost.plugins import ElligibleForPlugin
 
 if TYPE_CHECKING:
-    from bamboost.index.sqlmodel import CollectionORM
+    from bamboost.core.collection import Collection
     from bamboost.mpi import Comm
 
 __all__ = [
@@ -80,12 +94,78 @@ class _FilterKeys:
             "description",
             "status",
         )
-        return (*self.collection._orm.get_parameter_keys()[0], *metadata_keys)
+        return (*self.collection._record.get_parameter_keys()[0], *metadata_keys)
+
+
+@dataclass(frozen=False)
+class CollectionMetadataStore(CollectionMetadata, metaclass=RootProcessMeta):
+    _collection: Collection | None = field(
+        default=None, repr=False, compare=False, init=False
+    )
+    _comm: Communicator = field(
+        default_factory=Communicator, repr=False, compare=False, init=False
+    )
+
+    @classmethod
+    def from_dict(cls, data: dict[str, Any], *, _collection: Collection) -> Self:
+        obj = super().from_dict(data)
+        obj._collection = _collection
+        obj._comm = _collection._comm
+        # attempting to preserve the order of keys as in the yaml file
+        obj._keys_ordered = tuple(data.keys())  # type: ignore
+        return obj
+
+    def to_dict(self) -> dict[str, Any]:
+        d = super().to_dict()
+
+        # preserve the order of keys as in the yaml file
+        if hasattr(self, "_keys_ordered"):
+            order = self._keys_ordered  # type: ignore
+            d = {k: d[k] for k in order if k in d} | {
+                k: v for k, v in d.items() if k not in order
+            }
+        return d
+
+    def __getitem__(self, key: str) -> Any:
+        if key in self._extras:
+            return self._extras[key]
+        return getattr(self, key)
+
+    def _ipython_key_completions_(self):
+        return tuple(self._fields) + tuple(self._extras.keys())
+
+    def save(self) -> None:
+        file_path = self._collection.path.joinpath(
+            get_identifier_filename(self._collection.uid)
+        )
+        if not file_path:
+            raise RuntimeError("No path associated with this metadata.")
+
+        # update the metadata in the database
+        self._collection._index.upsert_collection(
+            self.uid, self._collection.path, self.to_dict()
+        )
+
+        # update the yaml file
+        with file_path.open("w") as f:
+            yaml.safe_dump(self.to_dict(), f, sort_keys=False, indent=2)
+
+    def update(self, data: dict[str, Any]) -> None:
+        """Update the instance with values from a dictionary, storing unknown fields in
+        the extras dictionary.
+
+        Args:
+            data: The input dictionary.
+        """
+        for k, v in data.items():
+            if k in self._fields:
+                setattr(self, k, v)
+            else:
+                self._extras[k] = v
 
 
 class Collection(ElligibleForPlugin):
-    """
-    Represents a collection of simulations in the bamboost framework.
+    """Represents a collection of simulations in the bamboost framework.
 
     The Collection class provides an interface for managing, querying, and manipulating
     a group of simulations stored in a directory, with support for filtering, indexing,
@@ -105,13 +185,6 @@ class Collection(ElligibleForPlugin):
             on initialization.
         filter: Optional filter to apply to the collection, returning a filtered view.
 
-    Attributes:
-        uid (CollectionUID): Unique identifier for the collection.
-        path (Path): Filesystem path to the collection directory.
-        df (pd.DataFrame): DataFrame view of the collection and its parameter space.
-        k (_FilterKeys): Helper for key completion and filtering.
-        FROZEN (bool): If True, the collection does not look for new simulations after initialization.
-
     Examples:
         >>> db = Collection("path/to/collection")
         >>> db.df  # DataFrame of the collection
@@ -119,10 +192,12 @@ class Collection(ElligibleForPlugin):
         >>> filtered = db.filter(db.k["param"] == 42)
     """
 
-    FROZEN = False  # TODO: If true, the collection doesn't look for new simulations after initialization
     uid: CollectionUID
+    """Unique identifier of the collection."""
     path: Path
+    """Path to the collection directory."""
     fromUID = _CollectionPicker()
+    """Helper for selecting collections by UID."""
     _comm = Communicator()
     _filter: Optional[Filter] = None
 
@@ -136,12 +211,14 @@ class Collection(ElligibleForPlugin):
         index_instance: Optional[Index] = None,
         sync_collection: bool = True,
         filter: Optional[Filter] = None,
+        sorter: Optional[Sorter] = None,
     ):
         assert path or uid, "Either path or uid must be provided."
         assert not (path and uid), "Only one of path or uid must be provided."
 
         self._index = index_instance or Index.default
         self._filter = filter
+        self._sorter = sorter
 
         # A key store with completion of all the parameters and metadata keys
         self.k = _FilterKeys(self)
@@ -179,33 +256,15 @@ class Collection(ElligibleForPlugin):
             # Wait for root process to finish syncing
             self._comm.barrier()
 
-    @property
-    def _orm(self) -> CollectionORM | FilteredCollection:
-        """
-        Returns the ORM (Object Relational Mapping) object for the collection.
-
-        If a filter is applied to the collection, returns a FilteredCollection
-        object that represents the filtered view. Otherwise, returns the base
-        CollectionORM object for the collection.
-
-        Returns:
-            CollectionORM or FilteredCollection: The ORM object representing the collection,
-            possibly filtered.
-        """
-        collection_orm = self._index.collection(self.uid)
-        if self._filter is None:
-            return collection_orm
-        return FilteredCollection(collection_orm, self._filter)
-
     def __len__(self) -> int:
-        return len(self._orm.simulations)
+        return len(self._record.simulations)
 
     def __getitem__(self, name_or_index: str | int) -> Simulation:
-        """
-        Retrieve a Simulation from the collection by name or index.
+        """Retrieve a Simulation from the collection by name or index.
 
         Args:
-            name_or_index: The name of the simulation (str) or its index (int) in the collection dataframe.
+            name_or_index: The name of the simulation (str) or its index (int) in the
+                collection dataframe.
 
         Returns:
             Simulation: The corresponding Simulation object.
@@ -224,9 +283,14 @@ class Collection(ElligibleForPlugin):
             name = name_or_index
         return Simulation(name, self.path, self._comm, collection_uid=self.uid)
 
+    def __iter__(self) -> Generator[Simulation, None, None]:
+        """Iterate over all simulations in the collection."""
+        for sim in self._record.simulations:
+            yield Simulation(sim.name, self.path, self._comm, collection_uid=self.uid)
+
     @cache
     def _ipython_key_completions_(self):
-        return tuple(s.name for s in self._orm.simulations)
+        return tuple(s.name for s in self._record.simulations)
 
     def _repr_html_(self) -> str:
         """HTML repr for ipython/notebooks, using jinja2 for templating."""
@@ -246,18 +310,60 @@ class Collection(ElligibleForPlugin):
         )
 
     @property
-    def df(self) -> pd.DataFrame:
-        """
-        Returns a pandas DataFrame representing the collection and its parameter space.
+    def _record(self) -> CollectionRecord:
+        """Returns the in-memory representation of the collection.
 
-        The DataFrame contains all simulations in the collection, including their parameters
-        and metadata. The table is sorted according to the user-specified key and order
-        in the configuration, if available.
+        If a filter is applied to the collection, returns a FilteredCollection
+        object that represents the filtered view. Otherwise, returns the base
+        CollectionRecord object for the collection.
+
+        Returns:
+            CollectionRecord or FilteredCollection: The object representing the collection,
+            possibly filtered.
+        """
+        collection_record = self._index.collection(self.uid)
+        assert collection_record is not None, "Collection not found in index."
+        return collection_record.filtered(self._filter, self._sorter)
+
+    @cached_property
+    def metadata(self) -> CollectionMetadataStore:
+        """Returns the metadata of the collection.
+
+        The metadata can include information such as the collection's UID,
+        creation date, tags, and aliases.
+
+        Returns:
+            CollectionMetadata: An object containing the collection's metadata.
+        """
+        data: dict[str, Any]
+
+        if self._comm.rank == 0:
+            data = load_collection_metadata(self.path, self.uid) or {}
+            data.setdefault("uid", str(self.uid))
+            data.setdefault("created_at", datetime.now())
+        else:
+            data = {}
+
+        data = self._comm.bcast(data, 0)
+
+        return CollectionMetadataStore.from_dict(data, _collection=self)
+
+    @property
+    def df(self) -> pd.DataFrame:
+        """Returns a pandas DataFrame representing the collection and its parameter space.
+
+        The DataFrame contains all simulations in the collection, including their
+        parameters and metadata. The table is sorted according to the user-specified key
+        and order in the configuration, if available.
 
         Returns:
             pd.DataFrame: DataFrame of the collection's simulations and parameters.
         """
-        df = self._orm.to_pandas()
+        df = self._record.to_pandas()
+
+        # apply filtering if necessary
+        if self._filter is not None:
+            df = cast(pd.DataFrame, self._filter.apply(df))
 
         # Try to sort the dataframe with the user specified key
         try:
@@ -273,11 +379,10 @@ class Collection(ElligibleForPlugin):
         return df
 
     def filter(self, *operators: Operator) -> Collection:
-        """
-        Returns a new Collection filtered by the given operators.
+        """Returns a new Collection filtered by the given operators.
 
-        This method applies the specified filter operators to the collection and returns
-        a new Collection instance representing the filtered view. The original collection
+        This method applies the specified filter operators to the collection and returns a
+        new Collection instance representing the filtered view. The original collection
         remains unchanged.
 
         Args:
@@ -298,26 +403,63 @@ class Collection(ElligibleForPlugin):
             comm=self._comm,
             index_instance=self._index,
             filter=Filter(*operators) & self._filter,
+            sorter=self._sorter,
+        )
+
+    def sort(self, key: _Key | str, ascending: bool = True) -> Collection:
+        """Returns a new Collection sorted by the given instructions.
+
+        This method applies the specified sort instructions to the collection and returns
+        a new Collection instance representing the sorted view. The original collection
+        remains unchanged.
+
+        Args:
+            key: A SortInstruction object or a string representing the parameter or
+                metadata key to sort by.
+            ascending: If True (default), sorts in ascending order. If False, sorts in
+                descending order.
+
+        Returns:
+            Collection: A new Collection instance with simulations sorted according to
+            the specified instructions.
+
+        Examples:
+            >>> sorted_collection = collection.sort(SortInstruction("param", ascending=False))
+        """
+        if isinstance(key, _Key):
+            key = key._value
+
+        if self._sorter is None:
+            new_sorter = Sorter(SortInstruction(key, ascending))
+        else:
+            new_sorter = self._sorter & Sorter(SortInstruction(key, ascending))
+
+        return Collection(
+            path=self.path,
+            create_if_not_exist=False,
+            sync_collection=False,
+            comm=self._comm,
+            index_instance=self._index,
+            filter=self._filter,
+            sorter=new_sorter,
         )
 
     def all_simulation_names(self) -> list[str]:
-        """
-        Returns a list of all simulation names in the collection.
+        """Returns a list of all simulation names in the collection.
 
         Returns:
             list[str]: A list containing the names of all simulations in the collection.
         """
-        return [sim.name for sim in self._orm.simulations]
+        return [sim.name for sim in self._record.simulations]
 
     def sync_cache(self, *, force_all: bool = False) -> None:
-        """
-        Synchronize the database for this collection.
+        """Synchronize the database for this collection.
 
-        This method updates the collection's cache by syncing the underlying
-        index and filesystem. It ensures that the collection's metadata and simulation
-        information are up to date. If `force_all` is True, a full rescan and update
-        of all simulations in the collection will be performed, regardless of their
-        current cache state.
+        This method updates the collection's cache by syncing the underlying index and
+        filesystem. It ensures that the collection's metadata and simulation information
+        are up to date. If `force_all` is True, a full rescan and update of all
+        simulations in the collection will be performed, regardless of their current cache
+        state.
 
         Args:
             force_all: If True, force a full resync of all simulations in the collection.
@@ -336,12 +478,13 @@ class Collection(ElligibleForPlugin):
         links: Optional[Dict[str, str]] = None,
         override: bool = False,
     ) -> SimulationWriter:
-        """
-        Create and initialize a new simulation in the collection, returning a SimulationWriter object.
+        """Create and initialize a new simulation in the collection, returning a
+        SimulationWriter object.
 
-        This method is designed for parallel use, such as in batch scripts or parameter sweeps,
-        where multiple simulations may be created concurrently. It handles creation of the simulation
-        directory, duplicate checking, copying files, and setting up metadata and parameters.
+        This method is designed for parallel use, such as in batch scripts or parameter
+        sweeps, where multiple simulations may be created concurrently. It handles
+        creation of the simulation directory, duplicate checking, copying files, and
+        setting up metadata and parameters.
 
         Args:
             name: The name/UID for the simulation. If not specified, a unique random ID
@@ -361,13 +504,15 @@ class Collection(ElligibleForPlugin):
             description: Optional description for the simulation.
             files: Optional iterable of file paths to copy into the simulation directory.
                 Each file will be copied with its original name.
-            links: Optional dictionary of symbolic links to create in the simulation directory,
-                mapping link names to target paths.
-            override: If True, overwrite any existing simulation with the same name.
-                If False (default), raises FileExistsError if a simulation with the same name exists.
+            links: Optional dictionary of symbolic links to create in the simulation
+                directory, mapping link names to target paths.
+            override: If True, overwrite any existing simulation with the same name. If
+                False (default), raises FileExistsError if a simulation with the same name
+                exists.
 
         Returns:
-            SimulationWriter: An object for writing data and metadata to the new simulation.
+            SimulationWriter: An object for writing data and metadata to the new
+            simulation.
 
         Raises:
             FileExistsError: If a simulation with the same name already exists and override is False.
@@ -381,8 +526,9 @@ class Collection(ElligibleForPlugin):
             >>> db.add(name="my_sim", parameters={"a": 1, "b": 2})
 
         Note:
-            - The files and links specified are copied or created in the simulation directory.
             - This method is safe for use in parallel (MPI) environments.
+            - Be cautious when using `duplicate_action="replace"` as it will delete
+              existing simulations with matching parameters, without asking again.
         """
         import shutil
 
@@ -476,18 +622,17 @@ class Collection(ElligibleForPlugin):
         return self.add(*args, **kwargs)
 
     def delete(self, name: str | Iterable[str]) -> None:
-        """
-        CAUTIOUS. Deletes one or more simulations from the collection.
+        """CAUTION. Deletes one or more simulations from the collection.
 
-        This method removes the specified simulation(s) from both the filesystem
-        and the index/database. It is a destructive operation and should be used
-        with caution.
+        This method removes the specified simulation(s) from both the filesystem and the
+        index/database. It is a destructive operation and should be used with caution.
 
         Args:
             name: Name of the simulation to delete, or an iterable of names.
 
         Raises:
-            ValueError: If any of the specified names are invalid or do not exist in the collection.
+            ValueError: If any of the specified names are invalid or do not exist in the
+                collection.
             PermissionError: If there is an error deleting the simulation directory.
 
         Examples:
@@ -523,20 +668,20 @@ class Collection(ElligibleForPlugin):
         self._comm.barrier()
 
     def find(self, parameter_selection: Mapping[str, Any]) -> pd.DataFrame:
-        """
-        Find simulations matching the given parameter selection.
+        """Find simulations matching the given parameter selection.
 
-        The parameter_selection dictionary can specify exact values for parameters,
-        or use callables (such as lambda functions) for more complex filtering,
-        such as inequalities or custom logic.
+        The parameter_selection dictionary can specify exact values for parameters, or use
+        callables (such as lambda functions) for more complex filtering, such as
+        inequalities or custom logic.
 
         Args:
-            parameter_selection: Dictionary mapping parameter names to values
-                or callables. If a value is a callable, it will be used as a filter function
+            parameter_selection: Dictionary mapping parameter names to values or
+                callables. If a value is a callable, it will be used as a filter function
                 applied to the corresponding parameter column.
 
         Returns:
-            pd.DataFrame: DataFrame containing simulations that match the specified criteria.
+            pd.DataFrame: DataFrame containing simulations that match the specified
+            criteria.
 
         Examples:
             >>> db.find({"a": 1, "b": lambda x: x > 2})
@@ -566,22 +711,23 @@ class Collection(ElligibleForPlugin):
     def _list_duplicates(
         self, parameters: Mapping, *, df: pd.DataFrame | None = None
     ) -> list[str]:
-        """
-        List the names (IDs) of simulations in the collection that have duplicate parameter values.
+        """List the names (IDs) of simulations in the collection that have duplicate
+        parameter values.
 
         Args:
-            parameters (dict): Parameter dictionary to check for duplicates. Keys are parameter names,
-                values are the values to match against existing simulations.
-            df (pd.DataFrame, optional): DataFrame to search in. If not provided, the
-                DataFrame from the SQL database is used.
+            parameters: Parameter dictionary to check for duplicates. Keys are parameter
+                names, values are the values to match against existing simulations.
+            df: DataFrame to search in. If not provided, the DataFrame from the SQL
+                database is used.
 
         Returns:
-            list[str]: List of simulation names (IDs) that have the same parameter values as provided.
+            list[str]: List of simulation names (IDs) that have the same parameter values
+            as provided.
         """
         import pandas as pd
 
         if df is None:
-            df = self._orm.to_pandas()
+            df = self._record.to_pandas()
         params = flatten_dict(parameters)
 
         class ComparableIterable:
@@ -607,8 +753,7 @@ class Collection(ElligibleForPlugin):
         return match.name.tolist()
 
     def _check_duplicate(self, parameters: Mapping) -> Literal[True]:
-        """
-        Check whether the given parameters dictionary already exists in the collection.
+        """Check whether the given parameters dictionary already exists in the collection.
         Returns True if no duplicates are found. Raises `DuplicateSimulationError` if
         duplicates are found.
 

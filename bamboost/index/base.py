@@ -25,7 +25,6 @@ from __future__ import annotations
 
 import fnmatch
 import os
-import subprocess
 import uuid
 from contextlib import contextmanager
 from datetime import datetime
@@ -46,23 +45,18 @@ from typing import (
     Type,
 )
 
-from sqlalchemy import Engine, create_engine, delete, event, select
+import yaml
+from sqlalchemy import Engine, create_engine, event, select
 from sqlalchemy.exc import SQLAlchemyError
-from sqlalchemy.orm import Session, joinedload, sessionmaker
+from sqlalchemy.orm import Session, sessionmaker
 from typing_extensions import Concatenate
 
 from bamboost import BAMBOOST_LOGGER, config, constants
 from bamboost._typing import _P, _T, SimulationMetadataT, SimulationParameterT, StrPath
 from bamboost.exceptions import InvalidCollectionError
-from bamboost.index.sqlmodel import (
-    CollectionORM,
-    ParameterORM,
-    SimulationORM,
-    create_all,
-    json_deserializer,
-    json_serializer,
-)
-from bamboost.mpi import MPI, Communicator
+from bamboost.index import store
+from bamboost.index.schema import collections_table, simulations_table
+from bamboost.mpi import Communicator
 from bamboost.mpi.utilities import RootProcessMeta
 from bamboost.utilities import PathSet
 
@@ -187,14 +181,16 @@ class Index(metaclass=RootProcessMeta):
 
     def _initialize_root_process(self, url: str) -> None:
         self._engine = create_engine(
-            url, json_serializer=json_serializer, json_deserializer=json_deserializer
+            url,
+            json_serializer=store.json_serializer,
+            json_deserializer=store.json_deserializer,
         )
 
         def _fk_pragma_on_connect(dbapi_con, _con_record):
             dbapi_con.execute("pragma foreign_keys=ON")
 
         event.listen(self._engine, "connect", _fk_pragma_on_connect)
-        create_all(self._engine)
+        store.create_all(self._engine)
         self._sm = sessionmaker(
             bind=self._engine, autobegin=False, expire_on_commit=False
         )
@@ -229,8 +225,9 @@ class Index(metaclass=RootProcessMeta):
             yield self._s
             self._s.commit()
         except SQLAlchemyError as e:
-            # self._s.rollback()  # Is this necessary?
             log.warning(f"Caching transaction failed: {e}")
+            self._s.rollback()
+            raise
         finally:
             self._s.close()  # Not decided yet if we should close the session
 
@@ -259,10 +256,18 @@ class Index(metaclass=RootProcessMeta):
             )
             if not found_collections:
                 continue
-            collections_data = [
-                {"uid": uid, "path": str(path)} for uid, path in found_collections
-            ]
-            self._s.execute(CollectionORM.upsert(collections_data))
+            collections_data: list[dict[str, Any]] = []
+            for found_uid, found_path in found_collections:
+                normalized_uid = found_uid.upper()
+                record: dict[str, Any] = {
+                    "uid": normalized_uid,
+                    "path": found_path.as_posix(),
+                }
+                metadata = load_collection_metadata(found_path, normalized_uid)
+                if metadata is not None:
+                    record.update(metadata)
+                collections_data.append(record)
+            self._s.execute(store.collections_upsert_stmt(collections_data))
             log.debug(f"Inserting found collections:\n{collections_data}")
             all_found_collections.extend(found_collections)
 
@@ -275,12 +280,34 @@ class Index(metaclass=RootProcessMeta):
         This method checks if the paths stored in the cache are valid. If a
         path is not valid, it is removed from the cache.
         """
-        for collection in self._s.execute(select(CollectionORM)).scalars().all():
-            if not _validate_path(Path(collection.path), collection.uid):
+        rows = self._s.execute(
+            select(collections_table.c.uid, collections_table.c.path)
+        ).all()
+        for uid, path in rows:
+            if not _validate_path(Path(path), uid):
                 log.info(
-                    f"Invalid collection path in cache: {collection.uid, collection.path} -> removing."
+                    "Invalid collection path in cache: %s -> removing.",
+                    (uid, path),
                 )
-                self._s.delete(collection)
+                self._s.execute(store.delete_collection_stmt(uid))
+
+    def _get_collection_record(self, identifier: str) -> store.CollectionRecord | None:
+        if not identifier:
+            return None
+
+        normalized_uid = identifier.upper()
+        collection = store.fetch_collection(self._s, normalized_uid)
+        if collection is not None:
+            return collection
+
+        alias_uid = self._find_collection_uid_by_alias(identifier)
+        if alias_uid is None:
+            return None
+
+        return store.fetch_collection(self._s, alias_uid)
+
+    def _find_collection_uid_by_alias(self, alias: str) -> str | None:
+        return store.fetch_collection_uid_by_alias(self._s, alias)
 
     @RootProcessMeta.bcast_result
     @_sql_transaction
@@ -300,17 +327,24 @@ class Index(metaclass=RootProcessMeta):
         Raises:
             FileNotFoundError: If the collection is not found in the search paths
         """
-        stored_path = self._get_collection_path(uid)
+        collection = self._get_collection_record(uid)
+        stored_path = (
+            Path(collection.path) if collection else self._get_collection_path(uid)
+        )
+        target_uid = collection.uid if collection else uid.upper()
 
-        if stored_path and _validate_path(stored_path, uid):
+        if stored_path and _validate_path(stored_path, target_uid):
             return stored_path
 
-        log.debug(f"No or invalid path found in cache for collection <{uid}>.")
+        log.debug(
+            "No or invalid path found in cache for collection <%s>.",
+            uid,
+        )
 
         # Try to find the collection in the search paths
         for root_dir in PathSet(search_paths) or self.search_paths:
             log.debug(f"Searching for collection <{uid}> in <{root_dir}>")
-            paths_found = _find_collection(uid, Path(root_dir))
+            paths_found = _find_collection(target_uid, Path(root_dir))
 
             if len(paths_found) > 0:  # If at least one file is found
                 if len(paths_found) > 1:
@@ -320,8 +354,9 @@ class Index(metaclass=RootProcessMeta):
                     )
 
                 # Store the collection in the cache
-                self.upsert_collection(uid, paths_found[0])
-                return paths_found[0]
+                found_path = paths_found[0]
+                self.upsert_collection(target_uid, found_path)
+                return found_path
 
         raise FileNotFoundError(f"Database with {uid} was not found.")
 
@@ -341,7 +376,9 @@ class Index(metaclass=RootProcessMeta):
         """
         path = Path(path)
         cached_uid: str | None = self._s.execute(
-            select(CollectionORM.uid).where(CollectionORM.path == path.as_posix())
+            select(collections_table.c.uid).where(
+                collections_table.c.path == path.as_posix()
+            )
         ).scalar()
         if cached_uid and _validate_path(path, cached_uid):
             return CollectionUID(cached_uid)
@@ -377,12 +414,12 @@ class Index(metaclass=RootProcessMeta):
             )
         )
 
-        collection = self._s.get(CollectionORM, uid)
+        collection = store.fetch_collection(self._s, uid)
 
         if collection:
             for simulation in collection.simulations:
                 if simulation.name not in all_simulations_fs:
-                    self._s.delete(simulation)
+                    self._s.execute(store.delete_simulation_stmt(uid, simulation.name))
                     continue
 
                 # if the HDF5 file has not been modified since the last sync,
@@ -405,88 +442,47 @@ class Index(metaclass=RootProcessMeta):
     @property
     @RootProcessMeta.bcast_result
     @_sql_transaction
-    def all_collections(self) -> Sequence[CollectionORM]:
-        """Return all collections in the index. Eagerly loads the simulations
-        and its parameters.
-        """
-        return (
-            self._s.execute(
-                select(CollectionORM).options(
-                    joinedload(CollectionORM.simulations).subqueryload(
-                        SimulationORM.parameters
-                    )
-                )
-            )
-            .unique()
-            .scalars()
-            .all()
-        )
+    def all_collections(self) -> Sequence[store.CollectionRecord]:
+        """Return all collections in the index."""
+        return store.fetch_collections(self._s)
 
     @RootProcessMeta.bcast_result
     @_sql_transaction
-    def collection(self, uid: str) -> CollectionORM | None:
+    def collection(self, uid: str) -> store.CollectionRecord | None:
         """Return a collection from the index.
 
         Args:
             uid: UID of the collection
         """
         log.debug("Fetching collection from cache.")
-        return (
-            self._s.execute(
-                select(CollectionORM)
-                .where(CollectionORM.uid == uid)
-                .options(
-                    joinedload(CollectionORM.simulations).subqueryload(
-                        SimulationORM.parameters
-                    )
-                )
-            )
-            .unique()
-            .scalar()
-        )
+        return self._get_collection_record(uid)
 
     @property
     @RootProcessMeta.bcast_result
     @_sql_transaction
-    def all_simulations(self) -> Sequence[SimulationORM]:
-        """Return all simulations in the index. Eagerly loads the parameters."""
-        return (
-            self._s.execute(
-                select(SimulationORM).options(joinedload(SimulationORM.parameters))
-            )
-            .unique()
-            .scalars()
-            .all()
-        )
+    def all_simulations(self) -> Sequence[store.SimulationRecord]:
+        """Return all simulations in the index."""
+        return store.fetch_simulations(self._s)
 
     @RootProcessMeta.bcast_result
     @_sql_transaction
-    def simulation(self, collection_uid: str, name: str) -> SimulationORM | None:
+    def simulation(
+        self, collection_uid: str, name: str
+    ) -> store.SimulationRecord | None:
         """Return a simulation from the index.
 
         Args:
             collection_uid: UID of the collection
             name: Name of the simulation
         """
-        return (
-            self._s.execute(
-                select(SimulationORM)
-                .where(
-                    SimulationORM.collection_uid == collection_uid,
-                    SimulationORM.name == name,
-                )
-                .options(joinedload(SimulationORM.parameters))
-            )
-            .unique()
-            .scalar()
-        )
+        return store.fetch_simulation(self._s, collection_uid, name)
 
     @property
     @RootProcessMeta.bcast_result
     @_sql_transaction
-    def all_parameters(self) -> Sequence[ParameterORM]:
+    def all_parameters(self) -> Sequence[store.ParameterRecord]:
         """Return all parameters in the index."""
-        return self._s.execute(select(ParameterORM)).scalars().all()
+        return store.fetch_parameters(self._s)
 
     @_sql_transaction
     def _drop_collection(self, uid: str) -> None:
@@ -495,7 +491,7 @@ class Index(metaclass=RootProcessMeta):
         Args:
             uid: UID of the collection
         """
-        self._s.execute(delete(CollectionORM).where(CollectionORM.uid == uid))
+        self._s.execute(store.delete_collection_stmt(uid))
 
     @_sql_transaction
     def _drop_simulation(self, collection_uid: str, simulation_name: str) -> None:
@@ -505,21 +501,25 @@ class Index(metaclass=RootProcessMeta):
             collection_uid: UID of the collection
             simulation_name: Name of the simulation
         """
-        stmt = delete(SimulationORM).where(
-            SimulationORM.collection_uid == collection_uid,
-            SimulationORM.name == simulation_name,
-        )
-        self._s.execute(stmt)
+        self._s.execute(store.delete_simulation_stmt(collection_uid, simulation_name))
 
     @_sql_transaction
-    def upsert_collection(self, uid: str, path: Path) -> None:
+    def upsert_collection(
+        self, uid: str, path: Path, metadata: Optional[Mapping[str, Any]] = None
+    ) -> None:
         """Cache a collection in the index.
 
         Args:
             uid: UID of the collection
             path: Path of the collection
         """
-        self._s.execute(CollectionORM.upsert({"uid": uid, "path": path.as_posix()}))
+        record: dict[str, Any] = {"uid": uid.upper(), "path": path.as_posix()}
+        normalized_uid = record["uid"]
+        metadata_mapping = metadata or load_collection_metadata(path, normalized_uid)
+        if metadata_mapping is not None:
+            record.update(_normalize_collection_metadata(metadata_mapping))
+
+        self._s.execute(store.collections_upsert_stmt(record))
 
     @_sql_transaction
     def upsert_simulation(
@@ -558,27 +558,23 @@ class Index(metaclass=RootProcessMeta):
                 metadata, parameters = sim.metadata._dict, sim.parameters._dict
 
         # Upsert the simulation table
+        sim_payload = {
+            "collection_uid": collection_uid,
+            "name": simulation_name,
+            "modified_at": datetime.now(),
+            **(metadata or {}),
+        }
         sim_id = self._s.execute(
-            SimulationORM.upsert(
-                {
-                    "collection_uid": collection_uid,
-                    "name": simulation_name,
-                    "modified_at": datetime.now(),
-                    **(metadata or {}),
-                }
-            )
+            store.simulations_upsert_stmt(sim_payload)
         ).scalar_one()
 
         # Upsert the parameters table
         if parameters:
-            self._s.execute(
-                ParameterORM.upsert(
-                    [
-                        {"simulation_id": sim_id, "key": k, "value": v}
-                        for k, v in parameters.items()
-                    ]
-                )
-            )
+            parameter_payload = [
+                {"simulation_id": sim_id, "key": key, "value": value}
+                for key, value in parameters.items()
+            ]
+            self._s.execute(store.parameters_upsert_stmt(parameter_payload))
 
     @_sql_transaction
     def update_simulation_metadata(
@@ -589,11 +585,8 @@ class Index(metaclass=RootProcessMeta):
         Args:
             data: Dictionary with new data
         """
-        self._s.execute(
-            SimulationORM.upsert(
-                {"collection_uid": collection_uid, "name": simulation_name, **data}
-            )
-        )
+        payload = {"collection_uid": collection_uid, "name": simulation_name, **data}
+        self._s.execute(store.simulations_upsert_stmt(payload))
 
     @_sql_transaction
     def update_simulation_parameters(
@@ -608,20 +601,17 @@ class Index(metaclass=RootProcessMeta):
             parameters: Dictionary with new parameters
         """
         sim_id = self._s.execute(
-            select(SimulationORM.id).where(
-                SimulationORM.collection_uid == collection_uid,
-                SimulationORM.name == simulation_name,
+            select(simulations_table.c.id).where(
+                simulations_table.c.collection_uid == collection_uid,
+                simulations_table.c.name == simulation_name,
             )
         ).scalar_one()
 
-        self._s.execute(
-            ParameterORM.upsert(
-                [
-                    {"simulation_id": sim_id, "key": k, "value": v}
-                    for k, v in parameters.items()
-                ]
-            )
-        )
+        parameter_payload = [
+            {"simulation_id": sim_id, "key": key, "value": value}
+            for key, value in parameters.items()
+        ]
+        self._s.execute(store.parameters_upsert_stmt(parameter_payload))
 
     @RootProcessMeta.bcast_result
     @_sql_transaction
@@ -630,58 +620,153 @@ class Index(metaclass=RootProcessMeta):
         uid: str,
     ) -> Optional[Path]:
         res = self._s.execute(
-            select(CollectionORM.path).where(CollectionORM.uid == uid)
+            select(collections_table.c.path).where(
+                collections_table.c.uid == uid.upper()
+            )
         ).scalar()
-        return Path(res) if res else None
+        if res:
+            return Path(res)
+
+        alias_uid = self._find_collection_uid_by_alias(uid)
+        if alias_uid:
+            alias_path = self._s.execute(
+                select(collections_table.c.path).where(
+                    collections_table.c.uid == alias_uid
+                )
+            ).scalar()
+            if alias_path:
+                return Path(alias_path)
+        return None
 
     @RootProcessMeta.bcast_result
     @_sql_transaction
-    def _get_collections(self) -> Sequence[CollectionORM]:
-        return self._s.execute(select(CollectionORM)).scalars().all()
+    def _get_collections(self) -> Sequence[store.CollectionRecord]:
+        return store.fetch_collections(self._s)
 
     @RootProcessMeta.bcast_result
     @_sql_transaction
     def _get_simulation(
         self, collection_uid: CollectionUID | str, simulation_name: str
-    ) -> SimulationORM | None:
-        return self._s.execute(
-            select(SimulationORM)
-            .where(
-                SimulationORM.collection_uid == collection_uid,
-                SimulationORM.name == simulation_name,
-            )
-            .options(joinedload(SimulationORM.parameters))
-        ).scalar()
+    ) -> store.SimulationRecord | None:
+        return store.fetch_simulation(self._s, collection_uid, simulation_name)
 
 
-def simulation_metadata_from_h5(
-    file: Path,
-) -> Tuple[SimulationMetadataT, SimulationParameterT]:
-    """Extract metadata and parameters from a BAMBOOST simulation HDF5 file.
-
-    Reads the metadata and parameters from the HDF5 file and returns them as a
-    tuple.
+def load_collection_metadata(path: Path, uid: str) -> dict[str, Any] | None:
+    """Load the metadata of a collection from its identifier file.
 
     Args:
-        file: Path to the HDF5 file.
+        path: Path to the collection directory
+        uid: UID of the collection
     """
-    if not file.is_file():
-        raise FileNotFoundError(f"File not found: {file}")
+    metadata_file = Path(path).joinpath(get_identifier_filename(uid))
+    if not metadata_file.exists():
+        return None
 
-    from bamboost.core.hdf5.file import HDF5File
+    try:
+        raw = yaml.safe_load(metadata_file.read_text())
+    except FileNotFoundError:
+        return None
+    except Exception as exc:  # pragma: no cover - defensive logging
+        log.debug(
+            "Failed to load metadata for collection %s from %s: %s",
+            uid,
+            metadata_file,
+            exc,
+        )
+        raise Exception(
+            f"Failed to load metadata for collection {uid} (file: {metadata_file})"
+        ) from exc
 
-    with HDF5File(file).open("r") as f:
-        meta: SimulationMetadataT = {
-            "created_at": datetime.fromisoformat(f.attrs.get("created_at", 0))
-            if f.attrs.get("created_at")
-            else datetime.now(),
-            "modified_at": datetime.fromtimestamp(file.stat().st_mtime),
-            "description": f.attrs.get("notes", ""),
-            "status": f.attrs.get("status", ""),
-        }
-        params: SimulationParameterT = dict(f["parameters"].attrs)
+    if raw is None:
+        raw = {}
 
-        return meta, params
+    if not isinstance(raw, Mapping):
+        log.debug("Unexpected metadata format for collection %s: %r", uid, raw)
+        raise TypeError(
+            f"Unexpected metadata format for collection {uid}: {type(raw)}. "
+            "Revise the identifier/metadata file."
+        )
+
+    return _normalize_collection_metadata(raw)
+
+
+def _normalize_collection_metadata(data: Mapping[str, Any]) -> dict[str, Any]:
+    """Normalize the metadata of a collection.
+
+    This also handles backward compatibility for the "Date of creation" field.
+
+    Args:
+        data: The raw metadata dictionary.
+    """
+    metadata: dict[str, Any] = dict(**data)
+
+    created_at_value = None
+    # "Date of creation" is for backward compatibility only
+    # we will write "created_at" from now on
+    for key in ("created_at", "Date of creation"):
+        if key in data and data[key] is not None:
+            created_at_value = data[key]
+            break
+
+    parsed_created_at = _parse_datetime_value(created_at_value)
+    if parsed_created_at is not None:
+        metadata["created_at"] = parsed_created_at
+
+    if tags := data.get("tags"):
+        metadata["tags"] = _deduplicate_sequence(tags)
+    if aliases := data.get("aliases"):
+        metadata["aliases"] = _deduplicate_sequence(aliases, casefold=True)
+
+    return metadata
+
+
+def _deduplicate_sequence(values: Any, *, casefold: bool = False) -> list[str]:
+    """Deduplicate a sequence of strings.
+
+    Args:
+        values: The sequence of strings to deduplicate.
+        casefold: Whether to ignore case when deduplicating.
+    """
+    if values is None:
+        iterable: Iterable[Any] = []
+    elif isinstance(values, (str, bytes)):
+        iterable = [values]
+    else:
+        try:
+            iterable = list(values)
+        except TypeError:
+            iterable = [values]
+
+    seen: set[str] = set()
+    result: list[str] = []
+
+    for value in iterable:
+        text = str(value).strip()
+        if not text:
+            continue
+
+        key = text.casefold() if casefold else text
+        if key in seen:
+            continue
+
+        seen.add(key)
+        result.append(text)
+
+    return result
+
+
+def _parse_datetime_value(value: Any) -> datetime | None:
+    if isinstance(value, datetime):
+        return value
+    if isinstance(value, str):
+        candidate = value.strip()
+        if not candidate:
+            return None
+        try:
+            return datetime.fromisoformat(candidate)
+        except ValueError:
+            return None
+    return None
 
 
 def create_identifier_file(path: StrPath, uid: str) -> None:

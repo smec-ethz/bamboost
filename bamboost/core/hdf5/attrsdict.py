@@ -151,11 +151,8 @@ class AttrsDict(H5Object[_MT], Mapping):
     def __len__(self):
         return len(self._dict)
 
-    def __repr__(self) -> str:
-        return self._dict.__repr__()
-
     def __str__(self) -> str:
-        return f"<AttrsDict(path={self._path})>"
+        return f"{self.__class__.__name__}({self._dict.__repr__()})"
 
     def _repr_pretty_(self, p, cycle):
         cls_name = type(self).__name__

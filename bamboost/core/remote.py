@@ -21,7 +21,7 @@ from pathlib import Path
 from typing import TYPE_CHECKING, Callable, Optional, cast
 
 from sqlalchemy import create_engine
-from sqlalchemy.orm import remote, sessionmaker
+from sqlalchemy.orm import sessionmaker
 
 from bamboost import BAMBOOST_LOGGER, _config, constants
 from bamboost._config import config
@@ -33,7 +33,7 @@ from bamboost.index.base import (
     create_identifier_file,
     get_identifier_filename,
 )
-from bamboost.index.sqlmodel import json_deserializer, json_serializer
+from bamboost.index.store import json_deserializer, json_serializer
 from bamboost.utilities import PathSet
 
 if TYPE_CHECKING:
@@ -92,7 +92,9 @@ class Remote(Index):
     """
 
     DATABASE_BASE_NAME = "bamboost.sqlite"
-    DATABASE_REMOTE_PATH = Path(_config._LOCAL_DIR).joinpath(_config.DATABASE_FILE_NAME)
+    DATABASE_REMOTE_PATH = Path(_config._LOCAL_DIR).joinpath(
+        constants.DEFAULT_DATABASE_FILE_NAME
+    )
     WORKSPACE_SPLITTER = "_WS_"
 
     def __init__(

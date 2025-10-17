@@ -10,4 +10,4 @@ def test_local_dir_created_for_database(tmp_path, monkeypatch):
     index_config = _config._IndexOptions.from_dict({})
 
     assert local_dir.exists()
-    assert index_config.databaseFile == local_dir / _config.DATABASE_FILE_NAME
+    assert index_config.databaseFile == local_dir / _config.DEFAULT_DATABASE_FILE_NAME

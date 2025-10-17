@@ -40,11 +40,11 @@ from bamboost.core.simulation.dict import Links, Metadata, Parameters
 from bamboost.core.simulation.groups import GroupGit, GroupMesh, GroupMeshes
 from bamboost.core.simulation.series import Series
 from bamboost.index import CollectionUID, Index
-from bamboost.index.sqlmodel import SimulationORM
 from bamboost.mpi import MPI_ON, Communicator
 from bamboost.utilities import StrPath
 
 if TYPE_CHECKING:
+    from bamboost.index.store import SimulationRecord
     from bamboost.mpi import Comm
 
 
@@ -188,8 +188,7 @@ class _Simulation(H5Object[_MT], ABC):
         self._ranks = np.array([i for i in range(self._psize)])
 
         # Reference to the database
-        # 06.03.2025: Maybe use the default index instance instead of a new one...
-        self._index: Index = index or Index(comm=self._comm)
+        self._index: Index = index or Index.default
 
         # Shortcut to collection uid if available, otherwise resolve it
         self.collection_uid: CollectionUID = kwargs.pop(
@@ -271,7 +270,7 @@ class _Simulation(H5Object[_MT], ABC):
         return self._file.mutable
 
     @property
-    def _orm(self) -> SimulationORM:
+    def _orm(self) -> SimulationRecord | None:
         return self._index.simulation(self.collection_uid, self.name)
 
     @classmethod

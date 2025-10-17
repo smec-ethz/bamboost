@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from subprocess import CalledProcessError
-from typing import TYPE_CHECKING, TypedDict, cast
+from typing import TYPE_CHECKING, Any, Mapping, TypedDict, cast
 
 import numpy as np
 
@@ -129,7 +129,7 @@ class GroupGit(Group[_MT]):
 
 
 class GitItem:
-    def __init__(self, name: str, attrs: dict[str, str], patch: bytes):
+    def __init__(self, name: str, attrs: Mapping[str, Any], patch: bytes):
         self.name = name
         status: _GitStatus = cast(_GitStatus, attrs)
         self.branch = status["branch"]

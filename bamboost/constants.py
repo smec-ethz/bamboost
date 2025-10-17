@@ -20,3 +20,7 @@ DEFAULT_MESH_NAME = "default"
 TABLENAME_COLLECTIONS = "collections"
 TABLENAME_SIMULATIONS = "simulations"
 TABLENAME_PARAMETERS = "parameters"
+
+# Config constants
+DEFAULT_CONFIG_FILE_NAME = "config.toml"
+DEFAULT_DATABASE_FILE_NAME = "bamboost.0.11.sqlite"

@@ -24,6 +24,7 @@ dependencies = [
     "jinja2>=3.1.5",
     "lazy-loader>=0.4",
     "typer>=0.15.2",
+    "pyyaml>=6.0.3",
 ]
 
 [project.urls]
@@ -86,3 +87,9 @@ exclude = [
 reportOptionalMemberAccess = false
 reportOptionalSubscript = false
 reportIncompatibleMethodOverride = false
+
+[tool.coverage.run]
+source = ["bamboost"]
+omit = [
+    "bamboost/cli/*",
+]
