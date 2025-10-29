@@ -474,7 +474,7 @@ class Collection(ElligibleForPlugin):
         *,
         duplicate_action: Literal["ignore", "replace", "skip", "raise"] = "raise",
         description: Optional[str] = None,
-        files: Optional[Iterable[str]] = None,
+        files: Optional[Iterable[StrPath]] = None,
         links: Optional[Dict[str, str]] = None,
         override: bool = False,
     ) -> SimulationWriter:
