@@ -24,3 +24,7 @@ TABLENAME_PARAMETERS = "parameters"
 # Config constants
 DEFAULT_CONFIG_FILE_NAME = "config.toml"
 DEFAULT_DATABASE_FILE_NAME = "bamboost.0.11.sqlite"
+LEGACY_DATABASE_FILE_NAMES = {
+    "0.11": "bamboost.0.11.sqlite",
+    "0.10": "bamboost.sqlite",
+}

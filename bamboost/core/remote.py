@@ -27,7 +27,7 @@ from bamboost import BAMBOOST_LOGGER, _config, constants
 from bamboost._config import config
 from bamboost.core.collection import Collection, _FilterKeys
 from bamboost.core.simulation.base import Simulation
-from bamboost.index._filtering import Filter, Operator
+from bamboost.index._filtering import Filter, Operator, Sorter
 from bamboost.index.base import (
     CollectionUID,
     Index,
@@ -92,7 +92,6 @@ class Remote(Index):
         _s: SQLAlchemy session.
     """
 
-    DATABASE_BASE_NAME = "bamboost.sqlite"
     DATABASE_REMOTE_PATH = Path(_config._LOCAL_DIR).joinpath(
         constants.DEFAULT_DATABASE_FILE_NAME
     )
@@ -137,7 +136,7 @@ class Remote(Index):
                 self._workspace_path = cast(str, meta["workspace_path"])
 
             self._remote_database_path = Path(self._workspace_path).joinpath(
-                ".bamboost_cache", self.DATABASE_BASE_NAME
+                ".bamboost_cache", constants.DEFAULT_DATABASE_FILE_NAME
             )
 
         # Create the local path if it doesn't exist
@@ -242,7 +241,8 @@ class RemoteCollection(Collection):
         uid: str,
         remote: Remote,
         *,
-        filter: Optional[Filter] = None,
+        filter: Filter | None = None,
+        sorter: Sorter | None = None,
     ):
         self.uid = CollectionUID(uid)
         self._index = remote
@@ -262,6 +262,7 @@ class RemoteCollection(Collection):
             create_identifier_file(self.path, self.uid)
 
         self._filter = filter
+        self._sorter = sorter
 
     def _repr_html_(self) -> str:
         import pkgutil

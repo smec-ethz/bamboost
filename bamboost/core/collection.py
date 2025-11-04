@@ -199,7 +199,8 @@ class Collection(ElligibleForPlugin):
     fromUID = _CollectionPicker()
     """Helper for selecting collections by UID."""
     _comm = Communicator()
-    _filter: Optional[Filter] = None
+    _filter: Filter | None = None
+    _sorter: Sorter | None = None
 
     def __init__(
         self,
