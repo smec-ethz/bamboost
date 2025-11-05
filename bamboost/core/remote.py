@@ -97,6 +97,10 @@ class Remote(Index):
     )
     WORKSPACE_SPLITTER = "_WS_"
 
+    @staticmethod
+    def _make_local_db_name(id: str, version: str | None = "0.11") -> str:
+        return f"{id}.{version}.sqlite"
+
     def __init__(
         self,
         remote_url: str,
@@ -141,7 +145,9 @@ class Remote(Index):
 
         # Create the local path if it doesn't exist
         self._local_path.mkdir(parents=True, exist_ok=True)
-        self._local_database_path = cache_dir.joinpath(f"{self.id}.sqlite")
+        self._local_database_path = cache_dir.joinpath(
+            self._make_local_db_name(self.id, "0.11")
+        )
 
         # super init
         self.search_paths = PathSet([self._local_path])
