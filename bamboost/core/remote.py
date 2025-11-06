@@ -315,15 +315,22 @@ class RemoteCollection(Collection):
         self._sorter = sorter
 
     def _repr_html_(self) -> str:
+        """HTML repr for ipython/notebooks, using jinja2 for templating."""
         import pkgutil
+
+        from jinja2 import Template
 
         html_string = pkgutil.get_data("bamboost", "_repr/manager.html").decode()
         icon = pkgutil.get_data("bamboost", "_repr/icon.txt").decode()
-        return (
-            html_string.replace("$ICON", icon)
-            .replace("$db_path", f"<a href={self.path.as_posix()}>{self.path}</a>")
-            .replace("$db_uid", f"{self.uid} [from {self._index._remote_url}]")
-            .replace("$db_size", str(len(self)))
+        template = Template(html_string)
+
+        return template.render(
+            icon=icon,
+            db_path=f"<a href={self.path.as_posix()}>{self.path}</a>",
+            db_uid=f"{self.uid} ({self._index._remote_url})",
+            db_size=len(self),
+            _filter=self._filter,
+            _sort=self._sorter,
         )
 
     def __getitem__(self, name_or_idx: str | int) -> RemoteSimulation:

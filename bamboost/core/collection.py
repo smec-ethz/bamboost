@@ -306,8 +306,8 @@ class Collection(ElligibleForPlugin):
             db_path=f"<a href={self.path.as_posix()}>{self.path}</a>",
             db_uid=self.uid,
             db_size=len(self),
-            filtered=self._filter is not None,
-            filter=str(self._filter),
+            _filter=self._filter,
+            _sort=self._sorter,
         )
 
     def _replace(self, **changes) -> Self:
