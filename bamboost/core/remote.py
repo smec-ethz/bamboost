@@ -335,13 +335,6 @@ class RemoteCollection(Collection):
             name, self.path, collection_uid=self.uid, index=self._index, comm=self._comm
         )
 
-    def filter(self, *operators: Operator) -> RemoteCollection:
-        return self.__class__(
-            self.uid,
-            self._index,
-            filter=Filter(*operators) & self._filter,
-        )
-
     @property
     def df(self) -> DataFrame:
         df = super().df
