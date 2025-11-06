@@ -155,8 +155,8 @@ class Remote(Index):
 
         # Fetch the remote database
         if not skip_fetch:
-            process = self.fetch_remote_database()
-            process.wait()
+            # this is a blocking call to rsync
+            self.fetch_remote_database()
 
         self._engine = create_engine(
             self._url,
@@ -181,21 +181,65 @@ class Remote(Index):
             skip_fetch=True,
         )
 
-    def fetch_remote_database(
-        self,
+    def _fetch_remote_database(
+        self, db_name: str, destination: StrPath | None = None
     ) -> subprocess.Popen:
-        """Fetch the remote SQL database."""
+        """Fetch the remote SQL database using rsync.
+
+        Args:
+            db_name (str): The name of the database file to fetch.
+            destination (StrPath): The local destination path for the database file.
+
+        Returns:
+            subprocess.Popen: The Popen object for the rsync process.
+        """
         return subprocess.Popen(
             [
                 "rsync",
                 "-av",
-                f"{self._remote_url}:{self._remote_database_path}",
-                str(self._local_database_path),
+                f"{self._remote_url}:{Path(_config._LOCAL_DIR).joinpath(db_name)}",
+                str(destination or self._local_database_path),
             ],
             stdout=subprocess.PIPE,
             stderr=subprocess.STDOUT,
             text=True,
         )
+
+    def fetch_remote_database(
+        self,
+        *,
+        migrate_from: str | None = None,
+    ) -> None:
+        """Fetch the remote SQL database."""
+
+        if migrate_from is not None:
+            from bamboost.index.versioning import Version, migrate_database
+
+            source_version = Version.from_str(migrate_from)
+            # raises ValueError if invalid
+
+            cache_dir = Path(config.paths.cacheDir)
+            tmp_dir = cache_dir.joinpath(".tmp")
+            tmp_dir.mkdir(parents=True, exist_ok=True)
+            tmp_db_path = tmp_dir.joinpath(
+                self._make_local_db_name(self.id, migrate_from)
+            )
+            p = self._fetch_remote_database(
+                source_version.database_file_name, tmp_db_path
+            )
+            p.wait()
+
+            migrate_database(
+                source_version,
+                Version.latest(),
+                source_db=tmp_db_path,
+                destination_db=self._local_database_path,
+                update=True,
+            )
+
+        else:
+            p = self._fetch_remote_database(str(self._remote_database_path))
+            p.wait()
 
     def rsync(self, source: StrPath, dest: StrPath) -> subprocess.Popen:
         """Synchronize data from the remote server to the local cache using rsync.
