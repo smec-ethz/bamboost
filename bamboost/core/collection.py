@@ -368,12 +368,13 @@ class Collection(ElligibleForPlugin):
 
         # Try to sort the dataframe with the user specified key
         try:
-            df.sort_values(
-                config.options.sortTableKey,
-                inplace=True,
-                ascending=config.options.sortTableOrder == "asc",
-                ignore_index=True,
-            )
+            if self._sorter is None:
+                df.sort_values(
+                    config.options.sortTableKey,
+                    inplace=True,
+                    ascending=config.options.sortTableOrder == "asc",
+                    ignore_index=True,
+                )
         except KeyError:
             pass
 
