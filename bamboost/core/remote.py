@@ -224,10 +224,9 @@ class Remote(Index):
             tmp_db_path = tmp_dir.joinpath(
                 self._make_local_db_name(self.id, migrate_from)
             )
-            p = self._fetch_remote_database(
+            stream_popen_output(self._fetch_remote_database)(
                 source_version.database_file_name, tmp_db_path
             )
-            p.wait()
 
             migrate_database(
                 source_version,
@@ -238,8 +237,9 @@ class Remote(Index):
             )
 
         else:
-            p = self._fetch_remote_database(str(self._remote_database_path))
-            p.wait()
+            stream_popen_output(self._fetch_remote_database)(
+                str(self._remote_database_path)
+            )
 
     def rsync(self, source: StrPath, dest: StrPath) -> subprocess.Popen:
         """Synchronize data from the remote server to the local cache using rsync.
@@ -286,6 +286,8 @@ class Remote(Index):
 
 
 class RemoteCollection(Collection):
+    _index: Remote
+
     def __init__(
         self,
         uid: str,
@@ -376,6 +378,9 @@ class RemoteCollection(Collection):
 
 
 class RemoteSimulation(Simulation):
+    _index: Remote
+    remote_path: Path
+
     def __init__(
         self,
         name: str,
@@ -385,6 +390,22 @@ class RemoteSimulation(Simulation):
         comm: Optional[Comm] = None,
         **kwargs,
     ):
+        # if there is no local path, sync it from remote
+        # assumes that this is the first time accessing the simulation
+        # initialization of base Simulation requires the path to exist
+        # (including the data.h5 file)
+        path = index.get_local_path(collection_uid).joinpath(name)
+        self.remote_path: Path = index._get_collection_path(collection_uid).joinpath(
+            name
+        )
+        if not path.exists() or not path.joinpath("data.h5").exists():
+            log.info(
+                f"Local simulation '{name}' not found in collection '{collection_uid}'. "
+                "Syncing from remote..."
+            )
+            stream_popen_output(index.rsync)(self.remote_path, path.parent)
+
+        # call super init which requires the path to exist otherwise it will raise FileNotFoundError
         super().__init__(
             name,
             parent,
@@ -393,19 +414,6 @@ class RemoteSimulation(Simulation):
             collection_uid=collection_uid,
             **kwargs,
         )
-        self.name: str = name
-        self.path: Path = index.get_local_path(collection_uid).joinpath(name)
-        self.remote_path: Path = index._get_collection_path(collection_uid).joinpath(
-            name
-        )
-        self.collection_uid = collection_uid
-
-        # Reference to the database
-        self._index: Remote = index
-
-        self._data_file: Path = self.path.joinpath(constants.HDF_DATA_FILE_NAME)
-        self._xdmf_file: Path = self.path.joinpath(constants.XDMF_FILE_NAME)
-        self._bash_file: Path = self.path.joinpath(constants.RUN_FILE_NAME)
 
     @property
     def uid(self) -> str:
