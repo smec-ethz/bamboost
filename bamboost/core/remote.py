@@ -25,8 +25,9 @@ from sqlalchemy.orm import sessionmaker
 
 from bamboost import BAMBOOST_LOGGER, _config, constants
 from bamboost._config import config
-from bamboost.core.collection import Collection
+from bamboost.core.collection import Collection, _FilterKeys
 from bamboost.core.simulation.base import Simulation
+from bamboost.index._filtering import Filter, Sorter
 from bamboost.index.base import (
     CollectionUID,
     Index,
@@ -91,11 +92,14 @@ class Remote(Index):
         _s: SQLAlchemy session.
     """
 
-    DATABASE_BASE_NAME = "bamboost.sqlite"
     DATABASE_REMOTE_PATH = Path(_config._LOCAL_DIR).joinpath(
         constants.DEFAULT_DATABASE_FILE_NAME
     )
     WORKSPACE_SPLITTER = "_WS_"
+
+    @staticmethod
+    def _make_local_db_name(id: str, version: str | None = "0.11") -> str:
+        return f"{id}.{version}.sqlite"
 
     def __init__(
         self,
@@ -136,12 +140,14 @@ class Remote(Index):
                 self._workspace_path = cast(str, meta["workspace_path"])
 
             self._remote_database_path = Path(self._workspace_path).joinpath(
-                ".bamboost_cache", self.DATABASE_BASE_NAME
+                ".bamboost_cache", constants.DEFAULT_DATABASE_FILE_NAME
             )
 
         # Create the local path if it doesn't exist
         self._local_path.mkdir(parents=True, exist_ok=True)
-        self._local_database_path = cache_dir.joinpath(f"{self.id}.sqlite")
+        self._local_database_path = cache_dir.joinpath(
+            self._make_local_db_name(self.id, "0.11")
+        )
 
         # super init
         self.search_paths = PathSet([self._local_path])
@@ -149,8 +155,8 @@ class Remote(Index):
 
         # Fetch the remote database
         if not skip_fetch:
-            process = self.fetch_remote_database()
-            process.wait()
+            # this is a blocking call to rsync
+            self.fetch_remote_database()
 
         self._engine = create_engine(
             self._url,
@@ -175,21 +181,65 @@ class Remote(Index):
             skip_fetch=True,
         )
 
-    def fetch_remote_database(
-        self,
+    def _fetch_remote_database(
+        self, db_name: str, destination: StrPath | None = None
     ) -> subprocess.Popen:
-        """Fetch the remote SQL database."""
+        """Fetch the remote SQL database using rsync.
+
+        Args:
+            db_name (str): The name of the database file to fetch.
+            destination (StrPath): The local destination path for the database file.
+
+        Returns:
+            subprocess.Popen: The Popen object for the rsync process.
+        """
         return subprocess.Popen(
             [
                 "rsync",
                 "-av",
-                f"{self._remote_url}:{self._remote_database_path}",
-                str(self._local_database_path),
+                f"{self._remote_url}:{Path(_config._LOCAL_DIR).joinpath(db_name)}",
+                str(destination or self._local_database_path),
             ],
             stdout=subprocess.PIPE,
             stderr=subprocess.STDOUT,
             text=True,
         )
+
+    def fetch_remote_database(
+        self,
+        *,
+        migrate_from: str | None = None,
+    ) -> None:
+        """Fetch the remote SQL database."""
+
+        if migrate_from is not None:
+            from bamboost.index.versioning import Version, migrate_database
+
+            source_version = Version.from_str(migrate_from)
+            # raises ValueError if invalid
+
+            cache_dir = Path(config.paths.cacheDir)
+            tmp_dir = cache_dir.joinpath(".tmp")
+            tmp_dir.mkdir(parents=True, exist_ok=True)
+            tmp_db_path = tmp_dir.joinpath(
+                self._make_local_db_name(self.id, migrate_from)
+            )
+            stream_popen_output(self._fetch_remote_database)(
+                source_version.database_file_name, tmp_db_path
+            )
+
+            migrate_database(
+                source_version,
+                Version.latest(),
+                source_db=tmp_db_path,
+                destination_db=self._local_database_path,
+                update=True,
+            )
+
+        else:
+            stream_popen_output(self._fetch_remote_database)(
+                str(self._remote_database_path)
+            )
 
     def rsync(self, source: StrPath, dest: StrPath) -> subprocess.Popen:
         """Synchronize data from the remote server to the local cache using rsync.
@@ -236,13 +286,21 @@ class Remote(Index):
 
 
 class RemoteCollection(Collection):
+    _index: Remote
+
     def __init__(
         self,
         uid: str,
         remote: Remote,
+        *,
+        filter: Filter | None = None,
+        sorter: Sorter | None = None,
     ):
         self.uid = CollectionUID(uid)
         self._index = remote
+
+        # A key store with completion of all the parameters and metadata keys
+        self.k = _FilterKeys(self)
 
         # Resolve the path (this updates the index if necessary)
         self.path = remote._local_path.joinpath(uid)
@@ -255,16 +313,27 @@ class RemoteCollection(Collection):
         if not self.path.joinpath(get_identifier_filename(uid=self.uid)).exists():
             create_identifier_file(self.path, self.uid)
 
+        self._filter = filter
+        self._sorter = sorter
+
     def _repr_html_(self) -> str:
+        """HTML repr for ipython/notebooks, using jinja2 for templating."""
         import pkgutil
 
-        html_string = pkgutil.get_data("bamboost", "_repr/manager.html").decode()
-        icon = pkgutil.get_data("bamboost", "_repr/icon.txt").decode()
-        return (
-            html_string.replace("$ICON", icon)
-            .replace("$db_path", f"<a href={self.path.as_posix()}>{self.path}</a>")
-            .replace("$db_uid", f"{self.uid} [from {self._index._remote_url}]")
-            .replace("$db_size", str(len(self)))
+        from jinja2 import Template
+
+        html_string = pkgutil.get_data("bamboost", "_repr/manager.html").decode()  # type: ignore
+        icon = pkgutil.get_data("bamboost", "_repr/icon.txt").decode()  # type: ignore
+
+        template = Template(html_string)
+
+        return template.render(
+            icon=icon,
+            db_path=f"<a href={self.path.as_posix()}>{self.path}</a>",
+            db_uid=f"{self.uid} ({self._index._remote_url})",
+            db_size=len(self),
+            _filter=self._filter,
+            _sort=self._sorter,
         )
 
     def __getitem__(self, name_or_idx: str | int) -> RemoteSimulation:
@@ -310,6 +379,9 @@ class RemoteCollection(Collection):
 
 
 class RemoteSimulation(Simulation):
+    _index: Remote
+    remote_path: Path
+
     def __init__(
         self,
         name: str,
@@ -319,6 +391,22 @@ class RemoteSimulation(Simulation):
         comm: Optional[Comm] = None,
         **kwargs,
     ):
+        # if there is no local path, sync it from remote
+        # assumes that this is the first time accessing the simulation
+        # initialization of base Simulation requires the path to exist
+        # (including the data.h5 file)
+        path = index.get_local_path(collection_uid).joinpath(name)
+        self.remote_path: Path = index._get_collection_path(collection_uid).joinpath(
+            name
+        )
+        if not path.exists() or not path.joinpath("data.h5").exists():
+            log.info(
+                f"Local simulation '{name}' not found in collection '{collection_uid}'. "
+                "Syncing from remote..."
+            )
+            stream_popen_output(index.rsync)(self.remote_path, path.parent)
+
+        # call super init which requires the path to exist otherwise it will raise FileNotFoundError
         super().__init__(
             name,
             parent,
@@ -327,19 +415,6 @@ class RemoteSimulation(Simulation):
             collection_uid=collection_uid,
             **kwargs,
         )
-        self.name: str = name
-        self.path: Path = index.get_local_path(collection_uid).joinpath(name)
-        self.remote_path: Path = index._get_collection_path(collection_uid).joinpath(
-            name
-        )
-        self.collection_uid = collection_uid
-
-        # Reference to the database
-        self._index: Remote = index
-
-        self._data_file: Path = self.path.joinpath(constants.HDF_DATA_FILE_NAME)
-        self._xdmf_file: Path = self.path.joinpath(constants.XDMF_FILE_NAME)
-        self._bash_file: Path = self.path.joinpath(constants.RUN_FILE_NAME)
 
     @property
     def uid(self) -> str:

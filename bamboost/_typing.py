@@ -72,8 +72,13 @@ class _Mutability(metaclass=_MutabilitySentinel):
     pass
 
 
-Mutable = type("Mutable", (_Mutability,), {})
-Immutable = type("Immutable", (_Mutability,), {})
+class Mutable(_Mutability):
+    pass
+
+
+class Immutable(_Mutability):
+    pass
+
 
 _MT = TypeVar("_MT", bound=_Mutability)
 

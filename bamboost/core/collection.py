@@ -59,7 +59,6 @@ from bamboost.mpi.utilities import RootProcessMeta
 from bamboost.plugins import ElligibleForPlugin
 
 if TYPE_CHECKING:
-    from bamboost.core.collection import Collection
     from bamboost.mpi import Comm
 
 __all__ = [
@@ -99,9 +98,7 @@ class _FilterKeys:
 
 @dataclass(frozen=False)
 class CollectionMetadataStore(CollectionMetadata, metaclass=RootProcessMeta):
-    _collection: Collection | None = field(
-        default=None, repr=False, compare=False, init=False
-    )
+    _collection: Collection = field(repr=False, compare=False, init=False)
     _comm: Communicator = field(
         default_factory=Communicator, repr=False, compare=False, init=False
     )
@@ -199,7 +196,8 @@ class Collection(ElligibleForPlugin):
     fromUID = _CollectionPicker()
     """Helper for selecting collections by UID."""
     _comm = Communicator()
-    _filter: Optional[Filter] = None
+    _filter: Filter | None = None
+    _sorter: Sorter | None = None
 
     def __init__(
         self,
@@ -224,7 +222,8 @@ class Collection(ElligibleForPlugin):
         self.k = _FilterKeys(self)
 
         # Resolve the path (this updates the index if necessary)
-        self.path = Path(path or self._index.resolve_path(uid.upper())).absolute()
+        # reason for type ignore: if not path -> uid is guaranteed to be not None
+        self.path = Path(path or self._index.resolve_path(uid.upper())).absolute()  # type: ignore
 
         # Create the diretory for the collection if necessary
         if not self.path.is_dir():
@@ -296,8 +295,8 @@ class Collection(ElligibleForPlugin):
         """HTML repr for ipython/notebooks, using jinja2 for templating."""
         from jinja2 import Template
 
-        html_string = pkgutil.get_data("bamboost", "_repr/manager.html").decode()
-        icon = pkgutil.get_data("bamboost", "_repr/icon.txt").decode()
+        html_string = pkgutil.get_data("bamboost", "_repr/manager.html").decode()  # type: ignore
+        icon = pkgutil.get_data("bamboost", "_repr/icon.txt").decode()  # type: ignore
         template = Template(html_string)
 
         return template.render(
@@ -305,9 +304,16 @@ class Collection(ElligibleForPlugin):
             db_path=f"<a href={self.path.as_posix()}>{self.path}</a>",
             db_uid=self.uid,
             db_size=len(self),
-            filtered=self._filter is not None,
-            filter=str(self._filter),
+            _filter=self._filter,
+            _sort=self._sorter,
         )
+
+    def _replace(self, **changes) -> Self:
+        """Return a shallow copy of this Collection with some attrs replaced."""
+        new = self.__class__.__new__(self.__class__)
+        new.__dict__.update(self.__dict__)
+        new.__dict__.update(changes)
+        return new
 
     @property
     def _record(self) -> CollectionRecord:
@@ -367,18 +373,19 @@ class Collection(ElligibleForPlugin):
 
         # Try to sort the dataframe with the user specified key
         try:
-            df.sort_values(
-                config.options.sortTableKey,
-                inplace=True,
-                ascending=config.options.sortTableOrder == "asc",
-                ignore_index=True,
-            )
+            if self._sorter is None:
+                df.sort_values(
+                    config.options.sortTableKey,
+                    inplace=True,
+                    ascending=config.options.sortTableOrder == "asc",
+                    ignore_index=True,
+                )
         except KeyError:
             pass
 
         return df
 
-    def filter(self, *operators: Operator) -> Collection:
+    def filter(self, *operators: Operator) -> Self:
         """Returns a new Collection filtered by the given operators.
 
         This method applies the specified filter operators to the collection and returns a
@@ -396,17 +403,9 @@ class Collection(ElligibleForPlugin):
         Examples:
             >>> filtered = collection.filter(collection.k["param"] == 42)
         """
-        return Collection(
-            path=self.path,
-            create_if_not_exist=False,
-            sync_collection=False,
-            comm=self._comm,
-            index_instance=self._index,
-            filter=Filter(*operators) & self._filter,
-            sorter=self._sorter,
-        )
+        return self._replace(_filter=Filter(*operators) & self._filter)
 
-    def sort(self, key: _Key | str, ascending: bool = True) -> Collection:
+    def sort(self, key: _Key | str, ascending: bool = True) -> Self:
         """Returns a new Collection sorted by the given instructions.
 
         This method applies the specified sort instructions to the collection and returns
@@ -434,15 +433,7 @@ class Collection(ElligibleForPlugin):
         else:
             new_sorter = self._sorter & Sorter(SortInstruction(key, ascending))
 
-        return Collection(
-            path=self.path,
-            create_if_not_exist=False,
-            sync_collection=False,
-            comm=self._comm,
-            index_instance=self._index,
-            filter=self._filter,
-            sorter=new_sorter,
-        )
+        return self._replace(_sorter=new_sorter)
 
     def all_simulation_names(self) -> list[str]:
         """Returns a list of all simulation names in the collection.

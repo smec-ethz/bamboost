@@ -66,19 +66,26 @@ class RootProcessMeta(type):
             type: The new class with MPI-safe methods.
         """
         for attr_name, attr_value in attrs.items():
-            if (
-                callable(attr_value)
-                # and not attr_name.startswith("__")
-                and attr_name not in mcs.__exclude__
+            if attr_name in mcs.__exclude__:
+                continue
+
+            # unwrap staticmethod and classmethod
+            if isinstance(attr_value, staticmethod) or isinstance(
+                attr_value, classmethod
             ):
-                if hasattr(
-                    attr_value, "_mpi_bcast_"
-                ):  # check for @cast_result decorator
+                continue
+
+            if callable(attr_value):
+                # check for @cast_result decorator
+                if hasattr(attr_value, "_mpi_bcast_"):
                     continue
-                if hasattr(attr_value, "_mpi_on_all_"):  # check for @exclude decorator
+                # check for @exclude decorator
+                if hasattr(attr_value, "_mpi_on_all_"):
                     continue
-                else:
-                    attrs[attr_name] = mcs._root_only_default(attr_value)
+
+                # wrap the remaining methods only
+                attrs[attr_name] = mcs._root_only_default(attr_value)
+
         return super().__new__(mcs, name, bases, attrs)
 
     @staticmethod

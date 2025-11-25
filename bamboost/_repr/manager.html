@@ -36,7 +36,7 @@
   </div>
   <div class="m_id">
     <h1>BAMBOOST / {{ db_uid }}</h1>
-    {% if filtered %}
+    {% if _filter %}
     <span style="font-size: 1.2em; opacity: 0.7">filtered</span>
     {% endif %}
   </div>
@@ -55,10 +55,16 @@
           <td>Size</td>
           <td>{{ db_size }}</td>
         </tr>
-        {% if filtered %}
+        {% if _filter %}
         <tr>
           <td>Filter</td>
-          <td>{{ filter }}</td>
+          <td>{{ _filter }}</td>
+        </tr>
+        {% endif %}
+        {% if _sort %}
+        <tr>
+          <td>Sort</td>
+          <td>{{ _sort }}</td>
         </tr>
         {% endif %}
       </tbody>
