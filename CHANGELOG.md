@@ -1,5 +1,23 @@
 # Change log for bamboost
 
+## 0.11.1 (2025-11-25)
+
+### Fix
+
+- **remote**: eagerly rsync remote simulation if directory does not exist locally (10f0e1f)
+- **remote**: allow fetching of different version (old db) and auto migrate (57398d0)
+- **collection**: respect sort order in the dataframe (8a2a1a4)
+- **remote**: fix naming of local sqlite databases (2615e41)
+- **mpi**: fix uncorrect wrapping of staticmethod and classmethod when using RootProcessMeta meta class (7e841ae)
+- **remote**: bug fixes in remote collection (e32fcb4)
+- **remote**: filtering a remote collection now returns a remote collection (3da8b60)
+- **collection**: type annotation for files in Collection.add (c744b7c)
+
+### Refactor
+
+- **collection**: add collection._replace similar to NamedTuple or dataclass shallow copying (311577b)
+- **index**: introduce extensible schema versioning used for migration between them (db1fba2)
+
 ## 0.11.0 (2025-10-17)
 
 ### Feat
