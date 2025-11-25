@@ -27,7 +27,7 @@ from bamboost import BAMBOOST_LOGGER, _config, constants
 from bamboost._config import config
 from bamboost.core.collection import Collection, _FilterKeys
 from bamboost.core.simulation.base import Simulation
-from bamboost.index._filtering import Filter, Operator, Sorter
+from bamboost.index._filtering import Filter, Sorter
 from bamboost.index.base import (
     CollectionUID,
     Index,
@@ -322,8 +322,9 @@ class RemoteCollection(Collection):
 
         from jinja2 import Template
 
-        html_string = pkgutil.get_data("bamboost", "_repr/manager.html").decode()
-        icon = pkgutil.get_data("bamboost", "_repr/icon.txt").decode()
+        html_string = pkgutil.get_data("bamboost", "_repr/manager.html").decode()  # type: ignore
+        icon = pkgutil.get_data("bamboost", "_repr/icon.txt").decode()  # type: ignore
+
         template = Template(html_string)
 
         return template.render(

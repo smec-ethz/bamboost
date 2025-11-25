@@ -59,7 +59,6 @@ from bamboost.mpi.utilities import RootProcessMeta
 from bamboost.plugins import ElligibleForPlugin
 
 if TYPE_CHECKING:
-    from bamboost.core.collection import Collection
     from bamboost.mpi import Comm
 
 __all__ = [
@@ -99,9 +98,7 @@ class _FilterKeys:
 
 @dataclass(frozen=False)
 class CollectionMetadataStore(CollectionMetadata, metaclass=RootProcessMeta):
-    _collection: Collection | None = field(
-        default=None, repr=False, compare=False, init=False
-    )
+    _collection: Collection = field(repr=False, compare=False, init=False)
     _comm: Communicator = field(
         default_factory=Communicator, repr=False, compare=False, init=False
     )
@@ -225,7 +222,8 @@ class Collection(ElligibleForPlugin):
         self.k = _FilterKeys(self)
 
         # Resolve the path (this updates the index if necessary)
-        self.path = Path(path or self._index.resolve_path(uid.upper())).absolute()
+        # reason for type ignore: if not path -> uid is guaranteed to be not None
+        self.path = Path(path or self._index.resolve_path(uid.upper())).absolute()  # type: ignore
 
         # Create the diretory for the collection if necessary
         if not self.path.is_dir():
@@ -297,8 +295,8 @@ class Collection(ElligibleForPlugin):
         """HTML repr for ipython/notebooks, using jinja2 for templating."""
         from jinja2 import Template
 
-        html_string = pkgutil.get_data("bamboost", "_repr/manager.html").decode()
-        icon = pkgutil.get_data("bamboost", "_repr/icon.txt").decode()
+        html_string = pkgutil.get_data("bamboost", "_repr/manager.html").decode()  # type: ignore
+        icon = pkgutil.get_data("bamboost", "_repr/icon.txt").decode()  # type: ignore
         template = Template(html_string)
 
         return template.render(
