@@ -34,6 +34,7 @@ trigger_github_docs:
       curl -X POST \
         -H "Accept: application/vnd.github+json" \
         -H "Authorization: Bearer $GITHUB_BAMBOOST_DOCS_WF_TOKEN" \
+        -d "{\"ref\": \"main\", \"inputs\": {\"tag\": \"$TAG_NAME\"}}" \
         https://api.github.com/repos/zrlf/bamboost-docs/actions/workflows/deploy.yml/dispatches
   only:
     - tags
