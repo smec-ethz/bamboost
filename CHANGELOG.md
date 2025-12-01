@@ -1,5 +1,11 @@
 # Change log for bamboost
 
+## 0.11.2 (2025-12-01)
+
+### Fix
+
+- **index**: (fixes #54) assert collection is stored in database if uid is unknown and found from path (20cde7f)
+
 ## 0.11.1 (2025-11-25)
 
 ### Fix
@@ -15,7 +21,7 @@
 
 ### Refactor
 
-- **collection**: add collection._replace similar to NamedTuple or dataclass shallow copying (311577b)
+- **collection**: add collection.\_replace similar to NamedTuple or dataclass shallow copying (311577b)
 - **index**: introduce extensible schema versioning used for migration between them (db1fba2)
 
 ## 0.11.0 (2025-10-17)
@@ -35,7 +41,7 @@
 
 ### Fix
 
-- **hdf5**: fix __str__ (print) of attrsdict instances, e.g. parameters (494fd1e)
+- **hdf5**: fix **str** (print) of attrsdict instances, e.g. parameters (494fd1e)
 - **cli**: metadata save will update both the yaml and sqlite files (7305c29)
 - **collection**: filter logic updated (a337b9a)
 - **collection**: make metadata store mpi safe (0241fe0)
@@ -90,7 +96,7 @@
 ### Refactor
 
 - **index**: raise InvalidCollectionError if calling resolve_uid with a path that is no collection (#51)
-- **simulation**: assign _file attribute in constructor instead of a cached_property (fixes a type issue)
+- **simulation**: assign \_file attribute in constructor instead of a cached_property (fixes a type issue)
 
 ## 0.10.0 (2025-06-04)
 
