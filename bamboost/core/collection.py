@@ -198,6 +198,7 @@ class Collection(ElligibleForPlugin):
     _comm = Communicator()
     _filter: Filter | None = None
     _sorter: Sorter | None = None
+    _index: Index
 
     def __init__(
         self,
