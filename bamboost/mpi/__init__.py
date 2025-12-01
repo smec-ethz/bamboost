@@ -23,6 +23,7 @@ Attributes:
 Type Aliases:
     Comm: Union of real and mock MPI communicators, available under TYPE_CHECKING.
 """
+
 from __future__ import annotations
 
 import os
@@ -33,7 +34,7 @@ from typing_extensions import TypeAlias
 from bamboost import BAMBOOST_LOGGER, config
 
 if TYPE_CHECKING:
-    from mpi4py.MPI import Comm as _MPIComm
+    from mpi4py.MPI import Comm as _MPIComm  # ty: ignore[unresolved-import]
 
     from bamboost.mpi.mock import Comm as _MockComm
 
@@ -67,29 +68,47 @@ def _detect_if_mpi_needed() -> bool:
     return False
 
 
-def _get_mpi_module():
-    if not MPI_ON:
-        import bamboost.mpi.mock as MockMPI
-
-        return MockMPI
-
+def _get_mpi_module() -> tuple[object, bool]:
+    """Attempt to import the real MPI module (`mpi4py.MPI`). Returns the module and a
+    flag."""
     try:
-        import mpi4py.MPI as MPI
+        import mpi4py.MPI as MPI  # ty: ignore[unresolved-import]
 
-        return MPI
+        return MPI, True
     except ImportError:
         import bamboost.mpi.mock as MockMPI
 
         log.info("`mpi4py` unavailable [using the mock MPI module]")
-        return MockMPI
+        return MockMPI, False
 
 
-MPI_ON = _detect_if_mpi_needed()
-MPI = _get_mpi_module()
+def _assert_h5py_has_mpi_support() -> None:
+    import h5py
+
+    if not h5py.get_config().mpi:
+        raise RuntimeError(
+            "h5py was not built with MPI support, but MPI is required/enabled in bamboost."
+            "Set `config.options.mpi = False` to disable MPI support in bamboost."
+        )
+
+
+def get_mpi_from_env() -> tuple[object, bool]:
+    """Get the MPI module and flag based on environment detection."""
+    mpi_needed = _detect_if_mpi_needed()
+    if not mpi_needed:
+        import bamboost.mpi.mock as MockMPI
+
+        return MockMPI, False
+    else:
+        _assert_h5py_has_mpi_support()  # raises if h5py lacks MPI support
+        return _get_mpi_module()
+
+
+MPI, MPI_ON = get_mpi_from_env()
 
 
 class Communicator:
-    _active_comm = MPI.COMM_WORLD
+    _active_comm: Comm = MPI.COMM_WORLD  # ty: ignore[unresolved-attribute]
 
     def __set__(self, instance, value):
         Communicator._active_comm = value
