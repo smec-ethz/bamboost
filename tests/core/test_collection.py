@@ -6,10 +6,12 @@ from unittest.mock import patch
 import pytest
 import yaml
 
+from bamboost._config import config
 from bamboost.core.collection import Collection
 from bamboost.core.simulation.base import Simulation, SimulationWriter
 from bamboost.exceptions import DuplicateSimulationError
 from bamboost.index import get_identifier_filename
+from bamboost.index.base import IDENTIFIER_PREFIX, IDENTIFIER_SEPARATOR
 
 
 def _populate_basic_collection(collection: Collection) -> None:
@@ -283,3 +285,19 @@ def test_collection_metadata_loads_existing_yaml(tmp_collection_burn: Collection
     assert meta.aliases == ["ALPHA"]
     assert meta["custom"] == 7
     assert meta.created_at == datetime(2024, 1, 2, 3, 4, 5)
+
+
+def test_collection_by_path_not_in_db(tmp_path: Path):
+    collection_path = tmp_path.joinpath("new_collection")
+    # create a new collection manually
+    collection_path.mkdir(parents=True, exist_ok=True)
+    testuid = "1234567890"
+    collection_path.joinpath(
+        f"{IDENTIFIER_PREFIX}{IDENTIFIER_SEPARATOR}{testuid}"
+    ).write_text("")
+
+    # load collection by path
+    collection = Collection(path=collection_path)
+    assert collection.uid == testuid
+    # assert uid is now in index
+    assert collection.uid in map(lambda i: i.uid, collection._index.all_collections)

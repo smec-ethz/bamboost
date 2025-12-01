@@ -387,6 +387,12 @@ class Index(metaclass=RootProcessMeta):
 
         identified_uid = _find_uid_from_path(path)
         if identified_uid:
+            # store the collection in the cache
+            # florez: this is hacky, fixes issue that if a collection is loaded from an
+            # untracked path, it is never added to the database; causing downstream
+            # issues, e.g. when trying to access .df
+            self.upsert_collection(identified_uid, path)
+            # finally return the identified uid
             return CollectionUID(identified_uid)
         else:
             raise InvalidCollectionError("No collection found at the given path.")
