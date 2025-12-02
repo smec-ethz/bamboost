@@ -1,5 +1,11 @@
 # Change log for bamboost
 
+## 0.11.3 (2025-12-02)
+
+### Fix
+
+- **mpi**: raise runtime error if h5py has no mpi but bamboost wants it (8ade683) #57
+
 ## 0.11.2 (2025-12-01)
 
 ### Fix
