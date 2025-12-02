@@ -54,11 +54,7 @@ def test_detect_no_mpi(monkeypatch: MonkeyPatch):
     assert _detect_if_mpi_needed() is False
 
 
-def test_h5py_mpi_check(monkeypatch):
-    class FakeConfig:
-        mpi = False
-
-    monkeypatch.setattr("h5py.get_config", lambda: FakeConfig())
+def test_h5py_mpi_check(monkeypatch, h5py_mpi_disabled):
     with pytest.raises(RuntimeError, match="h5py was not built with MPI support"):
         _assert_h5py_has_mpi_support()
 
@@ -68,9 +64,9 @@ def test_h5py_mpi_check_on_import(monkeypatch: MonkeyPatch, h5py_mpi_disabled):
     monkeypatch.setattr("bamboost.config.options.mpi", True)
     monkeypatch.setenv("PMI_SIZE", "16")  # ensure MPI is detected as needed
 
-    import bamboost.mpi as mpi
-
     with pytest.raises(RuntimeError):
+        import bamboost.mpi as mpi
+
         # reload the mpi module to trigger the check
         # Should raise because h5py.get_config().mpi is False
         importlib.reload(mpi)
