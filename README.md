@@ -1,10 +1,9 @@
 <a id="readme-top"></a>
 
-
 <br />
 <div align="center">
-  <a href="https://gitlab.com/cmbm-ethz/bamboost">
-	<img src="https://gitlab.com/cmbm-ethz/bamboost/-/raw/main/assets/bamboost_icon.png?ref_type=heads" width="150" alt="Logo"/><br/>
+  <a href="https://github.com/smec-ethz/bamboost">
+	<img src="assets/bamboost_icon.png" width="150" alt="Logo"/><br/>
   </a>
 
 <h3 align="center">BAMBOOST</h3>
@@ -18,12 +17,10 @@
     <br />
 
 [![Docs][docs-shield]][docs-url]
-[![Pipeline][pipeline-shield]][pipeline-url]
-[![Coverage][coverage-shield]][coverage-url]
+[![Pipeline][ci-shield]][ci-url]
 [![Pypi][pypi-shield]][pypi-url]
 [![PyPI_downloads][pypi-downloads-shield]][pypi-downloads-url]
 [![License][license-shield]][license-url]
-
 
 <a href="https://bamboost.ch/docs"><strong>Explore the docs »</strong></a>
 <br />
@@ -33,16 +30,16 @@
 <a href="https://github.com/zrlf/bamboost-docs">Doc site repo</a>
 <br />
 <br />
-<a href="https://gitlab.com/cmbm-ethz/bamboost/issues/new?labels=bug&template=bug-report---.md">Report Bug</a>
+<a href="https://github.com/smec-ethz/bamboost/issues/new?template=bug_report.md">Report Bug</a>
 &middot;
-<a href="https://gitlab.com/cmbm-ethz/bamboost/issues/new?labels=enhancement&template=feature-request---.md">Request Feature</a>
+<a href="https://github.com/smec-ethz/bamboost/issues/new?template=feature_request.md">Request Feature</a>
 
   </p>
 </div>
 
 > [!important]
 > Starting from version 0.10.0, bamboost breaks compatibility with previous versions.
-> For previous versions, checkout the [legacy branch](https://gitlab.com/cmbm-ethz/bamboost/-/tree/legacy).
+> For previous versions, checkout the [legacy branch](https://github.com/smec-ethz/bamboost/tree/legacy).
 
 <details>
   <summary>Table of Contents</summary>
@@ -51,22 +48,22 @@
 
 </details>
 
-
-
 ## About The Project
 
 **bamboost** is a python data framework designed for managing scientific simulation data.
 It provides an organized model for storing, indexing, and retrieving
 simulation results, making it easier to work with large-scale computational
-studies. 
+studies.
 In its core, it is a filesystem storage model, providing directories for
-**simulations**, bundled in **collections**. 
+**simulations**, bundled in **collections**.
 
 ### Principles
+
 - **Independence:** Any dataset must be complete and understandable on it's own. You can copy or extract any of your data and distribute it without external dependencies.
 - **Path redundancy:** Data must be referencable without knowledge of it's path. This serves several purposes: You can share your data easily ($e.g.$ supplementary material for papers), and renaming directories, moving files, switching computer, etc. will not break your data referencing.
 
 This leads to the following requirements:
+
 - Simulation parameters must be stored locally, inside the simulation directory. Crucially, not _exclusively_ in a global database of any kind.
 - Collections must have unique identifiers that are independent of its path.
 - Simulations must have unique identifiers that are independent of its path.
@@ -74,7 +71,7 @@ This leads to the following requirements:
 ### Concept
 
 We organize **simulations** in **collections** within structured
-directories. 
+directories.
 Let's consider the following directory:
 
 ```
@@ -96,7 +93,7 @@ identifier file giving this collection a unique identifier. In this case, it is
 This file defines the unique ID of the collection.
 
 It contains two entries; `simulation_1` and `simulation_2`.
-As you can see, each simulation owns a directory inside a collection. 
+As you can see, each simulation owns a directory inside a collection.
 The directory names are simultaneously used as their _name_ as well as their _ID_.
 The unique identifier for a single simulation becomes the combination of the collection _ID_ that it belongs to and the simulation _ID_.
 That means, the full identifier of `simulation_1` is `ABCD1234:simulation_1`.
@@ -105,9 +102,7 @@ Each simulation contains a central _HDF5 file_ named `data.h5`. This file is use
 The simulation API of `bamboost` provides extensive functionality to store and retrieve data from this file. However, users are not limited to this file, or using `python` in general.
 The reason why simulations are directories instead of just a single HDF file is that you can dump any file that belongs to this simulation into its path. This can be output from 3rd party software (think LAMMPS), additional input files such as images, and also scripts to reproduce the generated data.
 
-
 <p align="right">(<a href="#readme-top">back to top</a>)</p>
-
 
 ## Getting Started
 
@@ -120,6 +115,7 @@ pip install bamboost
 ### Prerequisites
 
 To use **bamboost** with MPI, you need a working MPI installation. Additionally, you need
+
 - `mpi4py`
 - `h5py` with MPI support. For most distros you can get a version from it's package manager, or see [building against Parallel HDF5](https://docs.h5py.org/en/stable/mpi.html#building-against-parallel-hdf5)
 
@@ -134,12 +130,10 @@ pip install bamboost
 To install the latest version from this repository, you can use:
 
 ```sh
-pip install git+https://gitlab.com/cmbm-ethz/bamboost.git
+pip install git+https://github.com/smec-ethz/bamboost.git
 ```
 
 <p align="right">(<a href="#readme-top">back to top</a>)</p>
-
-
 
 ## Usage
 
@@ -147,20 +141,18 @@ For a getting started guide, please see here: [Getting started](https://bamboost
 
 <p align="right">(<a href="#readme-top">back to top</a>)</p>
 
-
-
 <!-- ROADMAP -->
+
 ## Roadmap
 
 - [ ] Clear MPI handling
 
-See the [open issues](https://gitlab.com/cmbm-ethz/bamboost/issues) for a full list of proposed features (and known issues).
+See the [open issues](https://github.com/smec-ethz/bamboost/issues) for a full list of proposed features (and known issues).
 
 <p align="right">(<a href="#readme-top">back to top</a>)</p>
 
-
-
 <!-- CONTRIBUTING -->
+
 ## Contributing
 
 If you have a suggestion that would make this better, please fork the repo and create a pull request. You can also simply open an issue with the tag "enhancement".
@@ -174,50 +166,42 @@ Don't forget to give the project a star! Thanks again!
 
 <p align="right">(<a href="#readme-top">back to top</a>)</p>
 
-
-
 <!-- LICENSE -->
+
 ## License
 
-Distributed under the **MIT license**. See [LICENSE](https://gitlab.com/cmbm-ethz/bamboost/-/blob/main/LICENSE) for more information.
+Distributed under the **MIT license**. See [LICENSE](https://github.com/smec-ethz/bamboost/blob/main/LICENSE) for more information.
 
 <p align="right">(<a href="#readme-top">back to top</a>)</p>
 
-
-
 <!-- CONTACT -->
+
 ## Contact
 
 zrlf - forez@ethz.ch
 
-Project Link: [https://gitlab.com/cmbm-ethz/bamboost](https://gitlab.com/cmbm-ethz/bamboost)
+Project Link: [https://github.com/smec-ethz/bamboost](https://github.com/smec-ethz/bamboost)
 
 <p align="right">(<a href="#readme-top">back to top</a>)</p>
-
-
 
 <!-- ACKNOWLEDGMENTS -->
+
 ## Acknowledgments
 
-* [Best-README-Template](https://github.com/othneildrew/Best-README-Template) for inspiration on how to structure this README.
+- [Best-README-Template](https://github.com/othneildrew/Best-README-Template) for inspiration on how to structure this README.
 
 <p align="right">(<a href="#readme-top">back to top</a>)</p>
-
-
 
 <!-- MARKDOWN LINKS & IMAGES -->
 <!-- https://www.markdownguide.org/basic-syntax/#reference-style-links -->
-[docs-shield]: https://img.shields.io/badge/Docs-bamboost.ch-blue?style=flat-square
+
+[docs-shield]: https://img.shields.io/badge/Docs-bamboost.ch-blue
 [docs-url]: https://bamboost.ch
-[pipeline-shield]: https://gitlab.com/cmbm-ethz/bamboost/badges/main/pipeline.svg?style=flat-square
-[pipeline-url]: https://gitlab.com/cmbm-ethz/bamboost/-/commits/main
-[coverage-shield]: https://gitlab.com/cmbm-ethz/bamboost/badges/main/coverage.svg?style=flat-square
-[coverage-url]: https://cmbm-ethz.gitlab.io/bamboost/
-[pypi-shield]: https://img.shields.io/pypi/v/bamboost?style=flat-square
+[ci-shield]: https://github.com/smec-ethz/bamboost/actions/workflows/test.yml/badge.svg
+[ci-url]: https://github.com/smec-ethz/bamboost/actions/workflows/test.yml
+[pypi-shield]: https://img.shields.io/pypi/v/bamboost
 [pypi-url]: https://pypi.org/project/bamboost/
-[pypi-downloads-shield]: https://img.shields.io/pypi/dm/bamboost?style=flat-square
-[pypi-downloads-url]: https://pypi.org/project/bamboost/
-[license-shield]: https://img.shields.io/pypi/l/bamboost?style=flat-square
-[license-url]: https://gitlab.com/cmbm-ethz/bamboost/-/blob/main/LICENSE
-
-
+[pypi-downloads-shield]: https://img.shields.io/pypi/dm/bamboost
+[pypi-downloads-url]: https://pypistats.org/packages/bamboost
+[license-shield]: https://img.shields.io/pypi/l/bamboost
+[license-url]: https://github.com/smec-ethz/bamboost/blob/main/LICENSE
