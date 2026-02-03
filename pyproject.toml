@@ -1,6 +1,6 @@
 [project]
 name = "bamboost"
-dynamic = ["version"]
+version = "0.11.3"
 description = "A light weight scientific data management system using HDF5"
 readme = { file = "README.md", content-type = "text/markdown" }
 authors = [
@@ -53,24 +53,8 @@ test = [
 [build-system]
 requires = [
     "hatchling",
-    "versioningit",
 ]
 build-backend = "hatchling.build"
-
-[tool.hatch.version]
-source = "versioningit"
-
-[tool.versioningit]
-default-version = "0.0.dev0"
-
-[tool.commitizen]
-name = "cz_conventional_commits"
-tag_format = "$version"
-version_scheme = "pep440"
-version_provider = "scm"
-update_changelog_on_bump = true
-major_version_zero = true
-template = ".changelog.tpl"
 
 [tool.basedpyright]
 pythonVersion = "3.10"
