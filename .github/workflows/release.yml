@@ -15,6 +15,8 @@ jobs:
     runs-on: ubuntu-latest
     environment:
       name: pypi
+    permissions:
+      id-token: write
     steps:
       - uses: googleapis/release-please-action@v4
         id: release
@@ -34,8 +36,6 @@ jobs:
         if: ${{ steps.release.outputs.release_created }}
       - name: Install uv
         uses: astral-sh/setup-uv@v7
-        with:
-          version: "0.9.25"
         if: ${{ steps.release.outputs.release_created }}
       - name: Build package
         run: uv build
