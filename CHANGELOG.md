@@ -1,5 +1,18 @@
 # Change log for bamboost
 
+## [0.12.0](https://github.com/smec-ethz/bamboost/compare/0.11.3...0.12.0) (2026-02-11)
+
+
+### Features
+
+* **collection:** add easy filtering based on tags ([b77ba86](https://github.com/smec-ethz/bamboost/commit/b77ba861956d96af37ed52ac59b3e72096cfe83a))
+* **simulation:** add tags for simulations ([234eb25](https://github.com/smec-ethz/bamboost/commit/234eb254e379c86128d7ab7abf4f22139218231f))
+
+
+### Bug Fixes
+
+* **index:** add schema drift handling (pragma columns, add any missing column) ([6771095](https://github.com/smec-ethz/bamboost/commit/6771095bbdc20d24d0f09103751582194dfe4fe3))
+
 ## 0.11.3 (2025-12-02)
 
 ### Fix
