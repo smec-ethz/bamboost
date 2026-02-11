@@ -6,7 +6,6 @@ from unittest.mock import patch
 import pytest
 import yaml
 
-from bamboost._config import config
 from bamboost.core.collection import Collection
 from bamboost.core.simulation.base import Simulation, SimulationWriter
 from bamboost.exceptions import DuplicateSimulationError
@@ -96,12 +95,13 @@ def test_create_simulation_with_tags(tmp_collection: Collection):
         parameters={"param": 999},
         tags=["alpha", "beta", "alpha", ""],
     )
-    assert sim_writer.metadata["tags"] == ["alpha", "beta"]
-    assert sim_writer.tags == ["alpha", "beta"]
+    assert sim_writer.metadata["tags"] == {"alpha", "beta"}
+    assert sim_writer.tags == {"alpha", "beta"}
 
     sim_record = tmp_collection._index.simulation(tmp_collection.uid, "tagged_sim")
     assert sim_record is not None
-    assert sim_record.tags == ["alpha", "beta"]
+    # the record tags (from sqlite db) is a list, so convert to set for comparison
+    assert set(sim_record.tags) == {"alpha", "beta"}
 
 
 def test_create_simulation_with_files(tmp_collection: Collection, tmp_path: Path):

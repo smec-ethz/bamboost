@@ -269,8 +269,10 @@ def test_simulation_writer_set_description(tmp_simulation_writer):
 def test_simulation_writer_set_tags(tmp_simulation_writer):
     """Test that setting tags updates metadata correctly."""
     tmp_simulation_writer.tags = ["foo", "bar", "foo", ""]
-    assert tmp_simulation_writer.metadata["tags"] == ["foo", "bar"]
-    assert tmp_simulation_writer.tags == ["foo", "bar"]
+    # the tags are always stored as a set!
+    # so the returned tags are of type set and duplicates and empty strings are removed
+    assert tmp_simulation_writer.metadata["tags"] == {"foo", "bar"}
+    assert tmp_simulation_writer.tags == {"foo", "bar"}
 
 
 def test_simulation_writer_require_series(tmp_simulation_writer):

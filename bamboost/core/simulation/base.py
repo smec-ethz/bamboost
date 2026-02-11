@@ -418,10 +418,9 @@ class _Simulation(H5Object[_MT], ABC):
         return self.metadata.__getitem__("description")
 
     @property
-    def tags(self) -> list[str]:
+    def tags(self) -> set[str]:
         """Return simulation tags."""
-        tags = self.metadata.get("tags", [])
-        return list(tags) if isinstance(tags, list) else []
+        return set(self.metadata.get("tags", []))
 
     @cached_property
     def links(self) -> Links[_MT]:
