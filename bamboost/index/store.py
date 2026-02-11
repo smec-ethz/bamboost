@@ -86,7 +86,7 @@ def json_deserializer(value: str) -> Any:
 class SqliteJSONEncoder(json.JSONEncoder):
     """JSON encoder that handles numpy and datetime types."""
 
-    def default(self, obj: Any) -> Any:
+    def default(self, obj: Any) -> Any:  # ty:ignore[invalid-method-override]
         import numpy as np
 
         if isinstance(obj, np.ndarray):

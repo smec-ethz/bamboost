@@ -12,6 +12,7 @@ from sqlalchemy import (
     Boolean,
     Column,
     DateTime,
+    Engine,
     ForeignKey,
     Integer,
     MetaData,
@@ -219,17 +220,56 @@ def create_all(engine: Engine) -> None:
 
     metadata.create_all(engine, checkfirst=True)
     with engine.begin() as connection:
-        columns = {
-            row[1]
-            for row in connection.exec_driver_sql(
-                f"PRAGMA table_info({TABLENAME_SIMULATIONS})"
-            )
-        }
-        if "tags" not in columns:
-            connection.exec_driver_sql(
-                f"ALTER TABLE {TABLENAME_SIMULATIONS} "
-                "ADD COLUMN tags JSON NOT NULL DEFAULT '[]'"
-            )
+        for table in (collections_table, simulations_table, parameters_table):
+            existing_columns = {
+                row[1]
+                for row in connection.exec_driver_sql(
+                    f"PRAGMA table_info({table.name})"
+                )
+            }
+
+            for column in table.columns:
+                if column.name in existing_columns:
+                    continue
+                connection.exec_driver_sql(
+                    f"ALTER TABLE {table.name} ADD COLUMN "
+                    f"{_column_sql_for_alter(engine, column)}"
+                )
+
+
+def _column_sql_for_alter(engine: Engine, column: Column[Any]) -> str:
+    """Build a SQLite-safe column definition for ALTER TABLE ADD COLUMN."""
+    type_sql = column.type.compile(dialect=engine.dialect)
+    clauses = [column.name, str(type_sql)]
+
+    default_sql = _server_default_sql(column)
+    # SQLite refuses ALTER TABLE ADD COLUMN for NOT NULL columns without a default.
+    # Keep migration permissive for legacy schemas by only enforcing NOT NULL when
+    # a server default is available.
+    if not column.nullable and default_sql is not None:
+        clauses.append("NOT NULL")
+
+    if default_sql is not None:
+        clauses.append(f"DEFAULT {default_sql}")
+
+    return " ".join(clauses)
+
+
+def _server_default_sql(column: Column[Any]) -> str | None:
+    if column.server_default is None:
+        return None
+
+    arg = column.server_default.arg  # ty:ignore[unresolved-attribute]
+    if hasattr(arg, "text"):
+        return str(arg.text)
+    if isinstance(arg, bool):
+        return "1" if arg else "0"
+    if isinstance(arg, (int, float)):
+        return str(arg)
+    if isinstance(arg, str):
+        escaped = arg.replace("'", "''")
+        return f"'{escaped}'"
+    return None
 
 
 collections_table = Table(
