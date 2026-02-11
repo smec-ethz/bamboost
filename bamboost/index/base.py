@@ -52,7 +52,7 @@ from sqlalchemy.orm import Session, sessionmaker
 from typing_extensions import Concatenate
 
 from bamboost import BAMBOOST_LOGGER, config, constants
-from bamboost._typing import _P, _T, SimulationMetadataT, SimulationParameterT, StrPath
+from bamboost._typing import _P, _T, SimulationParameterT, StrPath
 from bamboost.exceptions import InvalidCollectionError
 from bamboost.index import store
 from bamboost.index.schema import collections_table, simulations_table
@@ -210,7 +210,7 @@ class Index(metaclass=RootProcessMeta):
         """
         # if not root rank, return dummy context manager
         if not self._comm.rank == 0:
-            yield None  # type: ignore
+            yield None
             return
 
         if self._s.in_transaction():
@@ -433,7 +433,7 @@ class Index(metaclass=RootProcessMeta):
                 if force_all:
                     continue
                 h5_file = path.joinpath(simulation.name, constants.HDF_DATA_FILE_NAME)
-                if (  # type: ignore
+                if (
                     datetime.fromtimestamp(h5_file.stat().st_mtime)
                     <= simulation.modified_at
                 ):
@@ -568,7 +568,7 @@ class Index(metaclass=RootProcessMeta):
             "collection_uid": collection_uid,
             "name": simulation_name,
             "modified_at": datetime.now(),
-            **(metadata or {}),
+            **_normalize_simulation_metadata(metadata or {}),
         }
         sim_id = self._s.execute(
             store.simulations_upsert_stmt(sim_payload)
@@ -591,7 +591,10 @@ class Index(metaclass=RootProcessMeta):
         Args:
             data: Dictionary with new data
         """
-        payload = {"collection_uid": collection_uid, "name": simulation_name, **data}
+        payload = {
+            "collection_uid": collection_uid,
+            "name": simulation_name,
+        } | _normalize_simulation_metadata(data)
         self._s.execute(store.simulations_upsert_stmt(payload))
 
     @_sql_transaction
@@ -723,6 +726,14 @@ def _normalize_collection_metadata(data: Mapping[str, Any]) -> dict[str, Any]:
     if aliases := data.get("aliases"):
         metadata["aliases"] = _deduplicate_sequence(aliases, casefold=True)
 
+    return metadata
+
+
+def _normalize_simulation_metadata(data: Mapping[str, Any]) -> dict[str, Any]:
+    """Normalize simulation metadata before writing to SQL."""
+    metadata: dict[str, Any] = dict(**data)
+    if (tags := data.get("tags")) is not None:
+        metadata["tags"] = _deduplicate_sequence(tags)
     return metadata
 
 

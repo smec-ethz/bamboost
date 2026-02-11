@@ -13,7 +13,7 @@ from argparse import ArgumentParser
 from collections.abc import MutableMapping
 from itertools import islice
 from pathlib import Path
-from typing import TYPE_CHECKING, Mapping, NamedTuple
+from typing import TYPE_CHECKING, Iterable, Mapping, NamedTuple
 
 if TYPE_CHECKING:
     from pandas import DataFrame
@@ -261,3 +261,16 @@ def parse_script_arguments() -> ScriptArguments:
     args = parser.parse_args()
 
     return ScriptArguments(simulation=args.simulation)
+
+
+def dedupe_str_iter(iter: Iterable[str] | None) -> list[str]:
+    """Remove duplicates and empty values from an iterable of strings while preserving
+    order.
+
+    Args:
+        iter (Iterable[str]): An iterable of strings.
+    """
+    if iter is None:
+        return []
+    deduped = list(dict.fromkeys(str(tag).strip() for tag in iter if str(tag).strip()))
+    return deduped

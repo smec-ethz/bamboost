@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import dataclasses
-from dataclasses import asdict, dataclass, field, fields
+from dataclasses import dataclass, field, fields
 from datetime import datetime
 from typing import TYPE_CHECKING, Any
 
@@ -31,6 +31,7 @@ from bamboost.index._filtering import Filter, Sorter
 
 if TYPE_CHECKING:
     from pandas import DataFrame
+    from sqlalchemy.engine import Engine
 
 
 # ------------------------------------------------
@@ -54,6 +55,7 @@ class SimulationRecord:
     description: str | None
     status: str
     submitted: bool
+    tags: list[str] = field(default_factory=list)
     parameters: list[ParameterRecord] = field(default_factory=list)
 
     def as_dict_metadata(self) -> dict[str, Any]:
@@ -64,6 +66,7 @@ class SimulationRecord:
             "created_at": self.created_at,
             "modified_at": self.modified_at,
             "description": self.description,
+            "tags": self.tags,
             "status": self.status,
             "submitted": self.submitted,
         }
@@ -77,6 +80,7 @@ class SimulationRecord:
             "name": self.name,
             "created_at": self.created_at,
             "description": self.description,
+            "tags": self.tags,
             "status": self.status,
             "submitted": self.submitted,
         }
@@ -191,15 +195,13 @@ class CollectionRecord(CollectionMetadata):
             tmp_map = {
                 sim.name: sim
                 for sim in self.simulations
-                if sim.name in df["name"].values  # type: ignore
+                if sim.name in df["name"].values
             }
             df = sorter.apply(df)  # type: ignore
             simulations = [tmp_map[name] for name in df["name"].values]
         else:
             simulations = [
-                sim
-                for sim in self.simulations
-                if sim.name in df["name"].values  # type: ignore
+                sim for sim in self.simulations if sim.name in df["name"].values
             ]
 
         return dataclasses.replace(self, simulations=simulations)
@@ -212,10 +214,22 @@ class CollectionRecord(CollectionMetadata):
 metadata = MetaData()
 
 
-def create_all(engine) -> None:
+def create_all(engine: Engine) -> None:
     """Create all tables defined in this module."""
 
     metadata.create_all(engine, checkfirst=True)
+    with engine.begin() as connection:
+        columns = {
+            row[1]
+            for row in connection.exec_driver_sql(
+                f"PRAGMA table_info({TABLENAME_SIMULATIONS})"
+            )
+        }
+        if "tags" not in columns:
+            connection.exec_driver_sql(
+                f"ALTER TABLE {TABLENAME_SIMULATIONS} "
+                "ADD COLUMN tags JSON NOT NULL DEFAULT '[]'"
+            )
 
 
 collections_table = Table(
@@ -244,6 +258,7 @@ simulations_table = Table(
     Column("created_at", DateTime, nullable=False, default=datetime.now),
     Column("modified_at", DateTime, nullable=False, default=datetime.now),
     Column("description", String, nullable=True),
+    Column("tags", JSON, nullable=False, default=list, server_default="[]"),
     Column(
         "status",
         String,

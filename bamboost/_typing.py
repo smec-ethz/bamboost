@@ -18,6 +18,7 @@ class SimulationMetadataT(TypedDict, total=False):
     created_at: datetime
     modified_at: datetime
     description: str
+    tags: list[str]
     status: str
 
 

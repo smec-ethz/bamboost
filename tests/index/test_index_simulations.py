@@ -29,7 +29,7 @@ def test_upsert_simulation(index_with_collection: Tuple[Index, Path]):
     index, collection_path = index_with_collection
 
     parameters = {"param1": "value1", "param2": 2}
-    metadata = {"description": "Test Simulation"}
+    metadata = {"description": "Test Simulation", "tags": ["alpha", "beta", "alpha"]}
 
     index.upsert_simulation(
         collection_uid="COLL001",
@@ -44,6 +44,7 @@ def test_upsert_simulation(index_with_collection: Tuple[Index, Path]):
     assert sim is not None
     assert sim.name == "sim1"
     assert sim.description == "Test Simulation"
+    assert sim.tags == ["alpha", "beta"]
     assert sim.parameter_dict == parameters
 
 
@@ -54,11 +55,12 @@ def test_update_simulation_metadata(
     sim_name = "testsim1"
     index.upsert_simulation(coll.uid, sim_name)
 
-    new_metadata = {"description": "Updated description"}
+    new_metadata = {"description": "Updated description", "tags": ["first", "first"]}
     index.update_simulation_metadata(coll.uid, sim_name, new_metadata)  # pyright: ignore[reportArgumentType]
 
     sim = index.simulation(coll.uid, sim_name)
     assert sim.description == "Updated description"
+    assert sim.tags == ["first"]
 
 
 @pytest.mark.parametrize(

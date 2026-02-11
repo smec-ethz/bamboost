@@ -66,10 +66,16 @@ def test_update_database(tmp_collection: Collection):
     sim = tmp_collection.add("test_update_database")
     index = tmp_collection._index
 
-    new_metadata = {"ignored": "ignored", "status": "test", "description": "test"}
+    new_metadata = {
+        "ignored": "ignored",
+        "status": "test",
+        "description": "test",
+        "tags": ["first", "first"],
+    }
     sim.update_database(metadata=new_metadata)
     assert index.simulation(tmp_collection.uid, sim.name).status == "test"
     assert index.simulation(tmp_collection.uid, sim.name).description == "test"
+    assert index.simulation(tmp_collection.uid, sim.name).tags == ["first"]
 
     new_parameters = {"last_name": "Bourne", "first_name": "Jane"}
     sim.update_database(parameters=new_parameters)
@@ -258,6 +264,13 @@ def test_simulation_writer_set_description(tmp_simulation_writer):
     """Test that setting the description updates metadata correctly."""
     tmp_simulation_writer.description = "This is a test description"
     assert tmp_simulation_writer.metadata["description"] == "This is a test description"
+
+
+def test_simulation_writer_set_tags(tmp_simulation_writer):
+    """Test that setting tags updates metadata correctly."""
+    tmp_simulation_writer.tags = ["foo", "bar", "foo", ""]
+    assert tmp_simulation_writer.metadata["tags"] == ["foo", "bar"]
+    assert tmp_simulation_writer.tags == ["foo", "bar"]
 
 
 def test_simulation_writer_require_series(tmp_simulation_writer):
