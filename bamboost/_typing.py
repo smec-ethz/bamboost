@@ -1,6 +1,5 @@
-from datetime import datetime
 from pathlib import Path
-from typing import Any, Mapping, Protocol, TypedDict, TypeVar, Union
+from typing import Any, Protocol, TypeVar, Union
 
 from typing_extensions import ParamSpec, TypeAlias
 
@@ -12,22 +11,6 @@ _P = ParamSpec("_P")
 # Key, value types
 _KT = TypeVar("_KT")
 _VT = TypeVar("_VT")
-
-
-class SimulationMetadataT(TypedDict, total=False):
-    created_at: datetime
-    modified_at: datetime
-    description: str
-    tags: list[str]
-    status: str
-
-
-SimulationParameterT: TypeAlias = Mapping[str, Any]
-
-
-class AuthorInfo(TypedDict):
-    name: str
-    email: str
 
 
 class _MutabilitySentinel(type):
