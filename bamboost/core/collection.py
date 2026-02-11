@@ -43,7 +43,7 @@ from typing_extensions import Self, deprecated
 from bamboost import BAMBOOST_LOGGER, config
 from bamboost._typing import StrPath
 from bamboost.core.simulation.base import Simulation, SimulationName, SimulationWriter
-from bamboost.core.utilities import flatten_dict
+from bamboost.core.utilities import dedupe_str_iter, flatten_dict
 from bamboost.exceptions import DuplicateSimulationError, InvalidCollectionError
 from bamboost.index import (
     CollectionUID,
@@ -466,6 +466,7 @@ class Collection(ElligibleForPlugin):
         *,
         duplicate_action: Literal["ignore", "replace", "skip", "raise"] = "raise",
         description: Optional[str] = None,
+        tags: Optional[Iterable[str]] = None,
         files: Optional[Iterable[StrPath]] = None,
         links: Optional[Dict[str, str]] = None,
         override: bool = False,
@@ -494,6 +495,7 @@ class Collection(ElligibleForPlugin):
                 Options are: "ignore" (create anyway), "replace" (delete existing and create new),
                 "skip" (return existing simulation), "raise" (default, raise DuplicateSimulationError).
             description: Optional description for the simulation.
+            tags: Optional sequence of tags for the simulation metadata.
             files: Optional iterable of file paths to copy into the simulation directory.
                 Each file will be copied with its original name.
             links: Optional dictionary of symbolic links to create in the simulation
@@ -587,7 +589,9 @@ class Collection(ElligibleForPlugin):
             )
             with sim._file.open("w", driver="mpio"), self._index.sql_transaction():
                 sim.initialize()  # create groups, set metadata and status
-                sim.metadata["description"] = description or ""
+                sim.metadata.update(
+                    {"description": description, "tags": dedupe_str_iter(tags)}
+                )
                 sim.parameters.update(parameters or {})
                 sim.links.update(links or {})
                 sim.copy_files(files or [])

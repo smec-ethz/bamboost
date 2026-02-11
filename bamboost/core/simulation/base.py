@@ -26,7 +26,16 @@ from datetime import datetime
 from enum import Enum
 from functools import cached_property
 from pathlib import Path
-from typing import TYPE_CHECKING, Any, Iterable, Mapping, Optional, Sized, Union
+from typing import (
+    TYPE_CHECKING,
+    Any,
+    Iterable,
+    Mapping,
+    Optional,
+    Sized,
+    TypeAlias,
+    Union,
+)
 
 import numpy as np
 from typing_extensions import Self
@@ -46,6 +55,8 @@ from bamboost.utilities import StrPath
 if TYPE_CHECKING:
     from bamboost.index.store import SimulationRecord
     from bamboost.mpi import Comm
+
+    cached_property: TypeAlias = property
 
 
 log = BAMBOOST_LOGGER.getChild("simulation")
@@ -406,6 +417,12 @@ class _Simulation(H5Object[_MT], ABC):
         """
         return self.metadata.__getitem__("description")
 
+    @property
+    def tags(self) -> list[str]:
+        """Return simulation tags."""
+        tags = self.metadata.get("tags", [])
+        return list(tags) if isinstance(tags, list) else []
+
     @cached_property
     def links(self) -> Links[_MT]:
         """
@@ -668,6 +685,10 @@ class SimulationWriter(_Simulation[Mutable]):
     @_Simulation.description.setter
     def description(self, value: str) -> None:
         self.metadata.__setitem__("description", value)
+
+    @_Simulation.tags.setter
+    def tags(self, value: Iterable[str]) -> None:
+        self.metadata.__setitem__("tags", utilities.dedupe_str_iter(value))
 
     def require_series(self, path: str) -> Series[Mutable]:
         # require the group in the HDF5 file

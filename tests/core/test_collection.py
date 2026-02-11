@@ -90,6 +90,20 @@ def test_create_simulation_with_description(tmp_collection: Collection):
     assert sim_writer.metadata["description"] == description
 
 
+def test_create_simulation_with_tags(tmp_collection: Collection):
+    sim_writer = tmp_collection.add(
+        name="tagged_sim",
+        parameters={"param": 999},
+        tags=["alpha", "beta", "alpha", ""],
+    )
+    assert sim_writer.metadata["tags"] == ["alpha", "beta"]
+    assert sim_writer.tags == ["alpha", "beta"]
+
+    sim_record = tmp_collection._index.simulation(tmp_collection.uid, "tagged_sim")
+    assert sim_record is not None
+    assert sim_record.tags == ["alpha", "beta"]
+
+
 def test_create_simulation_with_files(tmp_collection: Collection, tmp_path: Path):
     # Create a temp file to "copy" into simulation
     temp_file = tmp_path / "testfile.txt"

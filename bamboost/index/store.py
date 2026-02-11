@@ -151,6 +151,7 @@ def _build_simulation(
         created_at=row["created_at"],
         modified_at=row["modified_at"],
         description=row.get("description"),
+        tags=list(row.get("tags") or []),
         status=row.get("status", ""),
         submitted=bool(row.get("submitted", False)),
         parameters=list(parameters or []),

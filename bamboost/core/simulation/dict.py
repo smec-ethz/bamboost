@@ -150,6 +150,7 @@ class Metadata(AttrsDict[_MT]):
         status: Status of the simulation
         created_at: Creation date of the simulation
         description: Optional description of the simulation
+        tags: Optional list of simulation tags
 
     Args:
         simulation: the simulation object
