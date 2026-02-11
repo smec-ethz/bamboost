@@ -3,7 +3,7 @@ from __future__ import annotations
 import operator
 from datetime import datetime, timedelta
 from numbers import Number
-from typing import TYPE_CHECKING, Any, Callable, Sequence, Union, overload
+from typing import TYPE_CHECKING, Any, Callable, Iterable, Sequence, Union, overload
 
 if TYPE_CHECKING:
     from pandas import DataFrame, Series
@@ -108,14 +108,28 @@ class _Key(_SupportsOperators):
 class Filter:
     """Filter applied to a collection."""
 
-    def __init__(self, *operators: Operator) -> None:
+    def __init__(self, *operators: Operator, tags: Iterable[str] | None = None) -> None:
         self._ops: Sequence[Operator] = operators
+        self._tags: set[str] = set(tags) if tags else set()
 
     def __and__(self, other: Filter | None) -> Filter:
-        return Filter(*self._ops, *other._ops) if other else self
+        return (
+            Filter(*self._ops, *other._ops, tags=self._tags.union(other._tags))
+            if other
+            else self
+        )
 
     def apply(self, df: DataFrame) -> DataFrame | Series | Any:
+        # filter by operators
         mask = df.apply(lambda row: all(op.evaluate(row) for op in self._ops), axis=1)
+
+        # filter by tags if specified
+        if self._tags:
+            tag_mask = df.apply(
+                lambda row: self._tags.issubset(set(row.get("tags", []))), axis=1
+            )
+            mask &= tag_mask
+
         return df[mask]
 
     def __repr__(self) -> str:
