@@ -386,7 +386,9 @@ class Collection(ElligibleForPlugin):
 
         return df
 
-    def filter(self, *operators: Operator) -> Self:
+    def filter(
+        self, *operators: Operator, tags: str | Iterable[str] | None = None
+    ) -> Self:
         """Returns a new Collection filtered by the given operators.
 
         This method applies the specified filter operators to the collection and returns a
@@ -396,6 +398,7 @@ class Collection(ElligibleForPlugin):
         Args:
             *operators: One or more filter operators (e.g., comparisons using Collection.k)
                 to apply to the collection.
+            tags: Optional tag or iterable of tags to filter by.
 
         Returns:
             Collection: A new Collection instance containing only the simulations that
@@ -404,7 +407,8 @@ class Collection(ElligibleForPlugin):
         Examples:
             >>> filtered = collection.filter(collection.k["param"] == 42)
         """
-        return self._replace(_filter=Filter(*operators) & self._filter)
+        tags = (tags,) if isinstance(tags, str) else tags  # handle single string case
+        return self._replace(_filter=Filter(*operators, tags=tags) & self._filter)
 
     def sort(self, key: _Key | str, ascending: bool = True) -> Self:
         """Returns a new Collection sorted by the given instructions.
@@ -590,7 +594,7 @@ class Collection(ElligibleForPlugin):
             with sim._file.open("w", driver="mpio"), self._index.sql_transaction():
                 sim.initialize()  # create groups, set metadata and status
                 sim.metadata.update(
-                    {"description": description, "tags": dedupe_str_iter(tags)}
+                    {"description": description or "", "tags": dedupe_str_iter(tags)}
                 )
                 sim.parameters.update(parameters or {})
                 sim.links.update(links or {})
