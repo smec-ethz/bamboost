@@ -52,7 +52,7 @@ from sqlalchemy.orm import Session, sessionmaker
 from typing_extensions import Concatenate
 
 from bamboost import BAMBOOST_LOGGER, config, constants
-from bamboost._typing import _P, _T, SimulationParameterT, StrPath
+from bamboost._typing import _P, _T, StrPath
 from bamboost.exceptions import InvalidCollectionError
 from bamboost.index import store
 from bamboost.index.schema import collections_table, simulations_table
@@ -602,7 +602,7 @@ class Index(metaclass=RootProcessMeta):
         self,
         collection_uid: str,
         simulation_name: str,
-        parameters: SimulationParameterT,
+        parameters: Mapping[str, Any],
     ) -> None:
         """Update the parameters of a simulation by passing it as a dict.
 
