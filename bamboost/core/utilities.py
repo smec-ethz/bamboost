@@ -263,14 +263,15 @@ def parse_script_arguments() -> ScriptArguments:
     return ScriptArguments(simulation=args.simulation)
 
 
-def dedupe_str_iter(iter: Iterable[str] | None) -> list[str]:
-    """Remove duplicates and empty values from an iterable of strings while preserving
-    order.
+def dedupe_str_iter(iter: str | Iterable[str] | None) -> set[str]:
+    """Remove duplicates and empty values from an iterable of strings and return a clean
+    set.
 
     Args:
-        iter (Iterable[str]): An iterable of strings.
+        iter: A string or an iterable of strings.
     """
     if iter is None:
-        return []
-    deduped = list(dict.fromkeys(str(tag).strip() for tag in iter if str(tag).strip()))
-    return deduped
+        return set()
+    if isinstance(iter, str):
+        return set((iter,))
+    return set(filter(None, iter))
