@@ -92,4 +92,4 @@ def get(
             uid = ind._find_collection_uid_by_alias(alias)
             if uid is None:
                 raise ValueError(f"Alias '{alias}' not found in any collection.")
-        print(uid)
+        console.print(uid)

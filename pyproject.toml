@@ -29,8 +29,8 @@ dependencies = [
 
 [project.urls]
 Homepage = "https://bamboost.ch/"
-repository = "https://gitlab.com/cmbm-ethz/bamboost"
-changelog = "https://gitlab.com/cmbm-ethz/bamboost/-/tree/main/CHANGELOG.md"
+repository = "https://github.com/smec-ethz/bamboost"
+changelog = "https://github.com/smec-ethz/bamboost/blob/main/CHANGELOG.md"
 
 [project.scripts]
 bamboost-cli = "bamboost.cli:app"
@@ -74,6 +74,3 @@ reportIncompatibleMethodOverride = false
 
 [tool.coverage.run]
 source = ["bamboost"]
-omit = [
-    "bamboost/cli/*",
-]
