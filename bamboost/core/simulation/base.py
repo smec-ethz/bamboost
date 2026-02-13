@@ -208,7 +208,6 @@ class _Simulation(H5Object[_MT], ABC):
 
         self._data_file: Path = self.path.joinpath(constants.HDF_DATA_FILE_NAME)
         self._xdmf_file: Path = self.path.joinpath(constants.XDMF_FILE_NAME)
-        self._bash_file: Path = self.path.joinpath(constants.RUN_FILE_NAME)
 
     def __eq__(self, other: _Simulation, /) -> bool:
         return (
@@ -711,11 +710,30 @@ class SimulationWriter(_Simulation[Mutable]):
             elif path.is_dir():
                 shutil.copytree(path, self.path)
 
+    def _get_script_path(self, script_name: Optional[str] = None) -> Path:
+        """Get the path for a script file.
+
+        Args:
+            script_name: Name of the script file. If None, defaults to RUN_FILE_NAME.
+
+        Returns:
+            Path: The full path to the script file.
+        """
+        if script_name is None:
+            script_name = constants.RUN_FILE_NAME
+        return self.path.joinpath(script_name)
+
+    @property
+    def _bash_file(self) -> Path:
+        """Return the default bash script file path for backward compatibility."""
+        return self._get_script_path()
+
     def create_run_script(
         self,
         commands: list[str],
         euler: bool = False,
         sbatch_kwargs: Optional[dict[str, Any]] = None,
+        script_name: Optional[str] = None,
     ) -> None:
         """Create a batch job and put it into the folder.
 
@@ -739,6 +757,9 @@ class SimulationWriter(_Simulation[Mutable]):
                 - `--mem-per-cpu`: The memory required per CPU core.
                 - `--time`: The maximum time the job is allowed to run.
                 - `--tmp`: Temporary scratch space to use for the job.
+            script_name: Name of the script file to create. If None, defaults to RUN_FILE_NAME.
+                This allows creating multiple named scripts for different simulation stages
+                (e.g., "setup.sh", "run.sh", "postprocess.sh").
         """
         script = "#!/bin/bash\n\n"
 
@@ -763,15 +784,17 @@ class SimulationWriter(_Simulation[Mutable]):
         )
         script += "\n".join(commands)
 
-        with self._bash_file.open("w") as file:
+        script_path = self._get_script_path(script_name)
+        with script_path.open("w") as file:
             file.write(script)
 
         self.metadata["submitted"] = False
 
-    def run_simulation(self, executable: str = "bash") -> None:
+    def run_simulation(
+        self, executable: str = "bash", script_name: Optional[str] = None
+    ) -> None:
         """
-        Run the simulation using the specified executable and the default run file in
-        the simulation directory.
+        Run the simulation using the specified executable and run file.
 
         This method executes the simulation's run script using the provided executable.
         By default, it uses "bash" to run the script locally. If "sbatch" is specified,
@@ -780,6 +803,8 @@ class SimulationWriter(_Simulation[Mutable]):
         Args:
             executable (str): The executable to use for running the simulation script.
                 Defaults to "bash". Use "sbatch" to submit to a Slurm scheduler.
+            script_name: Name of the script file to run. If None, defaults to RUN_FILE_NAME.
+                This allows running specific named scripts for different simulation stages.
 
         Raises:
             AssertionError: If called during MPI execution.
@@ -788,17 +813,19 @@ class SimulationWriter(_Simulation[Mutable]):
         Examples:
             >>> sim_writer.run_simulation()  # Runs locally with bash
             >>> sim_writer.run_simulation(executable="sbatch")  # Submits to Slurm
+            >>> sim_writer.run_simulation(script_name="setup.sh")  # Runs setup script
         """
         assert not MPI_ON, "This method is not available during MPI execution."
 
-        if not self._bash_file.exists():
+        script_path = self._get_script_path(script_name)
+        if not script_path.exists():
             raise FileNotFoundError(
-                f"Run script {self._bash_file} does not exist. Create one with `create_run_script`."
+                f"Run script {script_path} does not exist. Create one with `create_run_script`."
             )
 
         env = os.environ.copy()
         _ = env.pop("BAMBOOST_MPI", None)  # remove bamboost MPI environment variable
-        subprocess.run([executable, self._bash_file.as_posix()], env=env)
+        subprocess.run([executable, script_path.as_posix()], env=env)
         log.info(f'Simulation "{self.name}" submitted.')
         self.metadata["submitted"] = True
 

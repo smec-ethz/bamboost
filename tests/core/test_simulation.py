@@ -393,3 +393,107 @@ def test_simulation_writer_submit_simulation(tmp_simulation_writer):
 
         # Ensure run_simulation is called with sbatch
         mock_run_simulation.assert_called_once_with(executable="sbatch")
+
+
+def test_simulation_writer_create_named_run_script(tmp_simulation_writer):
+    """Test that create_run_script can create multiple named scripts."""
+    # Create multiple scripts with different names
+    setup_commands = ["echo 'Setting up'", "mkdir -p output"]
+    run_commands = ["echo 'Running simulation'"]
+    postprocess_commands = ["echo 'Post-processing'"]
+
+    tmp_simulation_writer.create_run_script(setup_commands, script_name="setup.sh")
+    tmp_simulation_writer.create_run_script(run_commands, script_name="run.sh")
+    tmp_simulation_writer.create_run_script(
+        postprocess_commands, script_name="postprocess.sh"
+    )
+
+    # Verify all scripts exist
+    setup_path = tmp_simulation_writer.path / "setup.sh"
+    run_path = tmp_simulation_writer.path / "run.sh"
+    postprocess_path = tmp_simulation_writer.path / "postprocess.sh"
+
+    assert setup_path.exists()
+    assert run_path.exists()
+    assert postprocess_path.exists()
+
+    # Verify content of each script
+    with setup_path.open() as f:
+        setup_content = f.read()
+    assert "echo 'Setting up'" in setup_content
+    assert "mkdir -p output" in setup_content
+
+    with run_path.open() as f:
+        run_content = f.read()
+    assert "echo 'Running simulation'" in run_content
+
+    with postprocess_path.open() as f:
+        postprocess_content = f.read()
+    assert "echo 'Post-processing'" in postprocess_content
+
+
+def test_simulation_writer_run_named_simulation(tmp_simulation_writer):
+    """Test that run_simulation can run a specific named script."""
+    # Create a named script
+    commands = ["echo 'Custom script'"]
+    script_name = "custom.sh"
+    tmp_simulation_writer.create_run_script(commands, script_name=script_name)
+
+    script_path = tmp_simulation_writer.path / script_name
+
+    with (
+        patch("subprocess.run") as mock_run,
+        patch.dict(os.environ, {"BAMBOOST_MPI": "1"}, clear=False),
+    ):
+        tmp_simulation_writer.run_simulation(executable="bash", script_name=script_name)
+
+        # Ensure subprocess.run is called with the correct script
+        mock_run.assert_called_once_with(["bash", script_path.as_posix()], env=ANY)
+
+
+def test_simulation_writer_run_missing_named_script(tmp_simulation_writer):
+    """Test that run_simulation raises error for missing named script."""
+    with pytest.raises(
+        FileNotFoundError, match="Run script .*/nonexistent.sh does not exist"
+    ):
+        tmp_simulation_writer.run_simulation(script_name="nonexistent.sh")
+
+
+def test_simulation_writer_backward_compatibility(tmp_simulation_writer):
+    """Test backward compatibility with default script name."""
+    # Create script without specifying name (should use default)
+    commands = ["echo 'Default script'"]
+    tmp_simulation_writer.create_run_script(commands)
+
+    # Default script should exist at RUN_FILE_NAME
+    default_path = tmp_simulation_writer.path / constants.RUN_FILE_NAME
+    assert default_path.exists()
+
+    # Run without specifying name (should use default)
+    with patch("subprocess.run") as mock_run:
+        tmp_simulation_writer.run_simulation()
+
+        # Ensure subprocess.run is called with the default script
+        mock_run.assert_called_once_with(["bash", default_path.as_posix()], env=ANY)
+
+
+def test_simulation_writer_named_script_with_sbatch(tmp_simulation_writer):
+    """Test that named scripts work with sbatch options."""
+    commands = ["echo 'Job script'"]
+    sbatch_kwargs = {"--time": "01:00:00", "--ntasks": "2"}
+    script_name = "job.sh"
+
+    tmp_simulation_writer.create_run_script(
+        commands, euler=True, sbatch_kwargs=sbatch_kwargs, script_name=script_name
+    )
+
+    script_path = tmp_simulation_writer.path / script_name
+    assert script_path.exists()
+
+    with script_path.open() as f:
+        content = f.read()
+
+    # Ensure sbatch options are included
+    assert "#SBATCH --time=01:00:00" in content
+    assert "#SBATCH --ntasks=2" in content
+    assert "echo 'Job script'" in content
