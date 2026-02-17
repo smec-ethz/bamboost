@@ -33,6 +33,7 @@ repository = "https://gitlab.com/cmbm-ethz/bamboost"
 changelog = "https://gitlab.com/cmbm-ethz/bamboost/-/tree/main/CHANGELOG.md"
 
 [project.scripts]
+bamboost = "bamboost.cli:app"
 bamboost-cli = "bamboost.cli:app"
 
 [dependency-groups]
