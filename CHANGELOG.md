@@ -1,5 +1,12 @@
 # Change log for bamboost
 
+## [0.12.1](https://github.com/smec-ethz/bamboost/compare/0.12.0...0.12.1) (2026-02-17)
+
+
+### Bug Fixes
+
+* **cli:** add `bamboost` console entry point ([fd431e8](https://github.com/smec-ethz/bamboost/commit/fd431e869a37710b269a245e645678558e7f1d68))
+
 ## [0.12.0](https://github.com/smec-ethz/bamboost/compare/0.11.3...0.12.0) (2026-02-11)
 
 
