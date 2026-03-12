@@ -1,5 +1,13 @@
 # Change log for bamboost
 
+## [0.12.2](https://github.com/smec-ethz/bamboost/compare/0.12.1...0.12.2) (2026-03-12)
+
+
+### Bug Fixes
+
+* **remote:** local db name would append version repeateadly ([39ba824](https://github.com/smec-ethz/bamboost/commit/39ba82499a4548928022abde603c46a0b8f6ab9b))
+* **remote:** remote base path is added twice when rsyncning index ([#9](https://github.com/smec-ethz/bamboost/issues/9)) ([270d77a](https://github.com/smec-ethz/bamboost/commit/270d77abc6a3867e177d521e16db7c8ae822899e))
+
 ## [0.12.1](https://github.com/smec-ethz/bamboost/compare/0.12.0...0.12.1) (2026-02-17)
 
 
