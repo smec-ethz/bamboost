@@ -238,7 +238,7 @@ class Remote(Index):
 
         else:
             stream_popen_output(self._fetch_remote_database)(
-                str(self._remote_database_path)
+               str(constants.DEFAULT_DATABASE_FILE_NAME)
             )
 
     def rsync(self, source: StrPath, dest: StrPath) -> subprocess.Popen:
