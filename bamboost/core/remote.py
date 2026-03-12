@@ -197,7 +197,7 @@ class Remote(Index):
             [
                 "rsync",
                 "-av",
-                f"{self._remote_url}:{db_name}",
+                f"{self._remote_url}:{Path(_config._LOCAL_DIR).joinpath(db_name)}",
                 str(destination or self._local_database_path),
             ],
             stdout=subprocess.PIPE,
