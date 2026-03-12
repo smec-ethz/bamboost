@@ -98,8 +98,11 @@ class Remote(Index):
     WORKSPACE_SPLITTER = "_WS_"
 
     @staticmethod
-    def _make_local_db_name(id: str, version: str | None = "0.11") -> str:
-        return f"{id}.{version}.sqlite"
+    def _make_local_db_name(id: str, version: str | None = None) -> str:
+        if version is not None:
+            return f"{id}.{version}.sqlite"
+        else:
+            return f"{id}.sqlite"
 
     def __init__(
         self,
@@ -146,7 +149,7 @@ class Remote(Index):
         # Create the local path if it doesn't exist
         self._local_path.mkdir(parents=True, exist_ok=True)
         self._local_database_path = cache_dir.joinpath(
-            self._make_local_db_name(self.id, "0.11")
+            self._make_local_db_name(self.id)
         )
 
         # super init
@@ -158,15 +161,9 @@ class Remote(Index):
             # this is a blocking call to rsync
             self.fetch_remote_database()
 
-        self._engine = create_engine(
-            self._url,
-            json_serializer=json_serializer,
-            json_deserializer=json_deserializer,
-        )
-        self._sm = sessionmaker(
-            bind=self._engine, autobegin=False, expire_on_commit=False
-        )
-        self._s = self._sm()
+        # Initialize the connection to the local database
+        # this ensures that necessary columns are created and the database is ready for use
+        self._initialize_root_process(self._url)
 
     def __repr__(self) -> str:
         qualname = ".".join([__name__, self.__class__.__qualname__])
@@ -238,7 +235,7 @@ class Remote(Index):
 
         else:
             stream_popen_output(self._fetch_remote_database)(
-               str(constants.DEFAULT_DATABASE_FILE_NAME)
+                str(constants.DEFAULT_DATABASE_FILE_NAME)
             )
 
     def rsync(self, source: StrPath, dest: StrPath) -> subprocess.Popen:
@@ -297,7 +294,7 @@ class RemoteCollection(Collection):
         sorter: Sorter | None = None,
     ):
         self.uid = CollectionUID(uid)
-        self._index = remote
+        self._index = remote  # pyright: ignore[reportIncompatibleVariableOverride]
 
         # A key store with completion of all the parameters and metadata keys
         self.k = _FilterKeys(self)
@@ -380,7 +377,6 @@ class RemoteCollection(Collection):
 
 class RemoteSimulation(Simulation):
     _index: Remote
-    remote_path: Path
 
     def __init__(
         self,
