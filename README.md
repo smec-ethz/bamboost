@@ -178,7 +178,7 @@ Distributed under the **MIT license**. See [LICENSE](https://github.com/smec-eth
 
 ## Contact
 
-zrlf - forez@ethz.ch
+zrlf - florez@ethz.ch
 
 Project Link: [https://github.com/smec-ethz/bamboost](https://github.com/smec-ethz/bamboost)
 
