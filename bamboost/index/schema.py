@@ -60,39 +60,36 @@ class SimulationRecord:
     parameters: list[ParameterRecord] = field(default_factory=list)
 
     def as_dict_metadata(self) -> dict[str, Any]:
-        return {
-            "id": self.id,
-            "collection_uid": self.collection_uid,
-            "name": self.name,
-            "created_at": self.created_at,
-            "modified_at": self.modified_at,
-            "description": self.description,
-            "tags": self.tags,
-            "status": self.status,
-            "submitted": self.submitted,
-        }
+        selected_fields = (
+            "id",
+            "collection_uid",
+            "name",
+            "created_at",
+            "modified_at",
+            "description",
+            "tags",
+            "status",
+            "submitted",
+        )
+        return {field: getattr(self, field) for field in selected_fields}
 
     @property
     def parameter_dict(self) -> dict[str, Any]:
         return {parameter.key: parameter.value for parameter in self.parameters}
 
     def as_dict(self, standalone: bool = True) -> dict[str, Any]:
-        data = {
-            "name": self.name,
-            "created_at": self.created_at,
-            "description": self.description,
-            "tags": self.tags,
-            "status": self.status,
-            "submitted": self.submitted,
-        }
+        output_fields = (
+            "name",
+            "created_at",
+            "description",
+            "tags",
+            "status",
+            "submitted",
+        )
         if standalone:
-            data.update(
-                {
-                    "id": self.id,
-                    "collection_uid": self.collection_uid,
-                    "modified_at": self.modified_at,
-                }
-            )
+            output_fields += ("id", "collection_uid", "modified_at")
+
+        data = {field: getattr(self, field) for field in output_fields}
         return data | self.parameter_dict
 
 
