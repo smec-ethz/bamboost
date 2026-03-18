@@ -7,10 +7,10 @@ from bamboost._typing import _P, _T, _U, StrPath
 
 class PathSet(set[Path]):
     def __init__(self, iterable: Optional[Iterable[StrPath]] = None) -> None:
-        super().__init__(Path(arg).resolve().expanduser() for arg in iterable or [])
+        super().__init__(Path(arg).expanduser().resolve() for arg in iterable or [])
 
     def add(self, element: Union[str, Path], /) -> None:
-        return super().add(Path(element).resolve().expanduser())
+        return super().add(Path(element).expanduser().resolve())
 
 
 # NOT USED

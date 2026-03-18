@@ -208,6 +208,8 @@ def show_differences(df: "DataFrame") -> "DataFrame":
 
 
 def to_camel_case(s: str) -> str:
+    if not s:
+        return s
     words = s.split()
     camel_case = words[0].lower() + "".join([word.capitalize() for word in words[1:]])
     return camel_case
@@ -263,7 +265,7 @@ def parse_script_arguments() -> ScriptArguments:
     return ScriptArguments(simulation=args.simulation)
 
 
-def dedupe_str_iter(iter: str | Iterable[str] | None) -> set[str]:
+def dedupe_str_iter(iter: str | Iterable[str | None] | None) -> set[str]:
     """Remove duplicates and empty values from an iterable of strings and return a clean
     set.
 

@@ -152,6 +152,14 @@ def _get_project_config(project_dir: Path) -> dict[str, Any]:
     return {}
 
 
+def _nested_dict_update(d: MutableMapping, u: MutableMapping) -> MutableMapping:
+    for k, v in u.items():
+        d[k] = (
+            _nested_dict_update(d.get(k, {}), v) if isinstance(v, MutableMapping) else v
+        )
+    return d
+
+
 @dataclass
 class _Base:
     _field_aliases = {}
@@ -435,16 +443,7 @@ class _Config(_Base):
         else:
             project_config = {}
 
-        def nested_update(d: MutableMapping, u: MutableMapping) -> MutableMapping:
-            for k, v in u.items():
-                d[k] = (
-                    nested_update(d.get(k, {}), v)
-                    if isinstance(v, MutableMapping)
-                    else v
-                )
-            return d
-
-        config = nested_update(global_config, project_config)
+        config = _nested_dict_update(global_config, project_config)
 
         self.paths = _Paths.from_dict(config.pop("paths", {}))
         self.options = _Options.from_dict(config.pop("options", {}))
