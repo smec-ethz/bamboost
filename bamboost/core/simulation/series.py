@@ -29,7 +29,8 @@ import h5py
 import numpy as np
 
 import bamboost
-from bamboost import BAMBOOST_LOGGER, constants
+from bamboost import constants
+from bamboost._logger import BAMBOOST_LOGGER
 from bamboost._typing import _MT, ArrayLike, Mutable
 from bamboost.constants import (
     DEFAULT_MESH_NAME,

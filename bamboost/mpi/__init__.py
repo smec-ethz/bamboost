@@ -27,11 +27,12 @@ Type Aliases:
 from __future__ import annotations
 
 import os
-from typing import TYPE_CHECKING, Union
+from typing import TYPE_CHECKING, Any, Union
 
 from typing_extensions import TypeAlias
 
-from bamboost import BAMBOOST_LOGGER, config
+from bamboost._config import config
+from bamboost._logger import BAMBOOST_LOGGER
 
 if TYPE_CHECKING:
     from mpi4py.MPI import Comm as _MPIComm  # ty: ignore[unresolved-import]
@@ -92,7 +93,7 @@ def _assert_h5py_has_mpi_support() -> None:
         )
 
 
-def get_mpi_from_env() -> tuple[object, bool]:
+def get_mpi_from_env() -> tuple[Any, bool]:
     """Get the MPI module and flag based on environment detection."""
     mpi_needed = _detect_if_mpi_needed()
     if not mpi_needed:

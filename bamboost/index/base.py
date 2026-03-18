@@ -51,7 +51,9 @@ from sqlalchemy.exc import SQLAlchemyError
 from sqlalchemy.orm import Session, sessionmaker
 from typing_extensions import Concatenate
 
-from bamboost import BAMBOOST_LOGGER, config, constants
+from bamboost import constants
+from bamboost._config import config
+from bamboost._logger import BAMBOOST_LOGGER
 from bamboost._typing import _P, _T, StrPath
 from bamboost.exceptions import InvalidCollectionError
 from bamboost.index import store

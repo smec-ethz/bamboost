@@ -11,7 +11,7 @@ from sqlalchemy.dialects.sqlite import insert
 from sqlalchemy.orm import Session
 from sqlalchemy.sql.dml import Insert, ReturningInsert
 
-from bamboost import BAMBOOST_LOGGER
+from bamboost._logger import BAMBOOST_LOGGER
 
 if TYPE_CHECKING:
     pass

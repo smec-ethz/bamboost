@@ -3,7 +3,6 @@ from typing import Tuple
 
 import pytest
 
-from bamboost import BAMBOOST_LOGGER
 from bamboost.core.collection import Collection
 from bamboost.index.base import Index
 

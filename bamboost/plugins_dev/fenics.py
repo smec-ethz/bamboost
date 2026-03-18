@@ -7,7 +7,7 @@ from typing import TYPE_CHECKING, Any, Optional, TypedDict
 import h5py
 import numpy as np
 
-from bamboost import BAMBOOST_LOGGER
+from bamboost._logger import BAMBOOST_LOGGER
 from bamboost._typing import Mutable
 from bamboost.constants import DEFAULT_MESH_NAME
 from bamboost.core.hdf5.file import FileMode

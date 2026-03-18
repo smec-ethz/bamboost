@@ -40,7 +40,8 @@ import pandas as pd
 import yaml
 from typing_extensions import Self, deprecated
 
-from bamboost import BAMBOOST_LOGGER, config
+from bamboost._config import config
+from bamboost._logger import BAMBOOST_LOGGER
 from bamboost._typing import StrPath
 from bamboost.core.simulation.base import Simulation, SimulationName, SimulationWriter
 from bamboost.core.utilities import dedupe_str_iter, flatten_dict

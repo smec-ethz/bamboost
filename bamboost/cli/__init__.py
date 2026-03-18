@@ -1,6 +1,7 @@
 import logging
 
-from bamboost import BAMBOOST_LOGGER, STREAM_HANDLER
+from bamboost._logger import BAMBOOST_LOGGER, STREAM_HANDLER
+from bamboost.cli.app import app as app  # noqa: E402
 
 
 # For the cli, any logging should be printed to the console instead.
@@ -14,5 +15,3 @@ class CliHandler(logging.Handler):
 BAMBOOST_LOGGER.addHandler(CliHandler())
 BAMBOOST_LOGGER.removeHandler(STREAM_HANDLER)
 BAMBOOST_LOGGER.setLevel("CRITICAL")
-
-from bamboost.cli.app import app

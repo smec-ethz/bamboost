@@ -38,7 +38,7 @@ from typing import (
     get_type_hints,
 )
 
-from bamboost import BAMBOOST_LOGGER as log
+from bamboost._logger import BAMBOOST_LOGGER as log
 from bamboost._typing import StrPath
 from bamboost.constants import DEFAULT_CONFIG_FILE_NAME, DEFAULT_DATABASE_FILE_NAME
 from bamboost.utilities import PathSet
@@ -320,7 +320,7 @@ class _Options(_Base):
     """
 
     mpi: bool = field(default=importlib.util.find_spec("mpi4py") is not None)
-    sortTableKey: str = field(default="time_stamp")
+    sortTableKey: str = field(default="created_at")
     sortTableOrder: str = field(default="desc")
 
     log_file_lock_severity: Literal["DEBUG", "INFO", "WARNING", "ERROR", "CRITICAL"] = (

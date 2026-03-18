@@ -26,21 +26,13 @@ from datetime import datetime
 from enum import Enum
 from functools import cached_property
 from pathlib import Path
-from typing import (
-    TYPE_CHECKING,
-    Any,
-    Iterable,
-    Mapping,
-    Optional,
-    Sized,
-    TypeAlias,
-    Union,
-)
+from typing import TYPE_CHECKING, Any, Iterable, Mapping, Optional, Sized, Union
 
 import numpy as np
 from typing_extensions import Self
 
-from bamboost import BAMBOOST_LOGGER, config, constants
+from bamboost import config, constants
+from bamboost._logger import BAMBOOST_LOGGER
 from bamboost._typing import _MT, Immutable, Mutable
 from bamboost.core import utilities
 from bamboost.core.hdf5.file import FileMode, H5Object, HDF5File
@@ -56,7 +48,7 @@ if TYPE_CHECKING:
     from bamboost.index.store import SimulationRecord
     from bamboost.mpi import Comm
 
-    cached_property: TypeAlias = property
+    cached_property = property
 
 
 log = BAMBOOST_LOGGER.getChild("simulation")

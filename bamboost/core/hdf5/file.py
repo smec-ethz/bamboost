@@ -79,7 +79,8 @@ from typing import (
 import h5py
 from typing_extensions import Concatenate, Self
 
-from bamboost import BAMBOOST_LOGGER, config
+from bamboost._config import config
+from bamboost._logger import BAMBOOST_LOGGER
 from bamboost._typing import _MT, _P, _T, Immutable, Mutable
 from bamboost.core.hdf5.filemap import FileMap
 from bamboost.core.hdf5.hdf5path import HDF5Path

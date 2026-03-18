@@ -43,7 +43,7 @@ import numpy as np
 from typing_extensions import Self
 
 import bamboost
-from bamboost import BAMBOOST_LOGGER
+from bamboost._logger import BAMBOOST_LOGGER
 from bamboost._typing import _MT, ArrayLike, Mutable
 from bamboost.core.hdf5.attrsdict import AttrsDict
 from bamboost.core.hdf5.file import (

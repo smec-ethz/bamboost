@@ -5,7 +5,7 @@ from typing import TYPE_CHECKING, Any, Mapping, TypedDict, cast
 
 import numpy as np
 
-from bamboost import BAMBOOST_LOGGER
+from bamboost._logger import BAMBOOST_LOGGER
 from bamboost._typing import _MT, Mutable, StrPath
 from bamboost.constants import DEFAULT_MESH_NAME, PATH_MESH
 from bamboost.core.hdf5.file import FileMode
