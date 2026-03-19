@@ -39,3 +39,4 @@ __getattr__, __dir__, __all__ = _lazy.attach(
 # by default, we set the log level to INFO and add a stream handler to the BAMBOOST_LOGGER
 # this ensures that log messages are printed to the console by default
 add_stream_handler(BAMBOOST_LOGGER)
+BAMBOOST_LOGGER.setLevel(config.options.logLevel)

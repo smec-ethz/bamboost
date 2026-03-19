@@ -331,6 +331,11 @@ class _Options(_Base):
     log_root_only: bool = False
     """If True, only the root logger is used."""
 
+    logLevel: Literal["DEBUG", "INFO", "WARNING", "ERROR", "CRITICAL"] = field(
+        default="WARNING"
+    )
+    """The log level for the logger."""
+
     clipboardCommand: str | None = None
     """The command to use for copying to the clipboard. If None, an error is raised if
     clipboard functionality is used but no command is set."""
