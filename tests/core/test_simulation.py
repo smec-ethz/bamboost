@@ -9,17 +9,16 @@ import pytest
 from bamboost import constants
 from bamboost.core.collection import Collection
 from bamboost.core.hdf5.attrsdict import AttrsDict
-from bamboost.core.hdf5.file import FileMode
 from bamboost.core.hdf5.ref import Group
 from bamboost.core.simulation.base import (
     Simulation,
-    SimulationName,
     SimulationWriter,
     Status,
     StatusInfo,
     _Simulation,
 )
 from bamboost.core.simulation.series import Series
+from bamboost.index import SimulationName
 
 
 @pytest.fixture

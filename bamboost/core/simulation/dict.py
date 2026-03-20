@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from functools import reduce
-from typing import TYPE_CHECKING, Any, Generator, Mapping, cast
+from typing import TYPE_CHECKING, Any, Generator, Mapping, MutableMapping, cast
 
 import h5py
 import numpy as np
@@ -10,6 +10,7 @@ from bamboost import constants
 from bamboost.core import utilities
 from bamboost.core.hdf5.attrsdict import AttrsDict, AttrsEncoder, mutable_only
 from bamboost.core.hdf5.file import _MT, FileMode, Mutable, with_file_open
+from bamboost.index import SimulationUID
 
 if TYPE_CHECKING:
     from bamboost.core.simulation.base import _Simulation
@@ -134,14 +135,39 @@ class Parameters(AttrsDict[_MT]):
 
 
 class Links(AttrsDict[_MT]):
+    _simulation: _Simulation
+    _dict: MutableMapping[str, SimulationUID]
+
     def __init__(self, simulation: _Simulation[_MT]) -> None:
         super().__init__(simulation._file, constants.PATH_LINKS)
+        self._simulation = simulation
+
+    def read(self) -> dict[str, SimulationUID]:
+        return {key: SimulationUID(value) for key, value in super().read().items()}
 
     def __getitem__(self, key: str) -> "_Simulation":
         from bamboost.core.simulation import Simulation
 
         return Simulation.from_uid(super().__getitem__(key))
 
+    @mutable_only
+    def __setitem__(self: Links[Mutable], key: str, value: Any) -> None:
+        super().__setitem__(key, value)
+        self._simulation.update_database(links=self._dict)
+
+    @mutable_only
+    def update(
+        self: Links[Mutable], update_dict: MutableMapping[str, SimulationUID | str]
+    ) -> None:
+        # update values to ensure they are all SimulationUIDs
+        _update_dict = {key: SimulationUID(value) for key, value in update_dict.items()}
+        self._dict.update(_update_dict)
+        self.post_write_instruction(
+            # in the hdf5 file, we store the links as strings
+            lambda: self._obj.attrs.update(
+                {key: str(value) for key, value in _update_dict.items()}
+            )
+        )
 
 class Metadata(AttrsDict[_MT]):
     """The metadata of a simulation are the attributes of the root group.

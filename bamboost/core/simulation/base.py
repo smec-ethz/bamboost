@@ -40,7 +40,7 @@ from bamboost.core.hdf5.ref import Group
 from bamboost.core.simulation.dict import Links, Metadata, Parameters
 from bamboost.core.simulation.groups import GroupGit, GroupMesh, GroupMeshes
 from bamboost.core.simulation.series import Series
-from bamboost.index import CollectionUID, Index
+from bamboost.index import CollectionUID, Index, SimulationUID
 from bamboost.mpi import MPI_ON, Communicator
 from bamboost.utilities import StrPath
 
@@ -111,45 +111,6 @@ class StatusInfo:
             if self.message
             else self.status.value
         )
-
-
-class SimulationName(str):
-    """
-    Utility class for generating unique simulation names.
-
-    The `SimulationName` class provides a convenient way to generate or validate
-    unique names for simulation runs. If no name is provided, a random unique
-    identifier is generated using UUID, truncated to the specified length.
-
-    Args:
-        name (Optional[str]): The desired name for the simulation. If not provided,
-            a unique name will be generated.
-        length (int): The length of the generated name if `name` is not provided.
-            Default is 10.
-
-    Examples:
-        >>> sim_name = SimulationName()  # Generates a unique name of length 10
-        >>> sim_name = SimulationName("my_simulation")
-        >>> print(sim_name)
-        my_simulation
-
-    Note:
-        The generated name is guaranteed to be unique across MPI ranks by broadcasting
-        the generated UUID from the root rank.
-    """
-
-    def __new__(cls, name: Optional[str] = None, length: int = 10):
-        name = name or cls.generate_name(length)
-        return super().__new__(cls, name)
-
-    @staticmethod
-    def generate_name(length: int) -> str:
-        if Communicator._active_comm.rank == 0:
-            uid = uuid.uuid4().hex[:length]
-        else:
-            uid = ""
-        uid: str = Communicator._active_comm.bcast(uid, root=0)
-        return uid
 
 
 class _Simulation(H5Object[_MT], ABC):
@@ -277,7 +238,7 @@ class _Simulation(H5Object[_MT], ABC):
         return self._index.simulation(self.collection_uid, self.name)
 
     @classmethod
-    def from_uid(cls, uid: str, **kwargs) -> Self:
+    def from_uid(cls, uid: str | SimulationUID, **kwargs) -> Self:
         """
         Return the `Simulation` instance corresponding to the given UID.
 
@@ -291,24 +252,25 @@ class _Simulation(H5Object[_MT], ABC):
         Examples:
             >>> sim = Simulation.from_uid("abc123:mysim")
         """
-        collection_uid, name = uid.split(constants.UID_SEPARATOR)
+        uid = SimulationUID(uid)
         index = kwargs.pop("index", None) or Index.default
-        collection_path = index.resolve_path(collection_uid)
-        return cls(name, collection_path, index=index, **kwargs)
+        collection_path = index.resolve_path(uid.collection_uid)
+        return cls(uid.simulation_name, collection_path, index=index, **kwargs)
 
     @property
-    def uid(self) -> str:
+    def uid(self) -> SimulationUID:
         """
-        Returns the full unique identifier (UID) of the simulation.
+        Returns the unique identifier (UID) of the simulation.
 
         The UID is constructed as "<collection_uid>:<simulation_name>", where
         `collection_uid` is the unique identifier of the collection containing
         the simulation, and `simulation_name` is the name of the simulation.
 
         Returns:
-            str: The full UID of the simulation in the format "collection_uid:simulation_name".
+            UID of the simulation. To get the UID in the format
+            "collection_uid:simulation_name" use `str(uid)`.
         """
-        return f"{self.collection_uid}{constants.UID_SEPARATOR}{self.name}"
+        return SimulationUID(self.collection_uid, self.name)
 
     def edit(self) -> SimulationWriter:
         """
