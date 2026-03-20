@@ -286,7 +286,9 @@ class Index(metaclass=RootProcessMeta):
             select(collections_table.c.uid, collections_table.c.path)
         ).all()
         for uid, path in rows:
-            if not _validate_path(Path(path), uid):
+            if not _validate_path(Path(path), uid) or not any(
+                i in Path(path).parents for i in self.search_paths
+            ):
                 log.info(
                     "Invalid collection path in cache: %s -> removing.",
                     (uid, path),
