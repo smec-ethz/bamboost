@@ -20,6 +20,7 @@ DEFAULT_MESH_NAME = "default"
 TABLENAME_COLLECTIONS = "collections"
 TABLENAME_SIMULATIONS = "simulations"
 TABLENAME_PARAMETERS = "parameters"
+TABLENAME_SIMULATION_LINKS = "simulation_links"
 
 # Config constants
 DEFAULT_CONFIG_FILE_NAME = "config.toml"
