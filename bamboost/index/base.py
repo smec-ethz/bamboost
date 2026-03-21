@@ -621,6 +621,7 @@ class Index(metaclass=RootProcessMeta):
         simulation_name: str,
         parameters: Mapping[Any, Any] | None = None,
         metadata: Mapping[Any, Any] | None = None,
+        links: Mapping[Any, Any] | None = None,
         *,
         collection_path: StrPath | None = None,
     ) -> None:
@@ -633,7 +634,7 @@ class Index(metaclass=RootProcessMeta):
         """
         collection_path = Path(collection_path or self.resolve_path(collection_uid))
 
-        if metadata is None and parameters is None:
+        if metadata is None and parameters is None and links is None:
             from bamboost.core.simulation.base import Simulation
 
             # if neither metadata nor parameters are provided, read them from the HDF5 file
@@ -648,7 +649,11 @@ class Index(metaclass=RootProcessMeta):
                 collection_uid=collection_uid,
             )
             with sim._file.open("r"):
-                metadata, parameters = sim.metadata._dict, sim.parameters._dict
+                metadata, parameters, links = (
+                    sim.metadata._dict,
+                    sim.parameters._dict,
+                    sim.links._dict,
+                )
 
         # Upsert the simulation table
         sim_payload = {
@@ -657,9 +662,35 @@ class Index(metaclass=RootProcessMeta):
             "modified_at": datetime.now(),
             **_normalize_simulation_metadata(metadata or {}),
         }
+
         sim_id = self._s.execute(
             store.simulations_upsert_stmt(sim_payload)
         ).scalar_one()
+
+        if links:
+            link_payloads = []
+            for ref_name, target_uid in links.items():
+                if isinstance(target_uid, str):
+                    target_uid = SimulationUID(target_uid)
+                target_sim_id = self._s.execute(
+                    select(simulations_table.c.id).where(
+                        simulations_table.c.collection_uid == target_uid.collection_uid,
+                        simulations_table.c.name == target_uid.simulation_name,
+                    )
+                ).scalar()
+                if target_sim_id is None:
+                    raise InvalidSimulationUIDError(
+                        f"Target simulation '{target_uid}' does not exist in the index."
+                    )
+                link_payloads.append(
+                    {
+                        "source_id": sim_id,
+                        "target_id": target_sim_id,
+                        "name": ref_name,
+                    }
+                )
+            if link_payloads:
+                self._s.execute(store.simulation_links_upsert_stmt(link_payloads))
 
         # Upsert the parameters table
         if parameters:
@@ -683,6 +714,58 @@ class Index(metaclass=RootProcessMeta):
             "name": simulation_name,
         } | _normalize_simulation_metadata(data)
         self._s.execute(store.simulations_upsert_stmt(payload))
+
+    @_sql_transaction
+    def update_simulation_links(
+        self,
+        collection_uid: str,
+        simulation_name: str,
+        links: Mapping[str, Any],
+    ) -> None:
+        """Update the links of a simulation.
+
+        Args:
+            links: Dictionary with new links
+        """
+
+        sim_id = store.fetch_simulation_id(self._s, collection_uid, simulation_name)
+        scanned: bool = False  # flag to avoid multiple scans in case of multiple links
+        link_payloads = []
+
+        for ref_name, target_uid_or_string in links.items():
+            target_uid = SimulationUID(target_uid_or_string)
+
+            # first check if the target simulation exists in the database
+            target_sim_id = store.fetch_simulation_id(
+                self._s, target_uid.collection_uid, target_uid.simulation_name
+            )
+
+            # if it doesnt exist, do a full scan of the search paths and try again
+            if target_sim_id is None:
+                if not scanned:
+                    self.scan_for_collections()
+
+                self.sync_collection(target_uid.collection_uid)
+
+                target_sim_id = store.fetch_simulation_id(
+                    self._s, target_uid.collection_uid, target_uid.simulation_name
+                )
+
+            if target_sim_id is None:
+                raise InvalidSimulationUIDError(
+                    f"Target simulation '{target_uid}' does not exist in the index."
+                )
+
+            link_payloads.append(
+                {
+                    "source_id": sim_id,
+                    "target_id": target_sim_id,
+                    "name": ref_name,
+                }
+            )
+
+        if link_payloads:
+            self._s.execute(store.simulation_links_upsert_stmt(link_payloads))
 
     @_sql_transaction
     def update_simulation_parameters(
