@@ -151,9 +151,8 @@ class Links(AttrsDict[_MT]):
         return Simulation.from_uid(super().__getitem__(key))
 
     @mutable_only
-    def __setitem__(self: Links[Mutable], key: str, value: Any) -> None:
-        super().__setitem__(key, value)
-        self._simulation.update_database(links=self._dict)
+    def __setitem__(self: Links[Mutable], key: str, value: str | SimulationUID) -> None:
+        self.update({key: value})
 
     @mutable_only
     def update(
@@ -161,6 +160,10 @@ class Links(AttrsDict[_MT]):
     ) -> None:
         # update values to ensure they are all SimulationUIDs
         _update_dict = {key: SimulationUID(value) for key, value in update_dict.items()}
+
+        # check sql first to avoid writing to hdf5 file if the update is not valid
+        self._simulation.update_database(links=_update_dict)
+
         self._dict.update(_update_dict)
         self.post_write_instruction(
             # in the hdf5 file, we store the links as strings
@@ -168,6 +171,7 @@ class Links(AttrsDict[_MT]):
                 {key: str(value) for key, value in _update_dict.items()}
             )
         )
+
 
 class Metadata(AttrsDict[_MT]):
     """The metadata of a simulation are the attributes of the root group.

@@ -9,7 +9,7 @@ from typing import TYPE_CHECKING, Any, Callable, Mapping, Sequence
 from sqlalchemy import RowMapping, Table, delete, select
 from sqlalchemy.dialects.sqlite import insert
 from sqlalchemy.orm import Session
-from sqlalchemy.sql.dml import Insert, ReturningInsert
+from sqlalchemy.sql.dml import Delete, Insert, ReturningInsert
 
 from bamboost._logger import BAMBOOST_LOGGER
 
@@ -23,6 +23,7 @@ from .schema import (
     collections_table,
     create_all,
     parameters_table,
+    simulation_links_table,
     simulations_table,
 )
 
@@ -32,6 +33,7 @@ __all__ = [
     "collections_upsert_stmt",
     "simulations_upsert_stmt",
     "parameters_upsert_stmt",
+    "simulation_links_upsert_stmt",
     "fetch_collection",
     "fetch_collections",
     "fetch_collection_uid_by_alias",
@@ -40,6 +42,7 @@ __all__ = [
     "fetch_parameters",
     "delete_collection_stmt",
     "delete_simulation_stmt",
+    "delete_simulation_links_stmt",
     "json_serializer",
     "json_deserializer",
 ]
@@ -123,8 +126,13 @@ def _build_collection(session: Session, row: RowMapping) -> CollectionRecord:
 
     simulation_ids = [sim_row["id"] for sim_row in simulations_rows]
     parameters_map = _fetch_parameters_for(session, simulation_ids)
+    links_map = _fetch_links_for(session, simulation_ids)
     simulations = [
-        _build_simulation(sim_row, parameters_map.get(sim_row["id"], []))
+        _build_simulation(
+            sim_row,
+            parameters_map.get(sim_row["id"], []),
+            links_map.get(sim_row["id"], {}),
+        )
         for sim_row in simulations_rows
     ]
 
@@ -143,6 +151,7 @@ def _build_collection(session: Session, row: RowMapping) -> CollectionRecord:
 def _build_simulation(
     row: RowMapping,
     parameters: Sequence[ParameterRecord] | None,
+    links: dict[str, str] | None = None,
 ) -> SimulationRecord:
     return SimulationRecord(
         id=row["id"],
@@ -155,6 +164,7 @@ def _build_simulation(
         status=row.get("status", ""),
         submitted=bool(row.get("submitted", False)),
         parameters=list(parameters or []),
+        links=links or {},
     )
 
 
@@ -185,6 +195,43 @@ def _fetch_parameters_for(
     for row in rows:
         parameter = _build_parameter(row)
         result.setdefault(parameter.simulation_id, []).append(parameter)
+    return result
+
+
+def _fetch_links_for(
+    session: Session, simulation_ids: Sequence[int]
+) -> dict[int, dict[str, str]]:
+    if not simulation_ids:
+        return {}
+
+    # We join with simulations_table to get the target UID (collection_uid:name)
+    stmt = (
+        select(
+            simulation_links_table.c.source_id,
+            simulation_links_table.c.name.label("link_name"),
+            simulations_table.c.collection_uid,
+            simulations_table.c.name.label("target_name"),
+        )
+        .select_from(
+            simulation_links_table.join(
+                simulations_table,
+                simulation_links_table.c.target_id == simulations_table.c.id,
+            )
+        )
+        .where(simulation_links_table.c.source_id.in_(simulation_ids))
+    )
+    rows = session.execute(stmt).mappings().all()
+
+    result: dict[int, dict[str, str]] = {}
+    from bamboost import constants
+
+    for row in rows:
+        source_id = row["source_id"]
+        link_name = row["link_name"]
+        target_uid = (
+            f"{row['collection_uid']}{constants.UID_SEPARATOR}{row['target_name']}"
+        )
+        result.setdefault(source_id, {})[link_name] = target_uid
     return result
 
 
@@ -244,6 +291,37 @@ def parameters_upsert_stmt(
     return stmt.on_conflict_do_update(
         index_elements=[parameters_table.c.simulation_id, parameters_table.c.key],
         set_={"value": stmt.excluded.value},
+    )
+
+
+def simulation_links_upsert_stmt(
+    data: Sequence[Mapping[str, Any]] | Mapping[str, Any],
+) -> Insert:
+    payload, _ = _normalize_payload(data, simulation_links_table)
+    stmt = insert(simulation_links_table).values(payload)
+    return stmt.on_conflict_do_update(
+        index_elements=[
+            simulation_links_table.c.source_id,
+            simulation_links_table.c.name,
+        ],
+        set_={"target_id": stmt.excluded.target_id},
+    )
+
+
+def delete_collection_stmt(uid: str) -> Delete:
+    return delete(collections_table).where(collections_table.c.uid == uid)
+
+
+def delete_simulation_stmt(collection_uid: str, name: str) -> Delete:
+    return delete(simulations_table).where(
+        simulations_table.c.collection_uid == collection_uid,
+        simulations_table.c.name == name,
+    )
+
+
+def delete_simulation_links_stmt(source_id: int) -> Delete:
+    return delete(simulation_links_table).where(
+        simulation_links_table.c.source_id == source_id
     )
 
 
@@ -338,9 +416,22 @@ def fetch_collection_uid_by_alias(session: Session, alias: str) -> str | None:
     return None
 
 
+def fetch_simulation_id(
+    session: Session, collection_uid: str, simulation_name: str
+) -> None | int:
+    """Fetch the ID of a simulation given its collection UID and name."""
+    return session.execute(
+        select(simulations_table.c.id).where(
+            simulations_table.c.collection_uid == collection_uid,
+            simulations_table.c.name == simulation_name,
+        )
+    ).scalar_one()
+
+
 def fetch_simulation(
     session: Session, collection_uid: str, name: str
 ) -> SimulationRecord | None:
+    """Fetch a simulation given its collection UID and name."""
     row = (
         session.execute(
             select(simulations_table).where(
@@ -354,27 +445,26 @@ def fetch_simulation(
     if row is None:
         return None
     parameters_map = _fetch_parameters_for(session, [row["id"]])
-    return _build_simulation(row, parameters_map.get(row["id"], []))
+    links_map = _fetch_links_for(session, [row["id"]])
+    return _build_simulation(
+        row, parameters_map.get(row["id"], []), links_map.get(row["id"], {})
+    )
 
 
 def fetch_simulations(session: Session) -> list[SimulationRecord]:
+    """Fetch all simulations in the database."""
     rows = session.execute(select(simulations_table)).mappings().all()
     simulation_ids = [row["id"] for row in rows]
     parameters_map = _fetch_parameters_for(session, simulation_ids)
-    return [_build_simulation(row, parameters_map.get(row["id"], [])) for row in rows]
+    links_map = _fetch_links_for(session, simulation_ids)
+    return [
+        _build_simulation(
+            row, parameters_map.get(row["id"], []), links_map.get(row["id"], {})
+        )
+        for row in rows
+    ]
 
 
 def fetch_parameters(session: Session) -> list[ParameterRecord]:
     rows = session.execute(select(parameters_table)).mappings().all()
     return [_build_parameter(row) for row in rows]
-
-
-def delete_collection_stmt(uid: str):
-    return delete(collections_table).where(collections_table.c.uid == uid)
-
-
-def delete_simulation_stmt(collection_uid: str, name: str):
-    return delete(simulations_table).where(
-        simulations_table.c.collection_uid == collection_uid,
-        simulations_table.c.name == name,
-    )

@@ -26,7 +26,6 @@ from pathlib import Path
 from typing import (
     TYPE_CHECKING,
     Any,
-    Dict,
     Generator,
     Iterable,
     Literal,
@@ -50,6 +49,7 @@ from bamboost.index import (
     CollectionUID,
     Index,
     SimulationName,
+    SimulationUID,
     create_identifier_file,
     get_identifier_filename,
 )
@@ -474,7 +474,7 @@ class Collection(ElligibleForPlugin):
         description: Optional[str] = None,
         tags: Optional[Iterable[str]] = None,
         files: Optional[Iterable[StrPath]] = None,
-        links: Optional[Dict[str, str]] = None,
+        links: Optional[dict[str, str | SimulationUID]] = None,
         override: bool = False,
     ) -> SimulationWriter:
         """Create and initialize a new simulation in the collection, returning a

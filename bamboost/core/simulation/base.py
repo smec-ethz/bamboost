@@ -299,12 +299,14 @@ class _Simulation(H5Object[_MT], ABC):
         *,
         metadata: Optional[Mapping] = None,
         parameters: Optional[Mapping] = None,
+        links: Optional[Mapping] = None,
     ) -> None:
         """Push update to sqlite database.
 
         Args:
             metadata: metadata dictionary to insert
             parameters: parameter dictionary to insert
+            links: links dictionary to insert
         """
         if not config.index.syncTables:
             return
@@ -317,6 +319,8 @@ class _Simulation(H5Object[_MT], ABC):
             self._index.update_simulation_parameters(
                 self.collection_uid, self.name, parameters
             )
+        if links:
+            self._index.update_simulation_links(self.collection_uid, self.name, links)
 
     @cached_property
     def parameters(self) -> Parameters[_MT]:

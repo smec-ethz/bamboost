@@ -26,6 +26,7 @@ from bamboost.constants import (
     TABLENAME_COLLECTIONS,
     TABLENAME_PARAMETERS,
     TABLENAME_SIMULATIONS,
+    TABLENAME_SIMULATION_LINKS,
 )
 from bamboost.core.utilities import flatten_dict
 from bamboost.index._filtering import Filter, Sorter
@@ -59,6 +60,8 @@ class SimulationRecord:
     tags: list[str] = field(default_factory=list)
     parameters: list[ParameterRecord] = field(default_factory=list)
 
+    links: dict[str, str] = field(default_factory=dict)
+
     def as_dict_metadata(self) -> dict[str, Any]:
         selected_fields = (
             "id",
@@ -85,6 +88,7 @@ class SimulationRecord:
             "tags",
             "status",
             "submitted",
+            "links",
         )
         if standalone:
             output_fields += ("id", "collection_uid", "modified_at")
@@ -163,6 +167,11 @@ class CollectionRecord(CollectionMetadata):
             for parameter in simulation.parameters
         ]
 
+    @property
+    def links(self) -> dict[str, dict[str, str]]:
+        """Dictionary of links for each simulation in the collection."""
+        return {sim.name: sim.links for sim in self.simulations if sim.links}
+
     def get_parameter_keys(self) -> tuple[list[str], list[int]]:
         unique = list({parameter.key for parameter in self.parameters})
         counts = [
@@ -217,7 +226,12 @@ def create_all(engine: Engine) -> None:
 
     metadata.create_all(engine, checkfirst=True)
     with engine.begin() as connection:
-        for table in (collections_table, simulations_table, parameters_table):
+        for table in (
+            collections_table,
+            simulations_table,
+            parameters_table,
+            simulation_links_table,
+        ):
             existing_columns = {
                 row[1]
                 for row in connection.exec_driver_sql(
@@ -305,6 +319,26 @@ simulations_table = Table(
     ),
     Column("submitted", Boolean, nullable=False, default=False, server_default="0"),
     UniqueConstraint("collection_uid", "name", name="uix_collection_name"),
+)
+
+simulation_links_table = Table(
+    TABLENAME_SIMULATION_LINKS,
+    metadata,
+    Column("id", Integer, primary_key=True, autoincrement=True),
+    Column(
+        "source_id",
+        Integer,
+        ForeignKey(f"{TABLENAME_SIMULATIONS}.id", ondelete="CASCADE"),
+        nullable=False,
+    ),
+    Column(
+        "target_id",
+        Integer,
+        ForeignKey(f"{TABLENAME_SIMULATIONS}.id", ondelete="CASCADE"),
+        nullable=False,
+    ),
+    Column("name", String, nullable=False),
+    UniqueConstraint("source_id", "name", name="uix_source_link_name"),
 )
 
 
