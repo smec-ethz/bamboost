@@ -25,13 +25,13 @@ from bamboost._config import config
 from bamboost._logger import BAMBOOST_LOGGER
 from bamboost.core.collection import Collection, _FilterKeys
 from bamboost.core.simulation.base import Simulation
-from bamboost.index._filtering import Filter, Sorter
-from bamboost.index.base import (
+from bamboost.index import (
     CollectionUID,
     Index,
     create_identifier_file,
     get_identifier_filename,
 )
+from bamboost.index._filtering import Filter, Sorter
 from bamboost.utilities import PathSet
 
 if TYPE_CHECKING:
