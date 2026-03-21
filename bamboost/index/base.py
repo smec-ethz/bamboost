@@ -39,11 +39,8 @@ from typing import (
     Generator,
     Iterable,
     Mapping,
-    Optional,
-    Sequence,
-    Set,
-    Tuple,
-    Type,
+    ParamSpec,
+    TypeVar,
     overload,
 )
 
@@ -56,8 +53,8 @@ from typing_extensions import Concatenate, Self
 from bamboost import constants
 from bamboost._config import config
 from bamboost._logger import BAMBOOST_LOGGER
-from bamboost._typing import _P, _T, StrPath
-from bamboost.exceptions import InvalidCollectionError
+from bamboost._typing import StrPath
+from bamboost.exceptions import InvalidCollectionError, InvalidSimulationUIDError
 from bamboost.index import store
 from bamboost.index.schema import collections_table, simulations_table
 from bamboost.mpi import Communicator
@@ -72,6 +69,9 @@ log = BAMBOOST_LOGGER.getChild("Database")
 IDENTIFIER_PREFIX = ".bamboost-collection"
 IDENTIFIER_SEPARATOR = "-"
 
+P = ParamSpec("P")
+T = TypeVar("T")
+
 
 class CollectionUID(str):
     """UID of a collection. If no UID is provided, a new one is generated.
@@ -81,7 +81,7 @@ class CollectionUID(str):
         the generated UUID from the root rank.
     """
 
-    def __new__(cls, uid: Optional[str] = None, length: int = 10):
+    def __new__(cls, uid: str | None = None, length: int = 10):
         uid = uid or cls.generate_uid(length)
         return super().__new__(cls, uid.upper())
 
@@ -109,7 +109,7 @@ class SimulationName(str):
         the generated UUID from the root rank.
     """
 
-    def __new__(cls, name: Optional[str] = None, length: int = 10):
+    def __new__(cls, name: str | None = None, length: int = 10):
         name = name or cls.generate_name(length)
         return super().__new__(cls, name)
 
@@ -172,8 +172,8 @@ class SimulationUID:
 
 
 def _sql_transaction(
-    func: Callable[Concatenate[Index, _P], _T],
-) -> Callable[Concatenate[Index, _P], _T]:
+    func: Callable[Concatenate[Index, P], T],
+) -> Callable[Concatenate[Index, P], T]:
     """Decorator to add a session to the function signature.
 
     Args:
@@ -181,7 +181,7 @@ def _sql_transaction(
     """
 
     @wraps(func)
-    def inner(self: Index, *args: _P.args, **kwargs: _P.kwargs) -> Any:
+    def inner(self: Index, *args: P.args, **kwargs: P.kwargs) -> Any:
         with self.sql_transaction():
             return func(self, *args, **kwargs)
 
@@ -192,7 +192,7 @@ class LazyDefaultIndex:
     def __init__(self) -> None:
         self._instance = None
 
-    def __get__(self, instance: None, owner: Type[Index]) -> Index:
+    def __get__(self, instance: None, owner: type[Index]) -> Index:
         assert instance is None, (
             "The default index is a class attribute! Use `Index.default` instead."
         )
@@ -245,10 +245,10 @@ class Index(metaclass=RootProcessMeta):
 
     def __init__(
         self,
-        sql_file: Optional[StrPath] = None,
-        comm: Optional[Comm] = None,
+        sql_file: StrPath | None = None,
+        comm: Comm | None = None,
         *,
-        search_paths: Optional[Iterable[str | Path]] = None,
+        search_paths: Iterable[str | Path] | None = None,
     ) -> None:
         self.search_paths = PathSet(search_paths or config.index.searchPaths)
         """Paths to scan for collections."""
@@ -320,7 +320,7 @@ class Index(metaclass=RootProcessMeta):
     def scan_for_collections(
         self,
         *,
-        search_paths: Optional[PathSet] = None,
+        search_paths: PathSet | None = None,
     ) -> list[tuple[str, Path]]:
         """Scan known paths for collections and update the index.
 
@@ -332,6 +332,7 @@ class Index(metaclass=RootProcessMeta):
             search_paths (List[Path], optional): Paths to scan for collections.
                 Defaults to config.index.searchPaths.
         """
+        log.info("Scanning for collections in search paths: %s", self.search_paths)
         search_paths = PathSet(search_paths) or self.search_paths
         all_found_collections = []
 
@@ -400,7 +401,7 @@ class Index(metaclass=RootProcessMeta):
         self,
         uid: str,
         *,
-        search_paths: Optional[Set[StrPath]] = None,
+        search_paths: set[StrPath] | None = None,
     ) -> Path:
         """Resolve and return the path of a collection from its UID. Raises a
         `FileNotFoundError` if the collection is not found in the search paths.
@@ -484,7 +485,7 @@ class Index(metaclass=RootProcessMeta):
 
     @_sql_transaction
     def sync_collection(
-        self, uid: str, path: Optional[StrPath] = None, *, force_all: bool = False
+        self, uid: str, path: StrPath | None = None, *, force_all: bool = False
     ) -> None:
         """Sync the table with the file system.
 
@@ -495,6 +496,7 @@ class Index(metaclass=RootProcessMeta):
             uid: UID of the collection
             path (Optional): Path of the collection
         """
+        log.info(f"Syncing collection {uid} with the file system.")
         path = Path(path or self.resolve_path(uid)).absolute()
         # Get all simulation names in the file system
         all_simulations_fs = set(
@@ -533,7 +535,7 @@ class Index(metaclass=RootProcessMeta):
     @property
     @RootProcessMeta.bcast_result
     @_sql_transaction
-    def all_collections(self) -> Sequence[store.CollectionRecord]:
+    def all_collections(self) -> list[store.CollectionRecord]:
         """Return all collections in the index."""
         return store.fetch_collections(self._s)
 
@@ -551,7 +553,7 @@ class Index(metaclass=RootProcessMeta):
     @property
     @RootProcessMeta.bcast_result
     @_sql_transaction
-    def all_simulations(self) -> Sequence[store.SimulationRecord]:
+    def all_simulations(self) -> list[store.SimulationRecord]:
         """Return all simulations in the index."""
         return store.fetch_simulations(self._s)
 
@@ -571,7 +573,7 @@ class Index(metaclass=RootProcessMeta):
     @property
     @RootProcessMeta.bcast_result
     @_sql_transaction
-    def all_parameters(self) -> Sequence[store.ParameterRecord]:
+    def all_parameters(self) -> list[store.ParameterRecord]:
         """Return all parameters in the index."""
         return store.fetch_parameters(self._s)
 
@@ -596,7 +598,7 @@ class Index(metaclass=RootProcessMeta):
 
     @_sql_transaction
     def upsert_collection(
-        self, uid: str, path: Path, metadata: Optional[Mapping[str, Any]] = None
+        self, uid: str, path: Path, metadata: Mapping[str, Any] | None = None
     ) -> None:
         """Cache a collection in the index.
 
@@ -617,10 +619,10 @@ class Index(metaclass=RootProcessMeta):
         self,
         collection_uid: str,
         simulation_name: str,
-        parameters: Optional[Mapping[Any, Any]] = None,
-        metadata: Optional[Mapping[Any, Any]] = None,
+        parameters: Mapping[Any, Any] | None = None,
+        metadata: Mapping[Any, Any] | None = None,
         *,
-        collection_path: Optional[StrPath] = None,
+        collection_path: StrPath | None = None,
     ) -> None:
         """Cache a simulation from a collection.
 
@@ -709,10 +711,7 @@ class Index(metaclass=RootProcessMeta):
 
     @RootProcessMeta.bcast_result
     @_sql_transaction
-    def _get_collection_path(
-        self,
-        uid: str,
-    ) -> Optional[Path]:
+    def _get_collection_path(self, uid: str) -> Path | None:
         res = self._s.execute(
             select(collections_table.c.path).where(
                 collections_table.c.uid == uid.upper()
@@ -734,7 +733,7 @@ class Index(metaclass=RootProcessMeta):
 
     @RootProcessMeta.bcast_result
     @_sql_transaction
-    def _get_collections(self) -> Sequence[store.CollectionRecord]:
+    def _get_collections(self) -> list[store.CollectionRecord]:
         return store.fetch_collections(self._s)
 
     @RootProcessMeta.bcast_result
@@ -891,7 +890,7 @@ def _validate_path(path: Path, uid: str) -> bool:
     return path.is_dir() and path.joinpath(get_identifier_filename(uid)).is_file()
 
 
-def _find_uid_from_path(path: Path) -> Optional[str]:
+def _find_uid_from_path(path: Path) -> str | None:
     try:
         return path.glob(f"{IDENTIFIER_PREFIX}*").__next__().name.rsplit("-", 1)[1]
     except StopIteration:
@@ -914,7 +913,7 @@ def _find_files(
     pattern: str,
     root_dir: str | os.PathLike,
     exclude: Iterable[str] | None = None,
-) -> Tuple[Path, ...]:
+) -> tuple[Path, ...]:
     """
     Locate every file matching *pattern* under *root_dir* while **pruning**
     directory names listed in *exclude* (exact-match on the final path part).
