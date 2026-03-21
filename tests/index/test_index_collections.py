@@ -5,12 +5,12 @@ import pytest
 import yaml
 
 from bamboost.exceptions import InvalidCollectionError
-from bamboost.index.base import (
+from bamboost.index.base import Index
+from bamboost.index.scanner import (
     IDENTIFIER_PREFIX,
     IDENTIFIER_SEPARATOR,
-    Index,
-    _find_uid_from_path,
-    _validate_path,
+    find_uid_from_path,
+    validate_path,
 )
 
 
@@ -28,7 +28,7 @@ def test_find_uid_from_identifier(tmp_path):
     collection_path.mkdir()
     (collection_path / ".bamboost-collection-COLL456").touch()
 
-    uid = _find_uid_from_path(collection_path)
+    uid = find_uid_from_path(collection_path)
     assert uid == "COLL456"
 
 
@@ -38,7 +38,7 @@ def test_validate_path(tmp_path: Path, uid: str, result: bool):
     collection_path.mkdir()
     (collection_path / id_file_name("123")).touch()
 
-    assert _validate_path(collection_path, uid) == result
+    assert validate_path(collection_path, uid) == result
 
 
 def test_insert_collection(index: Index, tmp_path):

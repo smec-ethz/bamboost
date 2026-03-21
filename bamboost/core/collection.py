@@ -54,8 +54,8 @@ from bamboost.index import (
     get_identifier_filename,
 )
 from bamboost.index._filtering import Filter, Operator, Sorter, SortInstruction, _Key
-from bamboost.index.base import load_collection_metadata
-from bamboost.index.schema import CollectionMetadata, CollectionRecord
+from bamboost.index.scanner import load_collection_metadata
+from bamboost.index.store import CollectionMetadata, CollectionRecord
 from bamboost.mpi import Communicator
 from bamboost.mpi.utilities import RootProcessMeta
 from bamboost.plugins import ElligibleForPlugin

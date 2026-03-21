@@ -26,13 +26,15 @@ Classes:
     Index: API for indexing BAMBOOST collections and simulations.
 """
 
-from .base import (
-    CollectionUID,
-    Index,
-    SimulationName,
-    SimulationUID,
+from .base import Index
+from .scanner import (
     create_identifier_file,
     get_identifier_filename,
+)
+from .uids import (
+    CollectionUID,
+    SimulationName,
+    SimulationUID,
 )
 
 __all__ = [

@@ -23,11 +23,7 @@ Database schema:
 
 from __future__ import annotations
 
-import fnmatch
-import os
-import uuid
 from contextlib import contextmanager
-from dataclasses import dataclass
 from datetime import datetime
 from functools import wraps
 from pathlib import Path
@@ -41,14 +37,12 @@ from typing import (
     Mapping,
     ParamSpec,
     TypeVar,
-    overload,
 )
 
-import yaml
 from sqlalchemy import Engine, create_engine, event, select
 from sqlalchemy.exc import SQLAlchemyError
 from sqlalchemy.orm import Session, sessionmaker
-from typing_extensions import Concatenate, Self
+from typing_extensions import Concatenate
 
 from bamboost import constants
 from bamboost._config import config
@@ -56,7 +50,17 @@ from bamboost._logger import BAMBOOST_LOGGER
 from bamboost._typing import StrPath
 from bamboost.exceptions import InvalidCollectionError, InvalidSimulationUIDError
 from bamboost.index import store
-from bamboost.index.schema import collections_table, simulations_table
+from bamboost.index.scanner import (
+    find_collection,
+    find_uid_from_path,
+    load_collection_metadata,
+    normalize_collection_metadata,
+    normalize_simulation_metadata,
+    scan_directory_for_collections,
+    validate_path,
+)
+from bamboost.index.store import collections_table, simulations_table
+from bamboost.index.uids import CollectionUID, SimulationUID
 from bamboost.mpi import Communicator
 from bamboost.mpi.utilities import RootProcessMeta
 from bamboost.utilities import PathSet
@@ -66,109 +70,8 @@ if TYPE_CHECKING:
 
 log = BAMBOOST_LOGGER.getChild("Database")
 
-IDENTIFIER_PREFIX = ".bamboost-collection"
-IDENTIFIER_SEPARATOR = "-"
-
 P = ParamSpec("P")
 T = TypeVar("T")
-
-
-class CollectionUID(str):
-    """UID of a collection. If no UID is provided, a new one is generated.
-
-    Note:
-        The generated UID is guaranteed to be unique across MPI ranks by broadcasting
-        the generated UUID from the root rank.
-    """
-
-    def __new__(cls, uid: str | None = None, length: int = 10):
-        uid = uid or cls.generate_uid(length)
-        return super().__new__(cls, uid.upper())
-
-    @staticmethod
-    def generate_uid(length: int) -> str:
-        if Communicator._active_comm.rank == 0:
-            uid = uuid.uuid4().hex[:length].upper()
-        else:
-            uid = ""
-        uid: str = Communicator._active_comm.bcast(uid, root=0)
-        return uid
-
-
-class SimulationName(str):
-    """Name of a simulation. If no name is provided, a new one is generated.
-
-    Args:
-        name (Optional[str]): The desired name for the simulation. If not provided,
-            a unique name will be generated.
-        length (int): The length of the generated name if `name` is not provided.
-            Default is 10.
-
-    Note:
-        The generated name is guaranteed to be unique across MPI ranks by broadcasting
-        the generated UUID from the root rank.
-    """
-
-    def __new__(cls, name: str | None = None, length: int = 10):
-        name = name or cls.generate_name(length)
-        return super().__new__(cls, name)
-
-    @staticmethod
-    def generate_name(length: int) -> str:
-        if Communicator._active_comm.rank == 0:
-            uid = uuid.uuid4().hex[:length]
-        else:
-            uid = ""
-        uid: str = Communicator._active_comm.bcast(uid, root=0)
-        return uid
-
-
-@dataclass(frozen=True, init=False)  # init=False because we handle it in __new__
-class SimulationUID:
-    """UID of a simulation, consisting of the collection UID and the simulation name.
-
-    Use `str(SimulationUID(...))` to get the string representation of the UID, which is in
-    the format `<collection_uid>:<simulation_name>`. The constructor can be called with
-    either the string representation or the collection UID and simulation name as separate
-    arguments.
-    """
-
-    collection_uid: CollectionUID
-    simulation_name: SimulationName
-
-    @overload
-    def __new__(cls, uid: str | SimulationUID, /) -> Self: ...
-
-    @overload
-    def __new__(
-        cls,
-        collection_uid: CollectionUID | str,
-        simulation_name: SimulationName | str,
-        /,
-    ) -> Self: ...
-
-    def __new__(cls, *args):
-        if len(args) == 1 and isinstance(args[0], SimulationUID):
-            return args[0]
-
-        instance = super().__new__(cls)
-
-        if len(args) == 1 and isinstance(args[0], str):
-            c_uid, s_name = args[0].split(constants.UID_SEPARATOR, 1)
-            object.__setattr__(instance, "collection_uid", c_uid)
-            object.__setattr__(instance, "simulation_name", s_name)
-
-        elif len(args) == 2:
-            object.__setattr__(instance, "collection_uid", args[0])
-            object.__setattr__(instance, "simulation_name", args[1])
-
-        else:
-            raise ValueError("Invalid arguments for SimulationUID")
-
-        return instance
-
-    def __str__(self):
-        return f"{self.collection_uid}{constants.UID_SEPARATOR}{self.simulation_name}"
 
 
 def _sql_transaction(
@@ -338,7 +241,7 @@ class Index(metaclass=RootProcessMeta):
 
         for path in search_paths:
             found_collections: tuple[tuple[str, Path], ...] = (
-                _scan_directory_for_collections(path)
+                scan_directory_for_collections(path)
             )
             if not found_collections:
                 continue
@@ -370,7 +273,7 @@ class Index(metaclass=RootProcessMeta):
             select(collections_table.c.uid, collections_table.c.path)
         ).all()
         for uid, path in rows:
-            if not _validate_path(Path(path), uid):
+            if not validate_path(Path(path), uid):
                 log.info(
                     "Invalid collection path in cache: %s -> removing.",
                     (uid, path),
@@ -419,7 +322,7 @@ class Index(metaclass=RootProcessMeta):
         )
         target_uid = collection.uid if collection else uid.upper()
 
-        if stored_path and _validate_path(stored_path, target_uid):
+        if stored_path and validate_path(stored_path, target_uid):
             return stored_path
 
         log.debug(
@@ -430,7 +333,7 @@ class Index(metaclass=RootProcessMeta):
         # Try to find the collection in the search paths
         for root_dir in PathSet(search_paths) or self.search_paths:
             log.debug(f"Searching for collection <{uid}> in <{root_dir}>")
-            paths_found = _find_collection(target_uid, Path(root_dir))
+            paths_found = find_collection(target_uid, Path(root_dir))
 
             if len(paths_found) > 0:  # If at least one file is found
                 if len(paths_found) > 1:
@@ -466,12 +369,12 @@ class Index(metaclass=RootProcessMeta):
                 collections_table.c.path == path.as_posix()
             )
         ).scalar()
-        if cached_uid and _validate_path(path, cached_uid):
+        if cached_uid and validate_path(path, cached_uid):
             return CollectionUID(cached_uid)
 
         log.debug(f"No or invalid uid found in cache for collection <{path}>.")
 
-        identified_uid = _find_uid_from_path(path)
+        identified_uid = find_uid_from_path(path)
         if identified_uid:
             # store the collection in the cache
             # florez: this is hacky, fixes issue that if a collection is loaded from an
@@ -610,7 +513,7 @@ class Index(metaclass=RootProcessMeta):
         normalized_uid = record["uid"]
         metadata_mapping = metadata or load_collection_metadata(path, normalized_uid)
         if metadata_mapping is not None:
-            record.update(_normalize_collection_metadata(metadata_mapping))
+            record.update(normalize_collection_metadata(metadata_mapping))
 
         self._s.execute(store.collections_upsert_stmt(record))
 
@@ -660,7 +563,7 @@ class Index(metaclass=RootProcessMeta):
             "collection_uid": collection_uid,
             "name": simulation_name,
             "modified_at": datetime.now(),
-            **_normalize_simulation_metadata(metadata or {}),
+            **normalize_simulation_metadata(metadata or {}),
         }
 
         sim_id = self._s.execute(
@@ -712,7 +615,7 @@ class Index(metaclass=RootProcessMeta):
         payload = {
             "collection_uid": collection_uid,
             "name": simulation_name,
-        } | _normalize_simulation_metadata(data)
+        } | normalize_simulation_metadata(data)
         self._s.execute(store.simulations_upsert_stmt(payload))
 
     @_sql_transaction
@@ -825,226 +728,3 @@ class Index(metaclass=RootProcessMeta):
         self, collection_uid: CollectionUID | str, simulation_name: str
     ) -> store.SimulationRecord | None:
         return store.fetch_simulation(self._s, collection_uid, simulation_name)
-
-
-def load_collection_metadata(path: Path, uid: str) -> dict[str, Any] | None:
-    """Load the metadata of a collection from its identifier file.
-
-    Args:
-        path: Path to the collection directory
-        uid: UID of the collection
-    """
-    metadata_file = Path(path).joinpath(get_identifier_filename(uid))
-    if not metadata_file.exists():
-        return None
-
-    try:
-        raw = yaml.safe_load(metadata_file.read_text())
-    except FileNotFoundError:
-        return None
-    except Exception as exc:  # pragma: no cover - defensive logging
-        log.debug(
-            "Failed to load metadata for collection %s from %s: %s",
-            uid,
-            metadata_file,
-            exc,
-        )
-        raise Exception(
-            f"Failed to load metadata for collection {uid} (file: {metadata_file})"
-        ) from exc
-
-    if raw is None:
-        raw = {}
-
-    if not isinstance(raw, Mapping):
-        log.debug("Unexpected metadata format for collection %s: %r", uid, raw)
-        raise TypeError(
-            f"Unexpected metadata format for collection {uid}: {type(raw)}. "
-            "Revise the identifier/metadata file."
-        )
-
-    return _normalize_collection_metadata(raw)
-
-
-def _normalize_collection_metadata(data: Mapping[str, Any]) -> dict[str, Any]:
-    """Normalize the metadata of a collection.
-
-    This also handles backward compatibility for the "Date of creation" field.
-
-    Args:
-        data: The raw metadata dictionary.
-    """
-    metadata: dict[str, Any] = dict(**data)
-
-    created_at_value = None
-    # "Date of creation" is for backward compatibility only
-    # we will write "created_at" from now on
-    for key in ("created_at", "Date of creation"):
-        if key in data and data[key] is not None:
-            created_at_value = data[key]
-            break
-
-    parsed_created_at = _parse_datetime_value(created_at_value)
-    if parsed_created_at is not None:
-        metadata["created_at"] = parsed_created_at
-
-    if tags := data.get("tags"):
-        metadata["tags"] = _deduplicate_sequence(tags)
-    if aliases := data.get("aliases"):
-        metadata["aliases"] = _deduplicate_sequence(aliases, casefold=True)
-
-    return metadata
-
-
-def _normalize_simulation_metadata(data: Mapping[str, Any]) -> dict[str, Any]:
-    """Normalize simulation metadata before writing to SQL."""
-    metadata: dict[str, Any] = dict(**data)
-    if (tags := data.get("tags")) is not None:
-        metadata["tags"] = _deduplicate_sequence(tags)
-    return metadata
-
-
-def _deduplicate_sequence(values: Any, *, casefold: bool = False) -> list[str]:
-    """Deduplicate a sequence of strings.
-
-    Args:
-        values: The sequence of strings to deduplicate.
-        casefold: Whether to ignore case when deduplicating.
-    """
-    if values is None:
-        iterable: Iterable[Any] = []
-    elif isinstance(values, (str, bytes)):
-        iterable = [values]
-    else:
-        try:
-            iterable = list(values)
-        except TypeError:
-            iterable = [values]
-
-    seen: set[str] = set()
-    result: list[str] = []
-
-    for value in iterable:
-        text = str(value).strip()
-        if not text:
-            continue
-
-        key = text.casefold() if casefold else text
-        if key in seen:
-            continue
-
-        seen.add(key)
-        result.append(text)
-
-    return result
-
-
-def _parse_datetime_value(value: Any) -> datetime | None:
-    if isinstance(value, datetime):
-        return value
-    if isinstance(value, str):
-        candidate = value.strip()
-        if not candidate:
-            return None
-        try:
-            return datetime.fromisoformat(candidate)
-        except ValueError:
-            return None
-    return None
-
-
-def create_identifier_file(path: StrPath, uid: str) -> None:
-    """Create an identifier file in the collection directory.
-
-    Args:
-        path: Path to the collection directory
-        uid: UID of the collection
-    """
-    path = Path(path)
-    with open(path.joinpath(get_identifier_filename(uid)), "w") as f:
-        f.write("Date of creation: " + str(datetime.now()))
-
-
-def get_identifier_filename(uid: str) -> str:
-    return IDENTIFIER_PREFIX + IDENTIFIER_SEPARATOR + uid
-
-
-def _validate_path(path: Path, uid: str) -> bool:
-    return path.is_dir() and path.joinpath(get_identifier_filename(uid)).is_file()
-
-
-def _find_uid_from_path(path: Path) -> str | None:
-    try:
-        return path.glob(f"{IDENTIFIER_PREFIX}*").__next__().name.rsplit("-", 1)[1]
-    except StopIteration:
-        return None
-
-
-def _find_collection(uid: str, root_dir: Path) -> tuple[Path, ...]:
-    """Find the collection with UID under given root_dir.
-
-    Args:
-        uid: UID to search for
-        root_dir: root directory for search
-    """
-    return tuple(
-        Path(i).parent for i in _find_files(get_identifier_filename(uid), root_dir)
-    )
-
-
-def _find_files(
-    pattern: str,
-    root_dir: str | os.PathLike,
-    exclude: Iterable[str] | None = None,
-) -> tuple[Path, ...]:
-    """
-    Locate every file matching *pattern* under *root_dir* while **pruning**
-    directory names listed in *exclude* (exact-match on the final path part).
-
-    Returns an immutable tuple of absolute paths (str) just like the POSIX helper.
-    """
-    root = Path(root_dir)
-    hits: list[Path] = []
-
-    if exclude is None:
-        exclude = config.index.excludeDirs
-
-    for base, dirnames, filenames in os.walk(root, topdown=True):
-        # --- prune in–place so the walker never descends further ---
-        dirnames[:] = [d for d in dirnames if d not in exclude]
-
-        for fname in filenames:
-            if fnmatch.fnmatch(fname, pattern):
-                hits.append(Path(base, fname))
-
-    return tuple(hits)
-
-
-def _scan_directory_for_collections(root_dir: Path) -> tuple[tuple[str, Path], ...]:
-    """Scan the directory for collections.
-
-    Args:
-        root_dir: Directory to scan for collections
-
-    Returns:
-        Tuple of tuples with the UID and path of the collection
-    """
-
-    log.debug(f"Scanning {root_dir}")
-
-    if not root_dir.exists():
-        log.warning(f"Path does not exist: {root_dir}")
-        return ()
-
-    found_indicator_files = _find_files(
-        get_identifier_filename("*"), root_dir.as_posix()
-    )
-
-    if not found_indicator_files:
-        log.info(f"No collections found in {root_dir}")
-        return ()
-
-    return tuple(
-        (i.name.rsplit(IDENTIFIER_SEPARATOR, 1)[-1], i.parent)
-        for i in found_indicator_files
-    )

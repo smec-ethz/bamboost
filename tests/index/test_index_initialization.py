@@ -3,7 +3,7 @@ import sqlite3
 from sqlalchemy import Column, String, create_engine
 
 from bamboost.index.base import Index
-from bamboost.index.schema import (
+from bamboost.index.store import (
     _column_sql_for_alter,
     collections_table,
     parameters_table,

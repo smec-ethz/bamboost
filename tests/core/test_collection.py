@@ -10,7 +10,7 @@ from bamboost.core.collection import Collection
 from bamboost.core.simulation.base import Simulation, SimulationWriter
 from bamboost.exceptions import DuplicateSimulationError
 from bamboost.index import get_identifier_filename
-from bamboost.index.base import IDENTIFIER_PREFIX, IDENTIFIER_SEPARATOR
+from bamboost.index.scanner import IDENTIFIER_PREFIX, IDENTIFIER_SEPARATOR
 
 
 def _populate_basic_collection(collection: Collection) -> None:
