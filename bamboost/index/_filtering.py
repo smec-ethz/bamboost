@@ -2,7 +2,6 @@ from __future__ import annotations
 
 import operator
 from datetime import datetime, timedelta
-from numbers import Number
 from typing import TYPE_CHECKING, Any, Callable, Iterable, Sequence, Union, overload
 
 if TYPE_CHECKING:
@@ -11,6 +10,7 @@ if TYPE_CHECKING:
 # Type for operands in expressions. These are dtypes compatible with pandas DataFrame
 # columns. (see https://pandas.pydata.org/docs/reference/api/pandas.DataFrame.dtypes.html)
 Operand = Union["_Key", "Operator", str, float, int, datetime, timedelta]
+Numeric = float | int
 
 
 class _SupportsOperators:
@@ -68,19 +68,19 @@ class Operator(_SupportsOperators):
     def __init__(
         self,
         op: Callable[[Any, Any], bool],
-        a: Number | str | _Key | Operator,
-        b: Number | str | _Key | Operator,
+        a: Numeric | str | _Key | Operator,
+        b: Numeric | str | _Key | Operator,
     ) -> None: ...
     @overload
     def __init__(
-        self, op: Callable[[Any], bool], a: Number | str | _Key | Operator
+        self, op: Callable[[Any], bool], a: Numeric | str | _Key | Operator
     ) -> None: ...
     def __init__(self, op, a, b=None):
         self._op = op
         self._a = a
         self._b = b
 
-    def evaluate(self, item: dict) -> bool:
+    def evaluate(self, item: Any) -> Any:
         def resolve(val):
             if isinstance(val, _Key):
                 return item[val._value]
@@ -119,15 +119,20 @@ class Filter:
             else self
         )
 
-    def apply(self, df: DataFrame) -> DataFrame | Series | Any:
+    def apply(self, df: DataFrame) -> DataFrame | Series:
+        import pandas as pd
+
+        if df.empty:
+            return df
+
         # filter by operators
-        mask = df.apply(lambda row: all(op.evaluate(row) for op in self._ops), axis=1)
+        mask = pd.Series(True, index=df.index)
+        for op in self._ops:
+            mask &= op.evaluate(df)
 
         # filter by tags if specified
         if self._tags:
-            tag_mask = df.apply(
-                lambda row: self._tags.issubset(set(row.get("tags", []))), axis=1
-            )
+            tag_mask = df["tags"].map(lambda x: self._tags.issubset(x))
             mask &= tag_mask
 
         return df[mask]
