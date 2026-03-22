@@ -480,6 +480,49 @@ class Index(metaclass=RootProcessMeta):
         """Return all parameters in the index."""
         return store.fetch_parameters(self._s)
 
+    @property
+    @RootProcessMeta.bcast_result
+    @_sql_transaction
+    def all_links(self) -> list[store.LinkRecord]:
+        """Return all simulation links in the index."""
+        return store.fetch_links(self._s)
+
+    @RootProcessMeta.bcast_result
+    @_sql_transaction
+    def collection_links(self, uid: str) -> list[store.LinkRecord]:
+        """Return all simulation links for a specific collection.
+
+        Args:
+            uid: UID of the collection
+        """
+        return store.fetch_collection_links(self._s, uid)
+
+    @RootProcessMeta.bcast_result
+    @_sql_transaction
+    def collection_links_map(self, uid: str) -> dict[str, dict[str, str]]:
+        """Return a mapping of simulation names to their links for a specific collection.
+
+        Args:
+            uid: UID of the collection
+        """
+        return store.fetch_collection_links_map(self._s, uid)
+
+    @RootProcessMeta.bcast_result
+    @_sql_transaction
+    def backlinks(self, uid: str | SimulationUID) -> list[tuple[SimulationUID, str]]:
+        """Return all simulations that link to the given simulation.
+
+        Args:
+            uid: UID of the target simulation.
+        """
+        uid = SimulationUID(uid)
+
+        rows = store.fetch_backlinks(self._s, uid.collection_uid, uid.simulation_name)
+        return [
+            (SimulationUID(row["collection_uid"], row["source_name"]), row["link_name"])
+            for row in rows
+        ]
+
     @_sql_transaction
     def drop_collection(self, uid: str) -> None:
         """Drop a collection from the cache.
