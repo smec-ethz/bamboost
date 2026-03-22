@@ -38,7 +38,7 @@ from bamboost.constants import (
     TABLENAME_SIMULATIONS,
 )
 from bamboost.core.utilities import flatten_dict
-from bamboost.index._filtering import Filter, Sorter
+from bamboost.index.filtering import Filter, Sorter
 
 if TYPE_CHECKING:
     from pandas import DataFrame

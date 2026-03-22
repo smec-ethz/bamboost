@@ -31,7 +31,7 @@ from bamboost.index import (
     create_identifier_file,
     get_identifier_filename,
 )
-from bamboost.index._filtering import Filter, Sorter
+from bamboost.index.filtering import Filter, Sorter
 from bamboost.utilities import PathSet
 
 if TYPE_CHECKING:
