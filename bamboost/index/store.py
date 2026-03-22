@@ -59,6 +59,14 @@ class ParameterRecord:
 
 
 @dataclass(frozen=True)
+class LinkRecord:
+    id: int
+    source_id: int
+    target_id: int
+    name: str
+
+
+@dataclass(frozen=True)
 class SimulationRecord:
     id: int
     collection_uid: str
@@ -493,6 +501,15 @@ def _build_parameter(row: RowMapping) -> ParameterRecord:
     )
 
 
+def _build_link(row: RowMapping) -> LinkRecord:
+    return LinkRecord(
+        id=row["id"],
+        source_id=row["source_id"],
+        target_id=row["target_id"],
+        name=row["name"],
+    )
+
+
 def _fetch_parameters_for(
     session: Session, simulation_ids: Sequence[int]
 ) -> dict[int, list[ParameterRecord]]:
@@ -783,3 +800,88 @@ def fetch_simulations(session: Session) -> list[SimulationRecord]:
 def fetch_parameters(session: Session) -> list[ParameterRecord]:
     rows = session.execute(select(parameters_table)).mappings().all()
     return [_build_parameter(row) for row in rows]
+
+
+def fetch_links(session: Session) -> list[LinkRecord]:
+    rows = session.execute(select(simulation_links_table)).mappings().all()
+    return [_build_link(row) for row in rows]
+
+
+def fetch_collection_links(session: Session, collection_uid: str) -> list[LinkRecord]:
+    """Fetch all links for a collection."""
+    stmt = (
+        select(simulation_links_table)
+        .join(
+            simulations_table,
+            simulation_links_table.c.source_id == simulations_table.c.id,
+        )
+        .where(simulations_table.c.collection_uid == collection_uid)
+    )
+    rows = session.execute(stmt).mappings().all()
+    return [_build_link(row) for row in rows]
+
+
+def fetch_collection_links_map(
+    session: Session, collection_uid: str
+) -> dict[str, dict[str, str]]:
+    """Fetch all links for a collection as a mapping from simulation name to links."""
+    sim_src = simulations_table.alias("sim_src")
+    sim_target = simulations_table.alias("sim_target")
+
+    stmt = (
+        select(
+            sim_src.c.name.label("source_name"),
+            simulation_links_table.c.name.label("link_name"),
+            sim_target.c.collection_uid.label("target_collection_uid"),
+            sim_target.c.name.label("target_name"),
+        )
+        .select_from(
+            simulation_links_table.join(
+                sim_src,
+                simulation_links_table.c.source_id == sim_src.c.id,
+            ).join(
+                sim_target,
+                simulation_links_table.c.target_id == sim_target.c.id,
+            )
+        )
+        .where(sim_src.c.collection_uid == collection_uid)
+    )
+
+    rows = session.execute(stmt).mappings().all()
+    result: dict[str, dict[str, str]] = {}
+    for row in rows:
+        source_name = row["source_name"]
+        link_name = row["link_name"]
+        target_uid = f"{row['target_collection_uid']}{constants.UID_SEPARATOR}{row['target_name']}"
+        result.setdefault(source_name, {})[link_name] = target_uid
+    return result
+
+
+def fetch_backlinks(
+    session: Session, collection_uid: str, simulation_name: str
+) -> Sequence[RowMapping]:
+    """Fetch all simulations that link to the given simulation."""
+    sim_src = simulations_table.alias("sim_src")
+    sim_target = simulations_table.alias("sim_target")
+
+    stmt = (
+        select(
+            sim_src.c.collection_uid,
+            sim_src.c.name.label("source_name"),
+            simulation_links_table.c.name.label("link_name"),
+        )
+        .select_from(
+            simulation_links_table.join(
+                sim_src,
+                simulation_links_table.c.source_id == sim_src.c.id,
+            ).join(
+                sim_target,
+                simulation_links_table.c.target_id == sim_target.c.id,
+            )
+        )
+        .where(
+            sim_target.c.collection_uid == collection_uid,
+            sim_target.c.name == simulation_name,
+        )
+    )
+    return session.execute(stmt).mappings().all()
