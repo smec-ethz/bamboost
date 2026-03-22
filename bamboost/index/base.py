@@ -481,7 +481,7 @@ class Index(metaclass=RootProcessMeta):
         return store.fetch_parameters(self._s)
 
     @_sql_transaction
-    def _drop_collection(self, uid: str) -> None:
+    def drop_collection(self, uid: str) -> None:
         """Drop a collection from the cache.
 
         Args:
@@ -490,7 +490,7 @@ class Index(metaclass=RootProcessMeta):
         self._s.execute(store.delete_collection_stmt(uid))
 
     @_sql_transaction
-    def _drop_simulation(self, collection_uid: str, simulation_name: str) -> None:
+    def drop_simulation(self, collection_uid: str, simulation_name: str) -> None:
         """Drop a simulation from the cache.
 
         Args:

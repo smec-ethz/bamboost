@@ -580,7 +580,7 @@ class Collection(ElligibleForPlugin):
 
             if exists and override:
                 with RootProcessMeta.comm_self(self):
-                    self._index._drop_simulation(self.uid, name)
+                    self._index.drop_simulation(self.uid, name)
                 shutil.rmtree(directory)  # remove the old directory
 
             # finally create the new directory
@@ -611,7 +611,7 @@ class Collection(ElligibleForPlugin):
             log.error(
                 f"Error occurred while creating simulation {name} at path {self.path}"
             )
-            self._index._drop_simulation(self.uid, name)
+            self._index.drop_simulation(self.uid, name)
             shutil.rmtree(directory)
             raise
 
@@ -660,7 +660,7 @@ class Collection(ElligibleForPlugin):
         if self._comm.rank == 0:
             with RootProcessMeta.comm_self(self), self._index.sql_transaction():
                 for n in names:
-                    self._index._drop_simulation(self.uid, n)
+                    self._index.drop_simulation(self.uid, n)
                     try:
                         shutil.rmtree(self.path.joinpath(n))
                     except PermissionError as e:
