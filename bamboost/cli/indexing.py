@@ -148,7 +148,7 @@ def drop(
     ) as status:
         from bamboost.index import Index
 
-        Index.default._drop_collection(uid)
+        Index.default.drop_collection(uid)
         console.print(
             f"[green]:heavy_check_mark: Collection '{uid}' dropped from index."
         )
