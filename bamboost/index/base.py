@@ -34,6 +34,7 @@ from typing import (
     ClassVar,
     Generator,
     Iterable,
+    Literal,
     Mapping,
     ParamSpec,
     TypeVar,
@@ -280,21 +281,6 @@ class Index(metaclass=RootProcessMeta):
                 )
                 self._s.execute(store.delete_collection_stmt(uid))
 
-    def _get_collection_record(self, identifier: str) -> store.CollectionRecord | None:
-        if not identifier:
-            return None
-
-        normalized_uid = identifier.upper()
-        collection = store.fetch_collection(self._s, normalized_uid)
-        if collection is not None:
-            return collection
-
-        alias_uid = self._find_collection_uid_by_alias(identifier)
-        if alias_uid is None:
-            return None
-
-        return store.fetch_collection(self._s, alias_uid)
-
     def _find_collection_uid_by_alias(self, alias: str) -> str | None:
         return store.fetch_collection_uid_by_alias(self._s, alias)
 
@@ -316,7 +302,7 @@ class Index(metaclass=RootProcessMeta):
         Raises:
             FileNotFoundError: If the collection is not found in the search paths
         """
-        collection = self._get_collection_record(uid)
+        collection = self.collection(uid)
         stored_path = (
             Path(collection.path) if collection else self._get_collection_path(uid)
         )
@@ -450,8 +436,17 @@ class Index(metaclass=RootProcessMeta):
         Args:
             uid: UID of the collection
         """
-        log.debug("Fetching collection from cache.")
-        return self._get_collection_record(uid)
+        log.debug(f"Fetching collection {uid} from cache.")
+        normalized_uid = CollectionUID(uid)
+        collection = store.fetch_collection(self._s, normalized_uid)
+        if collection is not None:
+            return collection
+
+        alias_uid = self._find_collection_uid_by_alias(uid)
+        if alias_uid is None:
+            return None
+
+        return store.fetch_collection(self._s, alias_uid)
 
     @property
     @RootProcessMeta.bcast_result
@@ -523,6 +518,45 @@ class Index(metaclass=RootProcessMeta):
             uid: UID of the collection
         """
         return store.fetch_collection_links_map(self._s, uid)
+
+    @_sql_transaction
+    def insert_linked_sim_parameters(
+        self,
+        collection_record: store.CollectionRecord,
+        include_links: Iterable[str] | Literal[True] = True,
+    ) -> store.CollectionRecord:
+        """Insert parameters of linked simulations into the simulations of a collection record.
+
+        Modifies the collection record in place and returns it.
+
+        Args:
+            collection_record: The collection record to modify
+            include_links: If provided, only include parameters of linked simulations with
+                link names in this iterable. If True, include parameters of all linked
+                simulations.
+        """
+        from dataclasses import replace
+
+        all_links = store.fetch_collection_links(self._s, collection_record.uid)
+        target_ids = set(link.target_id for link in all_links)
+        source_ids = set(link.source_id for link in all_links)
+        linked_parameter_map = store._fetch_parameters_for(self._s, target_ids)
+
+        for sim in collection_record.simulations:
+            if sim.id not in source_ids:
+                continue
+
+            # although SimulationRecord is frozen, we still modify the parameter list in place
+            for link_name, target_id in sim.links.items():
+                if include_links is not True and link_name not in include_links:
+                    continue
+                additional_params = [
+                    replace(param, key=f"{link_name}.{param.key}")
+                    for param in linked_parameter_map.get(target_id, [])
+                ]
+                sim.parameters.extend(additional_params)
+
+        return collection_record
 
     @RootProcessMeta.bcast_result
     @_sql_transaction

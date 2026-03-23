@@ -419,7 +419,7 @@ class RemoteSimulation(Simulation):
 
     @property
     def metadata(self) -> dict:
-        return self._orm.as_dict_metadata()
+        return self._orm.as_dict(include_parameters=False, include_links=False)
 
     def rsync(self) -> Self:
         """Sync the simulation data with the remote server."""
