@@ -77,4 +77,5 @@ reportIncompatibleMethodOverride = false
 source = ["bamboost"]
 omit = [
     "bamboost/cli/*",
+    "bamboost/plugins_dev/*",
 ]

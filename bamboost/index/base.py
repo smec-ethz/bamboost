@@ -538,16 +538,23 @@ class Index(metaclass=RootProcessMeta):
         from dataclasses import replace
 
         all_links = store.fetch_collection_links(self._s, collection_record.uid)
-        target_ids = set(link.target_id for link in all_links)
-        source_ids = set(link.source_id for link in all_links)
+
+        # build a map of source_id -> {link_name: target_id}
+        links_map: dict[int, dict[str, int]] = {}
+        target_ids = set()
+        for link in all_links:
+            links_map.setdefault(link.source_id, {})[link.name] = link.target_id
+            target_ids.add(link.target_id)
+
         linked_parameter_map = store._fetch_parameters_for(self._s, target_ids)
 
         for sim in collection_record.simulations:
-            if sim.id not in source_ids:
+            if sim.id not in links_map:
                 continue
 
+            sim_links = links_map[sim.id]
             # although SimulationRecord is frozen, we still modify the parameter list in place
-            for link_name, target_id in sim.links.items():
+            for link_name, target_id in sim_links.items():
                 if include_links is not True and link_name not in include_links:
                     continue
                 additional_params = [
@@ -669,12 +676,9 @@ class Index(metaclass=RootProcessMeta):
             for ref_name, target_uid in links.items():
                 if isinstance(target_uid, str):
                     target_uid = SimulationUID(target_uid)
-                target_sim_id = self._s.execute(
-                    select(simulations_table.c.id).where(
-                        simulations_table.c.collection_uid == target_uid.collection_uid,
-                        simulations_table.c.name == target_uid.simulation_name,
-                    )
-                ).scalar()
+                target_sim_id = store.fetch_simulation_id(
+                    self._s, target_uid.collection_uid, target_uid.simulation_name
+                )
                 if target_sim_id is None:
                     raise InvalidSimulationUIDError(
                         f"Target simulation '{target_uid}' does not exist in the index."
@@ -776,12 +780,11 @@ class Index(metaclass=RootProcessMeta):
         Args:
             parameters: Dictionary with new parameters
         """
-        sim_id = self._s.execute(
-            select(simulations_table.c.id).where(
-                simulations_table.c.collection_uid == collection_uid,
-                simulations_table.c.name == simulation_name,
+        sim_id = store.fetch_simulation_id(self._s, collection_uid, simulation_name)
+        if sim_id is None:
+            raise ValueError(
+                f"Simulation '{collection_uid}:{simulation_name}' not found."
             )
-        ).scalar_one()
 
         parameter_payload = [
             {"simulation_id": sim_id, "key": key, "value": value}
