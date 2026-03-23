@@ -6,7 +6,7 @@ import dataclasses
 import json
 from dataclasses import dataclass, field, fields
 from datetime import datetime
-from typing import TYPE_CHECKING, Any, Callable, Mapping, Sequence
+from typing import TYPE_CHECKING, Any, Callable, Iterable, Mapping, Sequence
 
 from sqlalchemy import (
     JSON,
@@ -101,11 +101,11 @@ class SimulationRecord:
     tags: list[str] = field(default_factory=list)
     parameters: list[ParameterRecord] = field(default_factory=list)
 
-    links: dict[str, str] = field(default_factory=dict)
+    links: dict[str, int] = field(default_factory=dict)
 
     @classmethod
     def from_mapping(
-        cls, row: RowMapping, parameters: list[ParameterRecord], links: dict[str, str]
+        cls, row: RowMapping, parameters: list[ParameterRecord], links: dict[str, int]
     ) -> SimulationRecord:
         return cls(
             id=row["id"],
@@ -121,42 +121,27 @@ class SimulationRecord:
             links=links or {},
         )
 
-    def as_dict_metadata(self) -> dict[str, Any]:
-        selected_fields = (
-            "id",
-            "collection_uid",
-            "name",
-            "created_at",
-            "modified_at",
-            "description",
-            "tags",
-            "status",
-            "submitted",
-        )
-        return {field: getattr(self, field) for field in selected_fields}
-
     @property
     def parameter_dict(self) -> dict[str, Any]:
         return {parameter.key: parameter.value for parameter in self.parameters}
 
     def as_dict(
-        self, standalone: bool = True, include_links: bool = True
+        self,
+        standalone: bool = True,
+        include_parameters: bool = True,
+        include_links: bool = True,
     ) -> dict[str, Any]:
-        output_fields = (
-            "name",
-            "created_at",
-            "description",
-            "tags",
-            "status",
-            "submitted",
-        )
         if standalone:
-            output_fields += ("id", "collection_uid", "modified_at")
+            output_fields = ("id", "collection_uid", "name", "created_at", "modified_at", "description", "tags", "status", "submitted")  # fmt: off
+        else:
+            output_fields = ("name", "created_at", "description", "tags", "status", "submitted")  # fmt: off
         if include_links:
             output_fields += ("links",)
 
         data = {field: getattr(self, field) for field in output_fields}
-        return data | self.parameter_dict
+        if include_parameters:
+            data.update(self.parameter_dict)
+        return data
 
 
 @dataclass(frozen=False)
@@ -245,7 +230,7 @@ class CollectionRecord(CollectionMetadata):
         ]
 
     @property
-    def links(self) -> dict[str, dict[str, str]]:
+    def links(self) -> dict[str, dict[str, int]]:
         """Dictionary of links for each simulation in the collection."""
         return {sim.name: sim.links for sim in self.simulations if sim.links}
 
@@ -496,7 +481,7 @@ class SqliteJSONEncoder(json.JSONEncoder):
 
 
 def _fetch_parameters_for(
-    session: Session, simulation_ids: Sequence[int]
+    session: Session, simulation_ids: Iterable[int]
 ) -> dict[int, list[ParameterRecord]]:
     if not simulation_ids:
         return {}
@@ -518,7 +503,7 @@ def _fetch_parameters_for(
 
 def _fetch_links_for(
     session: Session, simulation_ids: Sequence[int]
-) -> dict[int, dict[str, SimulationUID]]:
+) -> dict[int, dict[str, int]]:
     if not simulation_ids:
         return {}
 
@@ -527,8 +512,7 @@ def _fetch_links_for(
         select(
             simulation_links_table.c.source_id,
             simulation_links_table.c.name.label("link_name"),
-            simulations_table.c.collection_uid,
-            simulations_table.c.name.label("target_name"),
+            simulations_table.c.id.label("target_id"),
         )
         .select_from(
             simulation_links_table.join(
@@ -540,13 +524,13 @@ def _fetch_links_for(
     )
     rows = session.execute(stmt).mappings().all()
 
-    result: dict[int, dict[str, SimulationUID]] = {}
+    result: dict[int, dict[str, int]] = {}
 
     for row in rows:
         source_id = row["source_id"]
         link_name = row["link_name"]
-        target_uid = SimulationUID(row["collection_uid"], row["target_name"])
-        result.setdefault(source_id, {})[link_name] = target_uid
+        target_id = row["target_id"]
+        result.setdefault(source_id, {})[link_name] = target_id
     return result
 
 
@@ -703,6 +687,7 @@ def fetch_collection(session: Session, uid: str) -> CollectionRecord | None:
     )
     if row is None:
         return None
+
     simulations = fetch_simulations(session, [uid])
     return CollectionRecord.from_mapping(row, simulations)
 
@@ -745,6 +730,18 @@ def fetch_simulation_id(
             simulations_table.c.name == simulation_name,
         )
     ).scalar()
+
+
+def fetch_simulation_uid(session: Session, simulation_id: int) -> SimulationUID | None:
+    """Fetch the UID of a simulation given its ID."""
+    row = session.execute(
+        select(simulations_table.c.collection_uid, simulations_table.c.name).where(
+            simulations_table.c.id == simulation_id
+        )
+    ).first()
+    if row is None:
+        return None
+    return SimulationUID(*row)
 
 
 def fetch_simulation(

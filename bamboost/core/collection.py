@@ -213,6 +213,7 @@ class Collection(ElligibleForPlugin):
         sync_collection: bool = True,
         filter: Optional[Filter] = None,
         sorter: Optional[Sorter] = None,
+        include_links: Iterable[str] | Literal[True] | None = None,
     ):
         assert path or uid, "Either path or uid must be provided."
         assert not (path and uid), "Only one of path or uid must be provided."
@@ -220,6 +221,7 @@ class Collection(ElligibleForPlugin):
         self._index = index_instance or Index.default
         self._filter = filter
         self._sorter = sorter
+        self._include_links = include_links
 
         # A key store with completion of all the parameters and metadata keys
         self.k = _FilterKeys(self)
@@ -331,7 +333,13 @@ class Collection(ElligibleForPlugin):
             possibly filtered.
         """
         collection_record = self._index.collection(self.uid)
-        assert collection_record is not None, "Collection not found in index."
+        if collection_record is None:
+            raise RuntimeError("Collection not found in index. This should not happen.")
+
+        if self._include_links:
+            collection_record = self._index.insert_linked_sim_parameters(
+                collection_record, self._include_links
+            )
         return collection_record.filtered(self._filter, self._sorter)
 
     @cached_property
@@ -357,18 +365,47 @@ class Collection(ElligibleForPlugin):
 
         return CollectionMetadataStore.from_dict(data, _collection=self)
 
-    @property
-    def df(self) -> pd.DataFrame:
+    def include_links(self, *keys: str) -> Self:
+        """Returns a new Collection that includes parameters of simulations linked with
+        the specified keys.
+
+        Args:
+            *keys: One or more keys representing the links to include. If no keys are
+                provided, all linked simulations will be included.
+
+        Returns:
+            Collection: A new Collection instance that includes the linked simulations.
+
+        Examples:
+            >>> linked_collection = collection.include_linked("key1", "key2")
+            >>> all_linked = collection.include_linked()  # include all linked simulations
+        """
+        if not keys:
+            return self._replace(_include_links=True)
+
+        return self._replace(_include_links=keys)
+
+    def to_pandas(self, flatten: bool = True) -> pd.DataFrame:
         """Returns a pandas DataFrame representing the collection and its parameter space.
 
         The DataFrame contains all simulations in the collection, including their
         parameters and metadata. The table is sorted according to the user-specified key
         and order in the configuration, if available.
 
+        Also includes parameters of linked simulations if `include_links` is set. (use
+        `coll.include_links(...).df` to include specific links)
+
+        Args:
+            include_linked: If True, include linked simulations in the DataFrame. If a
+                tuple of strings is provided, only include simulations linked with the
+                specified keys.
+            flatten: If True (default), flatten nested parameter dictionaries into a single
+                level using dot notation. If False, keep nested dictionaries as they are.
+
         Returns:
             pd.DataFrame: DataFrame of the collection's simulations and parameters.
         """
-        df = self._record.to_pandas()
+        df = self._record.to_pandas(flatten=flatten)
 
         # apply filtering if necessary
         if self._filter is not None:
@@ -387,6 +424,22 @@ class Collection(ElligibleForPlugin):
             pass
 
         return df
+
+    @property
+    def df(self) -> pd.DataFrame:
+        """Returns a pandas DataFrame representing the collection and its parameter space.
+
+        The DataFrame contains all simulations in the collection, including their
+        parameters and metadata. The table is sorted according to the user-specified key
+        and order in the configuration, if available.
+
+        Also includes parameters of linked simulations if `include_links` is set. (use
+        `coll.include_links(...).df` to include specific links)
+
+        Returns:
+            pd.DataFrame: DataFrame of the collection's simulations and parameters.
+        """
+        return self.to_pandas()
 
     def filter(
         self, *operators: Operator, tags: str | Iterable[str] | None = None
