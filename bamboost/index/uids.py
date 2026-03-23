@@ -91,13 +91,19 @@ class SimulationUID:
         instance = super().__new__(cls)
 
         if len(args) == 1 and isinstance(args[0], str):
-            c_uid, s_name = args[0].split(constants.UID_SEPARATOR, 1)
-            object.__setattr__(instance, "collection_uid", c_uid)
-            object.__setattr__(instance, "simulation_name", s_name)
+            try:
+                c_uid, s_name = args[0].split(constants.UID_SEPARATOR, 1)
+            except ValueError as exc:
+                raise ValueError(
+                    f"Invalid SimulationUID string: {args[0]!r}. expected format "
+                    f"'<collection_uid>{constants.UID_SEPARATOR}<simulation_name>'"
+                ) from exc
+            object.__setattr__(instance, "collection_uid", CollectionUID(c_uid))
+            object.__setattr__(instance, "simulation_name", SimulationName(s_name))
 
         elif len(args) == 2:
-            object.__setattr__(instance, "collection_uid", args[0])
-            object.__setattr__(instance, "simulation_name", args[1])
+            object.__setattr__(instance, "collection_uid", CollectionUID(args[0]))
+            object.__setattr__(instance, "simulation_name", SimulationName(args[1]))
 
         else:
             raise ValueError("Invalid arguments for SimulationUID")
