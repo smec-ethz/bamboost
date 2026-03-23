@@ -462,16 +462,33 @@ class Index(metaclass=RootProcessMeta):
 
     @RootProcessMeta.bcast_result
     @_sql_transaction
-    def simulation(
-        self, collection_uid: str, name: str
-    ) -> store.SimulationRecord | None:
+    def simulation(self, uid: str | SimulationUID) -> store.SimulationRecord | None:
         """Return a simulation from the index.
 
         Args:
             collection_uid: UID of the collection
             name: Name of the simulation
         """
-        return store.fetch_simulation(self._s, collection_uid, name)
+        uid = SimulationUID(uid)
+        return store.fetch_simulation(self._s, uid.collection_uid, uid.simulation_name)
+
+    @RootProcessMeta.bcast_result
+    @_sql_transaction
+    def simulations(
+        self, uids: Iterable[str | SimulationUID]
+    ) -> list[store.SimulationRecord]:
+        """Return multiple simulations from the index.
+
+        Args:
+            uids: Iterable of simulation UIDs
+        """
+        normalized_uids = []
+        for uid in uids:
+            if isinstance(uid, str):
+                uid = SimulationUID(uid)
+            normalized_uids.append((uid.collection_uid, uid.simulation_name))
+
+        return store.fetch_simulations_by_uid(self._s, normalized_uids)
 
     @property
     @RootProcessMeta.bcast_result
