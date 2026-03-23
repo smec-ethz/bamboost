@@ -101,11 +101,14 @@ class SimulationRecord:
     tags: list[str] = field(default_factory=list)
     parameters: list[ParameterRecord] = field(default_factory=list)
 
-    links: dict[str, int] = field(default_factory=dict)
+    links: dict[str, SimulationUID] = field(default_factory=dict)
 
     @classmethod
     def from_mapping(
-        cls, row: RowMapping, parameters: list[ParameterRecord], links: dict[str, int]
+        cls,
+        row: RowMapping,
+        parameters: list[ParameterRecord],
+        links: dict[str, SimulationUID],
     ) -> SimulationRecord:
         return cls(
             id=row["id"],
@@ -134,11 +137,16 @@ class SimulationRecord:
         if standalone:
             output_fields = ("id", "collection_uid", "name", "created_at", "modified_at", "description", "tags", "status", "submitted")  # fmt: off
         else:
+            # When not standalone (e.g. for DataFrames), we exclude the internal 'id'
             output_fields = ("name", "created_at", "description", "tags", "status", "submitted")  # fmt: off
         if include_links:
             output_fields += ("links",)
 
         data = {field: getattr(self, field) for field in output_fields}
+        if include_links and self.links:
+            # Convert SimulationUID objects to strings for the dictionary
+            data["links"] = {k: str(v) for k, v in self.links.items()}
+
         if include_parameters:
             data.update(self.parameter_dict)
         return data
@@ -230,7 +238,7 @@ class CollectionRecord(CollectionMetadata):
         ]
 
     @property
-    def links(self) -> dict[str, dict[str, int]]:
+    def links(self) -> dict[str, dict[str, SimulationUID]]:
         """Dictionary of links for each simulation in the collection."""
         return {sim.name: sim.links for sim in self.simulations if sim.links}
 
@@ -503,7 +511,7 @@ def _fetch_parameters_for(
 
 def _fetch_links_for(
     session: Session, simulation_ids: Sequence[int]
-) -> dict[int, dict[str, int]]:
+) -> dict[int, dict[str, SimulationUID]]:
     if not simulation_ids:
         return {}
 
@@ -512,7 +520,8 @@ def _fetch_links_for(
         select(
             simulation_links_table.c.source_id,
             simulation_links_table.c.name.label("link_name"),
-            simulations_table.c.id.label("target_id"),
+            simulations_table.c.collection_uid,
+            simulations_table.c.name.label("target_name"),
         )
         .select_from(
             simulation_links_table.join(
@@ -524,13 +533,13 @@ def _fetch_links_for(
     )
     rows = session.execute(stmt).mappings().all()
 
-    result: dict[int, dict[str, int]] = {}
+    result: dict[int, dict[str, SimulationUID]] = {}
 
     for row in rows:
         source_id = row["source_id"]
         link_name = row["link_name"]
-        target_id = row["target_id"]
-        result.setdefault(source_id, {})[link_name] = target_id
+        target_uid = SimulationUID(row["collection_uid"], row["target_name"])
+        result.setdefault(source_id, {})[link_name] = target_uid
     return result
 
 
