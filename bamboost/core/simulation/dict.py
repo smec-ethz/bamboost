@@ -88,7 +88,7 @@ class Parameters(AttrsDict[_MT]):
             if isinstance(value, np.ndarray):  # write arrays as datasets
                 self._obj.create_dataset(key, data=value)
             else:  # any other type as attribute
-                self._obj.attrs[key] = value
+                self._obj.attrs[key] = AttrsEncoder.encode(value)
 
         self.post_write_instruction(_write_item)
 
