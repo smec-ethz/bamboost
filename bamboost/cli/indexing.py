@@ -6,7 +6,6 @@ import typer
 
 from bamboost.cli import _completion, _render
 from bamboost.cli.common import console, task_status
-from bamboost.index import SimulationUID
 
 app_index = typer.Typer(
     name="index",
@@ -71,7 +70,7 @@ def list(
     with console.status("[bold blue]Fetching data...", spinner="dots"):
         # if the user has provided a simulation name, display the simulation details
         if simulation_name:
-            from bamboost.index import Index
+            from bamboost.index import Index, SimulationUID
 
             sim = Index.default.simulation(
                 SimulationUID(collection_uid, simulation_name)
