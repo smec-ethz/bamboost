@@ -218,7 +218,7 @@ class Collection(ElligibleForPlugin):
         assert path or uid, "Either path or uid must be provided."
         assert not (path and uid), "Only one of path or uid must be provided."
 
-        self._index = index_instance or Index.default
+        self._index = index_instance or Index()
         self._filter = filter
         self._sorter = sorter
         self._include_links = include_links
@@ -377,8 +377,8 @@ class Collection(ElligibleForPlugin):
             Collection: A new Collection instance that includes the linked simulations.
 
         Examples:
-            >>> linked_collection = collection.include_linked("key1", "key2")
-            >>> all_linked = collection.include_linked()  # include all linked simulations
+            >>> linked_collection = collection.include_links("key1", "key2")
+            >>> all_linked = collection.include_links()  # include all linked simulations
         """
         if not keys:
             return self._replace(_include_links=True)
@@ -396,9 +396,6 @@ class Collection(ElligibleForPlugin):
         `coll.include_links(...).df` to include specific links)
 
         Args:
-            include_linked: If True, include linked simulations in the DataFrame. If a
-                tuple of strings is provided, only include simulations linked with the
-                specified keys.
             flatten: If True (default), flatten nested parameter dictionaries into a single
                 level using dot notation. If False, keep nested dictionaries as they are.
 

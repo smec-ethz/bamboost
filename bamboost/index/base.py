@@ -672,26 +672,7 @@ class Index(metaclass=RootProcessMeta):
         ).scalar_one()
 
         if links:
-            link_payloads = []
-            for ref_name, target_uid in links.items():
-                if isinstance(target_uid, str):
-                    target_uid = SimulationUID(target_uid)
-                target_sim_id = store.fetch_simulation_id(
-                    self._s, target_uid.collection_uid, target_uid.simulation_name
-                )
-                if target_sim_id is None:
-                    raise InvalidSimulationUIDError(
-                        f"Target simulation '{target_uid}' does not exist in the index."
-                    )
-                link_payloads.append(
-                    {
-                        "source_id": sim_id,
-                        "target_id": target_sim_id,
-                        "name": ref_name,
-                    }
-                )
-            if link_payloads:
-                self._s.execute(store.simulation_links_upsert_stmt(link_payloads))
+            self.update_simulation_links(collection_uid, simulation_name, links)
 
         # Upsert the parameters table
         if parameters:
@@ -730,6 +711,11 @@ class Index(metaclass=RootProcessMeta):
         """
 
         sim_id = store.fetch_simulation_id(self._s, collection_uid, simulation_name)
+        if sim_id is None:
+            raise InvalidSimulationUIDError(
+                f"Simulation '{collection_uid}:{simulation_name}' does not exist in the index."
+            )
+
         scanned: bool = False  # flag to avoid multiple scans in case of multiple links
         link_payloads = []
 
@@ -745,6 +731,7 @@ class Index(metaclass=RootProcessMeta):
             if target_sim_id is None:
                 if not scanned:
                     self.scan_for_collections()
+                    scanned = True
 
                 self.sync_collection(target_uid.collection_uid)
 

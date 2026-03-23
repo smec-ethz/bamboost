@@ -4,6 +4,7 @@ from typing import Tuple
 import pytest
 
 from bamboost.core.collection import Collection
+from bamboost.exceptions import InvalidSimulationUIDError
 from bamboost.index import Index, SimulationUID
 
 
@@ -131,7 +132,13 @@ def test_upsert_simulation_with_missing_target(
 
     links = {"ref1": "COLL001:MISSING_SIM"}
 
-    with pytest.raises(ValueError, match="does not exist"):
+    with (
+        pytest.MonkeyPatch.context() as m,
+        pytest.raises(InvalidSimulationUIDError, match="does not exist"),
+    ):
+        # monkeypatch sync_collection to avoid syncing, we only check the existing index
+        m.setattr(Index, "sync_collection", lambda self, collection_uid: None)
+
         index.upsert_simulation(
             collection_uid="COLL001",
             simulation_name="sim1",
