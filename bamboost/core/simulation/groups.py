@@ -10,7 +10,7 @@ from bamboost._typing import _MT, Mutable, StrPath
 from bamboost.constants import DEFAULT_MESH_NAME, PATH_MESH
 from bamboost.core.hdf5.file import FileMode
 from bamboost.core.hdf5.ref import Group
-from bamboost.core.simulation import CellType
+from bamboost.core.simulation.types import CellType
 from bamboost.mpi import Communicator
 
 if TYPE_CHECKING:

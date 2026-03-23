@@ -47,7 +47,7 @@ from bamboost.core.hdf5.file import (
 )
 from bamboost.core.hdf5.hdf5path import HDF5Path
 from bamboost.core.hdf5.ref import Dataset, Group, H5Reference, InvalidReferenceError
-from bamboost.core.simulation import FieldType
+from bamboost.core.simulation.types import FieldType
 
 if TYPE_CHECKING:
     import pandas as pd

@@ -7,7 +7,7 @@ import numpy as np
 
 from bamboost._typing import StrPath
 from bamboost.core.hdf5.file import FileMode, HDF5File, HDF5Path
-from bamboost.core.simulation import FieldType
+from bamboost.core.simulation.types import FieldType
 from bamboost.mpi import Communicator
 from bamboost.mpi.utilities import RootProcessMeta
 

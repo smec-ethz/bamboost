@@ -11,7 +11,7 @@ from bamboost._logger import BAMBOOST_LOGGER
 from bamboost._typing import Mutable
 from bamboost.constants import DEFAULT_MESH_NAME
 from bamboost.core.hdf5.file import FileMode
-from bamboost.core.simulation import CellType, FieldType
+from bamboost.core.simulation.types import CellType, FieldType
 from bamboost.core.simulation.groups import GroupMeshes
 from bamboost.core.simulation.series import FieldData, Series, StepWriter
 from bamboost.mpi import MPI
