@@ -9,7 +9,7 @@ import yaml
 from bamboost.core.collection import Collection
 from bamboost.core.simulation.base import Simulation, SimulationWriter
 from bamboost.exceptions import DuplicateSimulationError
-from bamboost.index import get_identifier_filename
+from bamboost.index import SimulationUID, get_identifier_filename
 from bamboost.index.scanner import IDENTIFIER_PREFIX, IDENTIFIER_SEPARATOR
 
 
@@ -98,7 +98,7 @@ def test_create_simulation_with_tags(tmp_collection: Collection):
     assert sim_writer.metadata["tags"] == {"alpha", "beta"}
     assert sim_writer.tags == {"alpha", "beta"}
 
-    sim_record = tmp_collection._index.simulation(tmp_collection.uid, "tagged_sim")
+    sim_record = tmp_collection._index.simulation(SimulationUID(tmp_collection.uid, "tagged_sim"))
     assert sim_record is not None
     # the record tags (from sqlite db) is a list, so convert to set for comparison
     assert set(sim_record.tags) == {"alpha", "beta"}

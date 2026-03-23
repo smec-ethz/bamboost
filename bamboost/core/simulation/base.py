@@ -235,7 +235,7 @@ class _Simulation(H5Object[_MT], ABC):
 
     @property
     def _orm(self) -> SimulationRecord | None:
-        return self._index.simulation(self.collection_uid, self.name)
+        return self._index.simulation(self.uid)
 
     @classmethod
     def from_uid(cls, uid: str | SimulationUID, **kwargs) -> Self:

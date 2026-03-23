@@ -6,6 +6,7 @@ import typer
 
 from bamboost.cli import _completion, _render
 from bamboost.cli.common import console, task_status
+from bamboost.index import SimulationUID
 
 app_index = typer.Typer(
     name="index",
@@ -72,7 +73,9 @@ def list(
         if simulation_name:
             from bamboost.index import Index
 
-            sim = Index.default.simulation(collection_uid, simulation_name)
+            sim = Index.default.simulation(
+                SimulationUID(collection_uid, simulation_name)
+            )
             if sim is None:
                 return console.print(
                     f"Simulation [bold]{simulation_name}[/bold] not found in collection [bold]{collection_uid}[/bold].",

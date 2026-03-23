@@ -104,5 +104,15 @@ class SimulationUID:
 
         return instance
 
+    def __eq__(self, other):
+        if isinstance(other, SimulationUID):
+            return (
+                self.collection_uid == other.collection_uid
+                and self.simulation_name == other.simulation_name
+            )
+        if isinstance(other, str):
+            return str(self) == other
+        return NotImplemented
+
     def __str__(self):
         return f"{self.collection_uid}{constants.UID_SEPARATOR}{self.simulation_name}"

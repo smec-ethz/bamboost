@@ -4,7 +4,7 @@ from typing import Tuple
 import pytest
 
 from bamboost.core.collection import Collection
-from bamboost.index.base import Index
+from bamboost.index import Index, SimulationUID
 
 
 @pytest.fixture
@@ -38,7 +38,7 @@ def test_upsert_simulation(index_with_collection: Tuple[Index, Path]):
         collection_path=collection_path,
     )
 
-    sim = index.simulation("COLL001", "sim1")
+    sim = index.simulation(SimulationUID("COLL001", "sim1"))
 
     assert sim is not None
     assert sim.name == "sim1"
@@ -57,7 +57,7 @@ def test_update_simulation_metadata(
     new_metadata = {"description": "Updated description", "tags": ["first", "first"]}
     index.update_simulation_metadata(coll.uid, sim_name, new_metadata)  # pyright: ignore[reportArgumentType]
 
-    sim = index.simulation(coll.uid, sim_name)
+    sim = index.simulation(SimulationUID(coll.uid, sim_name))
     assert sim.description == "Updated description"
     assert sim.tags == ["first"]
 
@@ -74,17 +74,14 @@ def test_update_simulation_parameters(
     sim_name = "testsim1"
     index.upsert_simulation(coll.uid, sim_name)
 
-    old_params = index.simulation(coll.uid, sim_name).parameter_dict
+    old_params = index.simulation(SimulationUID(coll.uid, sim_name)).parameter_dict
     index.update_simulation_parameters(coll.uid, sim_name, params)
-    sim = index.simulation(coll.uid, sim_name)
+    sim = index.simulation(SimulationUID(coll.uid, sim_name))
 
     # update old_params for comparison
     old_params.update(params)
 
     assert sim.parameter_dict == old_params
-
-
-from bamboost.index.uids import SimulationUID
 
 
 def test_upsert_simulation_with_links(index_with_collection: Tuple[Index, Path]):
@@ -108,7 +105,10 @@ def test_upsert_simulation_with_links(index_with_collection: Tuple[Index, Path])
         collection_path=collection_path,
     )
 
-    links = {"ref1": "COLL001:sim2", "ref2": SimulationUID("COLL001", "sim3")}
+    links = {
+        "ref1": SimulationUID("COLL001:sim2"),
+        "ref2": SimulationUID("COLL001", "sim3"),
+    }
 
     index.upsert_simulation(
         collection_uid="COLL001",
@@ -119,9 +119,9 @@ def test_upsert_simulation_with_links(index_with_collection: Tuple[Index, Path])
         collection_path=collection_path,
     )
 
-    sim = index.simulation("COLL001", "sim1")
+    sim = index.simulation(SimulationUID("COLL001", "sim1"))
     assert sim is not None
-    assert sim.links == {"ref1": "COLL001:sim2", "ref2": "COLL001:sim3"}
+    assert sim.links == links
 
 
 def test_upsert_simulation_with_missing_target(
@@ -164,10 +164,10 @@ def test_update_simulation_links(index_with_collection: Tuple[Index, Path]):
         collection_path=collection_path,
     )
 
-    links = {"ref1": "COLL001:sim2"}
+    links = {"ref1": SimulationUID("COLL001:sim2")}
     index.update_simulation_links("COLL001", "sim1", links)
 
-    sim = index.simulation("COLL001", "sim1")
+    sim = index.simulation(SimulationUID("COLL001", "sim1"))
     assert sim.links == links
 
 
