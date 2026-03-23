@@ -60,7 +60,7 @@ from bamboost.index.scanner import (
     scan_directory_for_collections,
     validate_path,
 )
-from bamboost.index.store import collections_table, simulations_table
+from bamboost.index.store import collections_table
 from bamboost.index.uids import CollectionUID, SimulationUID
 from bamboost.mpi import Communicator
 from bamboost.mpi.utilities import RootProcessMeta

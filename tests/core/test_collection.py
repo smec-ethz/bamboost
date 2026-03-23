@@ -98,7 +98,9 @@ def test_create_simulation_with_tags(tmp_collection: Collection):
     assert sim_writer.metadata["tags"] == {"alpha", "beta"}
     assert sim_writer.tags == {"alpha", "beta"}
 
-    sim_record = tmp_collection._index.simulation(SimulationUID(tmp_collection.uid, "tagged_sim"))
+    sim_record = tmp_collection._index.simulation(
+        SimulationUID(tmp_collection.uid, "tagged_sim")
+    )
     assert sim_record is not None
     # the record tags (from sqlite db) is a list, so convert to set for comparison
     assert set(sim_record.tags) == {"alpha", "beta"}

@@ -18,7 +18,6 @@ from __future__ import annotations
 
 import os
 import subprocess
-import uuid
 from abc import ABC
 from contextlib import contextmanager
 from dataclasses import dataclass
@@ -41,7 +40,7 @@ from bamboost.core.simulation.dict import Links, Metadata, Parameters
 from bamboost.core.simulation.groups import GroupGit, GroupMesh, GroupMeshes
 from bamboost.core.simulation.series import Series
 from bamboost.index import CollectionUID, Index, SimulationUID
-from bamboost.mpi import MPI_ON, Communicator
+from bamboost.mpi import MPI_ON
 from bamboost.utilities import StrPath
 
 if TYPE_CHECKING:
