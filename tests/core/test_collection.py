@@ -317,3 +317,63 @@ def test_collection_by_path_not_in_db(tmp_path: Path):
     assert collection.uid == testuid
     # assert uid is now in index
     assert collection.uid in map(lambda i: i.uid, collection._index.all_collections)
+
+
+def test_add_duplicate_action_skip(tmp_collection_burn: Collection):
+    params = {"a": 1, "b": 2}
+    sim1 = tmp_collection_burn.add("sim1", parameters=params)
+
+    # Try to add again with skip
+    sim2 = tmp_collection_burn.add("sim2", parameters=params, duplicate_action="skip")
+
+    assert sim2.name == "sim1"
+    assert len(tmp_collection_burn) == 1
+
+
+def test_add_duplicate_action_ignore(tmp_collection_burn: Collection):
+    params = {"a": 1, "b": 2}
+    tmp_collection_burn.add("sim1", parameters=params)
+
+    # Try to add again with ignore
+    tmp_collection_burn.add("sim2", parameters=params, duplicate_action="ignore")
+
+    assert len(tmp_collection_burn) == 2
+    assert set(tmp_collection_burn.all_simulation_names()) == {"sim1", "sim2"}
+
+
+def test_add_duplicate_action_replace_exact(tmp_collection_burn: Collection):
+    params = {"a": 1, "b": 2}
+    tmp_collection_burn.add("sim1", parameters=params)
+
+    # Try to add again with replace (exact match)
+    tmp_collection_burn.add("sim2", parameters=params, duplicate_action="replace")
+
+    assert len(tmp_collection_burn) == 1
+    assert tmp_collection_burn.all_simulation_names() == ["sim2"]
+
+
+def test_add_duplicate_action_replace_partial_no_match(tmp_collection_burn: Collection):
+    tmp_collection_burn.add("sim1", parameters={"a": 1, "b": 2})
+    tmp_collection_burn.add("sim2", parameters={"a": 1, "b": 3})
+
+    # Try to add with only {"a": 1}. Should NOT match sim1 or sim2 because it's not an exact match.
+    tmp_collection_burn.add("sim3", parameters={"a": 1}, duplicate_action="replace")
+
+    assert len(tmp_collection_burn) == 3
+    assert set(tmp_collection_burn.all_simulation_names()) == {"sim1", "sim2", "sim3"}
+
+
+def test_add_duplicate_action_replace_filtered_collection(
+    tmp_collection_burn: Collection,
+):
+    tmp_collection_burn.add("sim1", parameters={"a": 1, "b": 2})
+
+    # Filter so sim1 is not visible
+    filtered = tmp_collection_burn.filter(tmp_collection_burn.k["a"] == 100)
+    assert len(filtered) == 0
+
+    # Adding an exact match to sim1 via the filtered collection should still work and replace sim1
+    filtered.add("sim2", parameters={"a": 1, "b": 2}, duplicate_action="replace")
+
+    assert len(tmp_collection_burn) == 1
+    assert tmp_collection_burn.all_simulation_names() == ["sim2"]
