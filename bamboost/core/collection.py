@@ -700,8 +700,11 @@ class Collection(ElligibleForPlugin):
         else:
             raise ArgumentError("name must be a string or an iterable of strings.")
 
-        # Check that all names exist in the collection
-        existing_names = set(self.all_simulation_names())
+        # Check that all names exist in the collection (even if filtered)
+        unfiltered_record = self._index.collection(self.uid)
+        if unfiltered_record is None:
+            raise RuntimeError(f"Collection {self.uid} not found in index.")
+        existing_names = {sim.name for sim in unfiltered_record.simulations}
         for n in names:
             if n not in existing_names:
                 raise ValueError(f"Simulation {n} does not exist in the collection.")
@@ -761,7 +764,11 @@ class Collection(ElligibleForPlugin):
         return matches
 
     def _list_duplicates(
-        self, parameters: Mapping, *, df: pd.DataFrame | None = None
+        self,
+        parameters: Mapping,
+        *,
+        df: pd.DataFrame | None = None,
+        exact: bool = False,
     ) -> list[str]:
         """List the names (IDs) of simulations in the collection that have duplicate
         parameter values.
@@ -771,6 +778,9 @@ class Collection(ElligibleForPlugin):
                 names, values are the values to match against existing simulations.
             df: DataFrame to search in. If not provided, the DataFrame from the SQL
                 database is used.
+            exact: If True, only matches simulations that have exactly the same set of
+                parameters. If False (default), matches simulations that have at least
+                the provided parameters matching.
 
         Returns:
             list[str]: List of simulation names (IDs) that have the same parameter values
@@ -787,6 +797,8 @@ class Collection(ElligibleForPlugin):
                 self.ori = np.asarray(ori)
 
             def __eq__(self, other):
+                if hasattr(other, "ori"):
+                    other = other.ori
                 return np.array_equal(np.asarray(other), self.ori)
 
         # make all iterables comparable by converting them to ComparableIterable
@@ -796,13 +808,34 @@ class Collection(ElligibleForPlugin):
 
         # if any of the parameters is not in the dataframe, no duplicates
         for p in params:
-            if p not in df.keys():
+            if p not in df.columns:
                 return []
 
         # get matching rows where all values of the series are equal to the corresponding values in the dataframe
         s = pd.Series(params)
-        match = df.loc[(df[s.keys()].apply(lambda row: (s == row).all(), axis=1))]
-        return match.name.tolist()
+        if s.empty:
+            mask = pd.Series(True, index=df.index)
+        else:
+            # Vectorized comparison (handles ComparableIterable via __eq__ and object-dtype columns)
+            mask = (df[s.keys()] == s).all(axis=1)
+
+        if exact:
+            # For exact match, all other parameter columns must be NaN/missing
+            metadata_cols = {
+                "name",
+                "created_at",
+                "description",
+                "tags",
+                "status",
+                "submitted",
+            }
+            other_param_cols = [
+                c for c in df.columns if c not in s.keys() and c not in metadata_cols
+            ]
+            for col in other_param_cols:
+                mask &= df[col].isna()
+
+        return df.loc[mask].name.tolist()
 
     def _check_duplicate(self, parameters: Mapping) -> Literal[True]:
         """Check whether the given parameters dictionary already exists in the collection.
@@ -812,8 +845,19 @@ class Collection(ElligibleForPlugin):
         Args:
             parameters (dict): Parameter dictionary to check for duplicates.
         """
+        # we must check for duplicates in the WHOLE collection, not just the filtered view
+        unfiltered_record = self._index.collection(self.uid)
+        if unfiltered_record is None:
+            raise RuntimeError("Collection not found in index.")
 
-        duplicates = self._list_duplicates(parameters)
+        # resolve linked parameters if necessary (to match the behavior of df)
+        if self._include_links:
+            unfiltered_record = self._index.insert_linked_sim_parameters(
+                unfiltered_record, self._include_links
+            )
+
+        df = unfiltered_record.to_pandas()
+        duplicates = self._list_duplicates(parameters, df=df, exact=True)
         if len(duplicates) == 0:
             return True
 
