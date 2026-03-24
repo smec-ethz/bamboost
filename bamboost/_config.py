@@ -394,6 +394,14 @@ class _IndexOptions(_Base):
     projectDir: Optional[Path] = None
     """The project directory, if found."""
 
+    strictLinks: bool = True
+    """If True, an error is raised when trying to set a link and the target is invalid."""
+
+    strictLinksWhenSyncing: bool = False
+    """If True, strictLinks is also applied when syncing the database. This can lead to
+    errors if files have been moved or deleted since the last sync, but can help to catch
+    issues early."""
+
     def __post_init__(self) -> None:
         # Parse search paths to Path objects
         self.searchPaths = PathSet(

@@ -688,6 +688,12 @@ def _collect_update_columns(
 # ------------------------------------------------
 
 
+def get_collection_uids(session: Session) -> tuple[str, ...]:
+    """Fetch all collection UIDs without loading simulations."""
+    rows = session.execute(select(collections_table.c.uid)).scalars()
+    return tuple(rows)
+
+
 def fetch_collection(session: Session, uid: str) -> CollectionRecord | None:
     row = (
         session.execute(select(collections_table).where(collections_table.c.uid == uid))
