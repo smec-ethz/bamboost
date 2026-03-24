@@ -609,10 +609,10 @@ class Collection(ElligibleForPlugin):
 
         # Root process creates the directory if it does not exist
         if self._comm.rank == 0:
-            # Check for duplicate parameters if provided
-            if parameters and duplicate_action != "ignore" and not override:
+            # Check for duplicate parameters/links if provided
+            if (parameters or links) and duplicate_action != "ignore" and not override:
                 try:
-                    self._check_duplicate(parameters)
+                    self._check_duplicate(parameters, links=links)
                 except DuplicateSimulationError as e:
                     if duplicate_action == "raise":
                         raise
@@ -765,8 +765,9 @@ class Collection(ElligibleForPlugin):
 
     def _list_duplicates(
         self,
-        parameters: Mapping,
+        parameters: Mapping | None = None,
         *,
+        links: Mapping | None = None,
         df: pd.DataFrame | None = None,
         exact: bool = False,
     ) -> list[str]:
@@ -776,6 +777,7 @@ class Collection(ElligibleForPlugin):
         Args:
             parameters: Parameter dictionary to check for duplicates. Keys are parameter
                 names, values are the values to match against existing simulations.
+            links: Dictionary of simulation links to include in the duplicate check.
             df: DataFrame to search in. If not provided, the DataFrame from the SQL
                 database is used.
             exact: If True, only matches simulations that have exactly the same set of
@@ -789,8 +791,11 @@ class Collection(ElligibleForPlugin):
         import pandas as pd
 
         if df is None:
-            df = self._record.to_pandas()
-        params = flatten_dict(parameters)
+            df = self._record.to_pandas(include_links=True)
+        params = flatten_dict(parameters or {})
+        if links:
+            # Prefix links to match flattened DataFrame columns
+            params.update(flatten_dict({"links": links}))
 
         class ComparableIterable:
             def __init__(self, ori):
@@ -806,7 +811,7 @@ class Collection(ElligibleForPlugin):
             if isinstance(params[k], Iterable) and not isinstance(params[k], str):
                 params[k] = ComparableIterable(params[k])
 
-        # if any of the parameters is not in the dataframe, no duplicates
+        # if any of the parameters/links is not in the dataframe, no duplicates
         for p in params:
             if p not in df.columns:
                 return []
@@ -820,7 +825,8 @@ class Collection(ElligibleForPlugin):
             mask = (df[s.keys()] == s).all(axis=1)
 
         if exact:
-            # For exact match, all other parameter columns must be NaN/missing
+            # For exact match, all other parameter/link columns must be NaN/missing.
+            # We exclude tags, description, and other internal metadata.
             metadata_cols = {
                 "name",
                 "created_at",
@@ -829,21 +835,24 @@ class Collection(ElligibleForPlugin):
                 "status",
                 "submitted",
             }
-            other_param_cols = [
+            other_cols = [
                 c for c in df.columns if c not in s.keys() and c not in metadata_cols
             ]
-            for col in other_param_cols:
+            for col in other_cols:
                 mask &= df[col].isna()
 
         return df.loc[mask].name.tolist()
 
-    def _check_duplicate(self, parameters: Mapping) -> Literal[True]:
+    def _check_duplicate(
+        self, parameters: Mapping | None = None, *, links: Mapping | None = None
+    ) -> Literal[True]:
         """Check whether the given parameters dictionary already exists in the collection.
         Returns True if no duplicates are found. Raises `DuplicateSimulationError` if
         duplicates are found.
 
         Args:
             parameters (dict): Parameter dictionary to check for duplicates.
+            links (dict): Links dictionary to check for duplicates.
         """
         # we must check for duplicates in the WHOLE collection, not just the filtered view
         unfiltered_record = self._index.collection(self.uid)
@@ -856,8 +865,8 @@ class Collection(ElligibleForPlugin):
                 unfiltered_record, self._include_links
             )
 
-        df = unfiltered_record.to_pandas()
-        duplicates = self._list_duplicates(parameters, df=df, exact=True)
+        df = unfiltered_record.to_pandas(include_links=True)
+        duplicates = self._list_duplicates(parameters, links=links, df=df, exact=True)
         if len(duplicates) == 0:
             return True
 
