@@ -377,3 +377,32 @@ def test_add_duplicate_action_replace_filtered_collection(
 
     assert len(tmp_collection_burn) == 1
     assert tmp_collection_burn.all_simulation_names() == ["sim2"]
+
+
+def test_add_duplicate_action_replace_with_links(tmp_collection_burn: Collection):
+    other1 = tmp_collection_burn.add("other1", parameters={"x": 1})
+    other2 = tmp_collection_burn.add("other2", parameters={"x": 2})
+
+    params = {"a": 1}
+    tmp_collection_burn.add(
+        "sim1", parameters=params, links={"ref": other1.uid}, override=True
+    )
+
+    # Try to add again with same params but DIFFERENT link.
+    # Should NOT be a duplicate.
+    tmp_collection_burn.add(
+        "sim2", parameters=params, links={"ref": other2.uid}, duplicate_action="replace"
+    )
+
+    assert len(tmp_collection_burn) == 4  # other1, other2, sim1, sim2
+    assert "sim1" in tmp_collection_burn.all_simulation_names()
+    assert "sim2" in tmp_collection_burn.all_simulation_names()
+
+    # Try to add again with SAME params and SAME link.
+    # Should be a duplicate and replace sim2.
+    tmp_collection_burn.add(
+        "sim3", parameters=params, links={"ref": other2.uid}, duplicate_action="replace"
+    )
+
+    assert "sim2" not in tmp_collection_burn.all_simulation_names()
+    assert "sim3" in tmp_collection_burn.all_simulation_names()

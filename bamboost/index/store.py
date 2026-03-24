@@ -250,11 +250,13 @@ class CollectionRecord(CollectionMetadata):
         ]
         return unique, counts
 
-    def to_pandas(self, flatten: bool = True) -> "DataFrame":
+    def to_pandas(self, flatten: bool = True, include_links: bool = False) -> "DataFrame":
         import pandas as pd
 
         records = [
-            simulation.as_dict(standalone=False, include_links=False)
+            simulation.as_dict(
+                standalone=False, include_links=include_links or self.links is not None
+            )
             for simulation in self.simulations
         ]
         if flatten:
