@@ -1,5 +1,14 @@
 # Change log for bamboost
 
+## [0.13.1](https://github.com/smec-ethz/bamboost/compare/0.13.0...0.13.1) (2026-03-24)
+
+
+### Bug Fixes
+
+* **cli:** use relative index import to undo regression in startup time ([b3bcf78](https://github.com/smec-ethz/bamboost/commit/b3bcf7881ae6885e813fc83f8ceb02bb6406af5a))
+* **config:** add options config.index.strictLinks/strictLinksWhenSyncing ([dba58ad](https://github.com/smec-ethz/bamboost/commit/dba58ade8b9324faa7ecade7723be0fb3ff38de6))
+* **index:** soften enforcement of existing targets of links ([dba58ad](https://github.com/smec-ethz/bamboost/commit/dba58ade8b9324faa7ecade7723be0fb3ff38de6))
+
 ## [0.13.0](https://github.com/smec-ethz/bamboost/compare/0.12.1...0.13.0) (2026-03-23)
 
 
