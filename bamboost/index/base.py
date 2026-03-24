@@ -672,7 +672,12 @@ class Index(metaclass=RootProcessMeta):
         ).scalar_one()
 
         if links:
-            self.update_simulation_links(collection_uid, simulation_name, links)
+            self.update_simulation_links(
+                collection_uid,
+                simulation_name,
+                links,
+                raise_on_invalid_target=config.index.strictLinksWhenSyncing,
+            )
 
         # Upsert the parameters table
         if parameters:
@@ -703,53 +708,84 @@ class Index(metaclass=RootProcessMeta):
         collection_uid: str,
         simulation_name: str,
         links: Mapping[str, Any],
+        *,
+        raise_on_invalid_target: bool = config.index.strictLinksWhenSyncing,
     ) -> None:
         """Update the links of a simulation.
 
         Args:
+            collection_uid: UID of the collection
+            simulation_name: Name of the simulation
             links: Dictionary with new links
+            raise_on_invalid_target: If True, raise an error if any of the target
+                simulations do not exist in the index. If False, log a warning and skip
+                the invalid links.
         """
+        scanned: bool = False  # flag to avoid multiple scans in case of multiple links
+        known_collection_uids: tuple[str, ...] = store.get_collection_uids(self._s)
 
         sim_id = store.fetch_simulation_id(self._s, collection_uid, simulation_name)
         if sim_id is None:
             raise InvalidSimulationUIDError(
-                f"Simulation '{collection_uid}:{simulation_name}' does not exist in the index."
+                f"Simulation '{collection_uid}:{simulation_name}' does not exist in the index. "
+                "This happened because you are trying to update the links of a simulation that cannot be found."
             )
 
-        scanned: bool = False  # flag to avoid multiple scans in case of multiple links
+        def _raise_or_log_invalid_target(target_uid: SimulationUID) -> None:
+            if raise_on_invalid_target:
+                raise InvalidSimulationUIDError(
+                    f"Target simulation '{target_uid}' cannot be found. "
+                    "This happened because strict link checking is enabled and all link targets "
+                    "are required to exist in the index. To skip invalid targets instead of "
+                    "raising an error, disable strict link checking in your configuration or "
+                    "invoke this operation with 'raise_on_invalid_target=False'."
+                )
+            else:
+                log.warning(f"Stale link. '{target_uid}' can not be found.")
+
+        def _find_target(target_uid: SimulationUID) -> int | None:
+            nonlocal scanned, known_collection_uids
+            target_sim_id = store.fetch_simulation_id(
+                self._s, target_uid.collection_uid, target_uid.simulation_name
+            )
+            if target_sim_id is not None:
+                return target_sim_id
+
+            log.debug(
+                f"Target simulation '{target_uid}' not found in cache. "
+                "Scanning for/syncing collections and trying again."
+            )
+            if not scanned:
+                colls = self.scan_for_collections()
+                scanned = True
+                known_collection_uids = tuple(coll[0] for coll in colls)
+
+            if target_uid.collection_uid not in known_collection_uids:
+                _raise_or_log_invalid_target(target_uid)
+                return None
+
+            self.sync_collection(target_uid.collection_uid)
+            target_sim_id = store.fetch_simulation_id(
+                self._s, target_uid.collection_uid, target_uid.simulation_name
+            )
+            if target_sim_id is not None:
+                return target_sim_id
+
+            _raise_or_log_invalid_target(target_uid)
+            return None
+
         link_payloads = []
 
         for ref_name, target_uid_or_string in links.items():
             target_uid = SimulationUID(target_uid_or_string)
-
-            # first check if the target simulation exists in the database
-            target_sim_id = store.fetch_simulation_id(
-                self._s, target_uid.collection_uid, target_uid.simulation_name
-            )
-
-            # if it doesnt exist, do a full scan of the search paths and try again
+            target_sim_id = _find_target(target_uid)
             if target_sim_id is None:
-                if not scanned:
-                    self.scan_for_collections()
-                    scanned = True
-
-                self.sync_collection(target_uid.collection_uid)
-
-                target_sim_id = store.fetch_simulation_id(
-                    self._s, target_uid.collection_uid, target_uid.simulation_name
-                )
-
-            if target_sim_id is None:
-                raise InvalidSimulationUIDError(
-                    f"Target simulation '{target_uid}' does not exist in the index."
-                )
+                # if the target simulation can not be found, we skip storing the link in
+                # the database
+                continue
 
             link_payloads.append(
-                {
-                    "source_id": sim_id,
-                    "target_id": target_sim_id,
-                    "name": ref_name,
-                }
+                {"source_id": sim_id, "target_id": target_sim_id, "name": ref_name}
             )
 
         if link_payloads:

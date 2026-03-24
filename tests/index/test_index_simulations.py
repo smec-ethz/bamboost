@@ -134,7 +134,7 @@ def test_upsert_simulation_with_missing_target(
 
     with (
         pytest.MonkeyPatch.context() as m,
-        pytest.raises(InvalidSimulationUIDError, match="does not exist"),
+        pytest.raises(InvalidSimulationUIDError, match="cannot be found"),
     ):
         # monkeypatch sync_collection to avoid syncing, we only check the existing index
         m.setattr(Index, "sync_collection", lambda self, collection_uid: None)
@@ -144,8 +144,12 @@ def test_upsert_simulation_with_missing_target(
             simulation_name="sim1",
             metadata={},
             parameters={},
-            links=links,
             collection_path=collection_path,
+        )
+
+        # this line should raise the error because the target simulation does not exist in the index
+        index.update_simulation_links(
+            "COLL001", "sim1", links, raise_on_invalid_target=True
         )
 
 

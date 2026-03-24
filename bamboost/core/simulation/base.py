@@ -319,7 +319,12 @@ class _Simulation(H5Object[_MT], ABC):
                 self.collection_uid, self.name, parameters
             )
         if links:
-            self._index.update_simulation_links(self.collection_uid, self.name, links)
+            self._index.update_simulation_links(
+                self.collection_uid,
+                self.name,
+                links,
+                raise_on_invalid_target=config.index.strictLinks,
+            )
 
     @cached_property
     def parameters(self) -> Parameters[_MT]:
