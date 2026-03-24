@@ -21,3 +21,15 @@ class InvalidSimulationUIDError(ValueError):
     """Raised when a simulation UID is invalid or does not exist."""
 
     pass
+
+
+class ForbiddenParameterKeyError(ValueError):
+    """Raised when a parameter key is reserved or contains a period."""
+
+    def __init__(self, key: str) -> None:
+        super().__init__()
+        self.key = key
+
+    def __str__(self) -> str:
+        base_message = super().__str__()
+        return f"{base_message} Invalid key: '{self.key}'"
