@@ -43,6 +43,7 @@ from bamboost._config import config
 from bamboost._logger import BAMBOOST_LOGGER
 from bamboost._typing import StrPath
 from bamboost.core.simulation.base import Simulation, SimulationWriter
+from bamboost.core.simulation.dict import validate_parameter_key
 from bamboost.core.utilities import dedupe_str_iter, flatten_dict
 from bamboost.exceptions import DuplicateSimulationError, InvalidCollectionError
 from bamboost.index import (
@@ -588,6 +589,11 @@ class Collection(ElligibleForPlugin):
 
         name = SimulationName(name)  # Generates a unique id as name if not provided
         directory = self.path.joinpath(name)
+
+        # Validate parameters keys (top-level only)
+        if parameters:
+            for key in parameters:
+                validate_parameter_key(key)
 
         # Check if name is already in use, otherwise create a new directory
         if self._comm.rank == 0:

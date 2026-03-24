@@ -10,10 +10,46 @@ from bamboost import constants
 from bamboost.core import utilities
 from bamboost.core.hdf5.attrsdict import AttrsDict, AttrsEncoder, mutable_only
 from bamboost.core.hdf5.file import _MT, FileMode, Mutable, with_file_open
+from bamboost.exceptions import ForbiddenParameterKeyError
 from bamboost.index import SimulationUID
 
 if TYPE_CHECKING:
     from bamboost.core.simulation.base import _Simulation
+
+
+RESERVED_KEYS = {
+    "id",
+    "collection_uid",
+    "name",
+    "created_at",
+    "modified_at",
+    "description",
+    "tags",
+    "status",
+    "submitted",
+    "links",
+}
+
+
+def validate_parameter_key(key: str) -> None:
+    """Validate a parameter key.
+
+    Args:
+        key: The key to validate.
+
+    Raises:
+        ValueError: If the key is reserved or contains a period.
+    """
+    # only top-level keys are checked for reservation and periods.
+    # nested keys (e.g., 'params.nested_key') are already handled by the flattening logic
+    # but we want to prevent users from manually passing a key with a period
+    # which would interfere with our flattening/unflattening.
+    if key in RESERVED_KEYS:
+        raise ForbiddenParameterKeyError(f"Parameter key '{key}' is reserved.")
+    if "." in key:
+        raise ForbiddenParameterKeyError(
+            f"Parameter key '{key}' cannot contain a period ('.')."
+        )
 
 
 class Parameters(AttrsDict[_MT]):
@@ -69,6 +105,7 @@ class Parameters(AttrsDict[_MT]):
 
     @mutable_only
     def __setitem__(self: Parameters[Mutable], key: str, value: Any) -> None:
+        validate_parameter_key(key)
         active_dict = reduce(lambda obj, k: obj[k], key.split(".")[:-1], self._dict)
         active_dict[key.split(".")[-1]] = value
 
@@ -103,6 +140,10 @@ class Parameters(AttrsDict[_MT]):
         Args:
             update_dict: new parameters
         """
+        # validate only top-level keys
+        for key in update_dict:
+            validate_parameter_key(key)
+
         # flatten dictionary
         flattened_dict = utilities.flatten_dict(update_dict)
 
