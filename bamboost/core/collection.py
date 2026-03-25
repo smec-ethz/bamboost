@@ -240,8 +240,8 @@ class Collection(ElligibleForPlugin):
                 log.info(f"Initialized directory for collection at {path}")
 
         try:
-            # Use uid if provided, otherwise resolve it from the path
-            self.uid = CollectionUID(uid or self._index.resolve_uid(self.path))
+            # Resolve the UID from the path
+            self.uid = CollectionUID(self._index.resolve_uid(self.path))
         except InvalidCollectionError:
             # If the collection does not exist, create it in the index
             # and generate a new UID

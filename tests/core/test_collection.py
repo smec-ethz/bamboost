@@ -317,3 +317,37 @@ def test_collection_by_path_not_in_db(tmp_path: Path):
     assert collection.uid == testuid
     # assert uid is now in index
     assert collection.uid in map(lambda i: i.uid, collection._index.all_collections)
+
+
+def test_collections_with_alias(tmp_collection: Collection):
+    from bamboost import Collection
+    from bamboost.cli.alias import add
+
+    uid = tmp_collection.uid
+    alias = "test_alias"
+
+    add(uid=uid, alias=alias)
+
+    coll = Collection(uid=alias)
+    uid = coll.uid
+
+    assert coll.uid == tmp_collection.uid
+    assert coll.path == tmp_collection.path
+
+def test_collections_with_alias_no_index(tmp_collection: Collection):
+    from bamboost import Collection
+    from bamboost.cli.alias import add
+
+    uid = tmp_collection.uid
+    alias = "test_alias"
+
+    add(uid=uid, alias=alias)
+
+    tmp_collection._index.search_paths.add(tmp_collection.path.parent)
+    tmp_collection._index._drop_collection(tmp_collection.uid)
+
+    coll = Collection(uid=alias) # This should work!
+    uid = coll.uid
+
+    assert coll.uid == tmp_collection.uid
+    assert coll.path == tmp_collection.path

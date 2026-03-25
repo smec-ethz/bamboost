@@ -340,14 +340,14 @@ class Index(metaclass=RootProcessMeta):
     def resolve_uid(self, path: StrPath) -> CollectionUID:
         """Resolve the UID of a collection from a path.
 
-        Returns the UID of the collection or a new UID if it can't be
-        determined.
-
         Args:
-            path: Path of the collection
+            path: Path of the collection.
 
+        Returns:
+            UID of the collection at the path.
+        
         Raises:
-            NotACollectionError: If not collection is found at the given path.
+            InvalidCollectionError: If not collection is found at the given path.
         """
         path = Path(path)
         cached_uid: str | None = self._s.execute(
