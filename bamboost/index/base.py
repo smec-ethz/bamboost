@@ -285,10 +285,14 @@ class Index(metaclass=RootProcessMeta):
         rows = self._s.execute(
             select(collections_table.c.uid, collections_table.c.path)
         ).all()
-        for uid, path in rows:
-            if not _validate_path(Path(path), uid) or not any(
-                i in Path(path).parents for i in self.search_paths
-            ):
+        for uid, raw_path in rows:
+            path = Path(raw_path)
+
+            under_search_paths = any(
+                path.is_relative_to(s_path) for s_path in self.search_paths
+            )
+            
+            if not _validate_path(path, uid) or not under_search_paths:
                 log.info(
                     "Invalid collection path in cache: %s -> removing.",
                     (uid, path),
