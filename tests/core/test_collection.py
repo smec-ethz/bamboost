@@ -331,3 +331,21 @@ def test_collections_with_alias(tmp_collection: Collection):
 
     assert coll.uid == tmp_collection.uid
     assert coll.path == tmp_collection.path
+
+def test_collections_with_alias_no_index(tmp_collection: Collection):
+    from bamboost import Collection
+    from bamboost.cli.alias import add
+
+    uid = tmp_collection.uid
+    alias = "test_alias"
+
+    add(uid=uid, alias=alias)
+
+    tmp_collection._index.search_paths.add(tmp_collection.path.parent)
+    tmp_collection._index._drop_collection(tmp_collection.uid)
+
+    coll = Collection(uid=alias) # This should work!
+    uid = coll.uid
+
+    assert coll.uid == tmp_collection.uid
+    assert coll.path == tmp_collection.path
