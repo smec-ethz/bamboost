@@ -70,9 +70,11 @@ def list(
     with console.status("[bold blue]Fetching data...", spinner="dots"):
         # if the user has provided a simulation name, display the simulation details
         if simulation_name:
-            from bamboost.index import Index
+            from bamboost.index import Index, SimulationUID
 
-            sim = Index.default.simulation(collection_uid, simulation_name)
+            sim = Index.default.simulation(
+                SimulationUID(collection_uid, simulation_name)
+            )
             if sim is None:
                 return console.print(
                     f"Simulation [bold]{simulation_name}[/bold] not found in collection [bold]{collection_uid}[/bold].",
@@ -148,7 +150,7 @@ def drop(
     ) as status:
         from bamboost.index import Index
 
-        Index.default._drop_collection(uid)
+        Index.default.drop_collection(uid)
         console.print(
             f"[green]:heavy_check_mark: Collection '{uid}' dropped from index."
         )

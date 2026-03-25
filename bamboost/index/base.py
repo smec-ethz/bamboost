@@ -23,9 +23,6 @@ Database schema:
 
 from __future__ import annotations
 
-import fnmatch
-import os
-import uuid
 from contextlib import contextmanager
 from datetime import datetime
 from functools import wraps
@@ -37,15 +34,12 @@ from typing import (
     ClassVar,
     Generator,
     Iterable,
+    Literal,
     Mapping,
-    Optional,
-    Sequence,
-    Set,
-    Tuple,
-    Type,
+    ParamSpec,
+    TypeVar,
 )
 
-import yaml
 from sqlalchemy import Engine, create_engine, event, select
 from sqlalchemy.exc import SQLAlchemyError
 from sqlalchemy.orm import Session, sessionmaker
@@ -54,10 +48,20 @@ from typing_extensions import Concatenate
 from bamboost import constants
 from bamboost._config import config
 from bamboost._logger import BAMBOOST_LOGGER
-from bamboost._typing import _P, _T, StrPath
-from bamboost.exceptions import InvalidCollectionError
+from bamboost._typing import StrPath
+from bamboost.exceptions import InvalidCollectionError, InvalidSimulationUIDError
 from bamboost.index import store
-from bamboost.index.schema import collections_table, simulations_table
+from bamboost.index.scanner import (
+    find_collection,
+    find_uid_from_path,
+    load_collection_metadata,
+    normalize_collection_metadata,
+    normalize_simulation_metadata,
+    scan_directory_for_collections,
+    validate_path,
+)
+from bamboost.index.store import collections_table
+from bamboost.index.uids import CollectionUID, SimulationUID
 from bamboost.mpi import Communicator
 from bamboost.mpi.utilities import RootProcessMeta
 from bamboost.utilities import PathSet
@@ -67,30 +71,13 @@ if TYPE_CHECKING:
 
 log = BAMBOOST_LOGGER.getChild("Database")
 
-IDENTIFIER_PREFIX = ".bamboost-collection"
-IDENTIFIER_SEPARATOR = "-"
-
-
-class CollectionUID(str):
-    """UID of a collection. If no UID is provided, a new one is generated."""
-
-    def __new__(cls, uid: Optional[str] = None, length: int = 10):
-        uid = uid or cls.generate_uid(length)
-        return super().__new__(cls, uid.upper())
-
-    @staticmethod
-    def generate_uid(length: int) -> str:
-        if Communicator._active_comm.rank == 0:
-            uid = uuid.uuid4().hex[:length].upper()
-        else:
-            uid = ""
-        uid: str = Communicator._active_comm.bcast(uid, root=0)
-        return uid
+P = ParamSpec("P")
+T = TypeVar("T")
 
 
 def _sql_transaction(
-    func: Callable[Concatenate[Index, _P], _T],
-) -> Callable[Concatenate[Index, _P], _T]:
+    func: Callable[Concatenate[Index, P], T],
+) -> Callable[Concatenate[Index, P], T]:
     """Decorator to add a session to the function signature.
 
     Args:
@@ -98,7 +85,7 @@ def _sql_transaction(
     """
 
     @wraps(func)
-    def inner(self: Index, *args: _P.args, **kwargs: _P.kwargs) -> Any:
+    def inner(self: Index, *args: P.args, **kwargs: P.kwargs) -> Any:
         with self.sql_transaction():
             return func(self, *args, **kwargs)
 
@@ -109,7 +96,7 @@ class LazyDefaultIndex:
     def __init__(self) -> None:
         self._instance = None
 
-    def __get__(self, instance: None, owner: Type[Index]) -> Index:
+    def __get__(self, instance: None, owner: type[Index]) -> Index:
         assert instance is None, (
             "The default index is a class attribute! Use `Index.default` instead."
         )
@@ -162,10 +149,10 @@ class Index(metaclass=RootProcessMeta):
 
     def __init__(
         self,
-        sql_file: Optional[StrPath] = None,
-        comm: Optional[Comm] = None,
+        sql_file: StrPath | None = None,
+        comm: Comm | None = None,
         *,
-        search_paths: Optional[Iterable[str | Path]] = None,
+        search_paths: Iterable[str | Path] | None = None,
     ) -> None:
         self.search_paths = PathSet(search_paths or config.index.searchPaths)
         """Paths to scan for collections."""
@@ -237,7 +224,7 @@ class Index(metaclass=RootProcessMeta):
     def scan_for_collections(
         self,
         *,
-        search_paths: Optional[PathSet] = None,
+        search_paths: PathSet | None = None,
     ) -> list[tuple[str, Path]]:
         """Scan known paths for collections and update the index.
 
@@ -249,12 +236,13 @@ class Index(metaclass=RootProcessMeta):
             search_paths (List[Path], optional): Paths to scan for collections.
                 Defaults to config.index.searchPaths.
         """
+        log.info("Scanning for collections in search paths: %s", self.search_paths)
         search_paths = PathSet(search_paths) or self.search_paths
         all_found_collections = []
 
         for path in search_paths:
             found_collections: tuple[tuple[str, Path], ...] = (
-                _scan_directory_for_collections(path)
+                scan_directory_for_collections(path)
             )
             if not found_collections:
                 continue
@@ -292,27 +280,12 @@ class Index(metaclass=RootProcessMeta):
                 path.is_relative_to(s_path) for s_path in self.search_paths
             )
             
-            if not _validate_path(path, uid) or not under_search_paths:
+            if not validate_path(path, uid) or not under_search_paths:
                 log.info(
                     "Invalid collection path in cache: %s -> removing.",
                     (uid, path),
                 )
                 self._s.execute(store.delete_collection_stmt(uid))
-
-    def _get_collection_record(self, identifier: str) -> store.CollectionRecord | None:
-        if not identifier:
-            return None
-
-        normalized_uid = identifier.upper()
-        collection = store.fetch_collection(self._s, normalized_uid)
-        if collection is not None:
-            return collection
-
-        alias_uid = self._find_collection_uid_by_alias(identifier)
-        if alias_uid is None:
-            return None
-
-        return store.fetch_collection(self._s, alias_uid)
 
     def _find_collection_uid_by_alias(self, alias: str) -> str | None:
         return store.fetch_collection_uid_by_alias(self._s, alias)
@@ -323,7 +296,7 @@ class Index(metaclass=RootProcessMeta):
         self,
         uid: str,
         *,
-        search_paths: Optional[Set[StrPath]] = None,
+        search_paths: set[StrPath] | None = None,
     ) -> Path:
         """Resolve and return the path of a collection from its UID. Raises a
         `FileNotFoundError` if the collection is not found in the search paths.
@@ -335,13 +308,13 @@ class Index(metaclass=RootProcessMeta):
         Raises:
             FileNotFoundError: If the collection is not found in the search paths
         """
-        collection = self._get_collection_record(uid)
+        collection = self.collection(uid)
         stored_path = (
             Path(collection.path) if collection else self._get_collection_path(uid)
         )
         target_uid = collection.uid if collection else uid.upper()
 
-        if stored_path and _validate_path(stored_path, target_uid):
+        if stored_path and validate_path(stored_path, target_uid):
             return stored_path
 
         log.debug(
@@ -352,7 +325,7 @@ class Index(metaclass=RootProcessMeta):
         # Try to find the collection in the search paths
         for root_dir in PathSet(search_paths) or self.search_paths:
             log.debug(f"Searching for collection <{uid}> in <{root_dir}>")
-            paths_found = _find_collection(target_uid, Path(root_dir))
+            paths_found = find_collection(target_uid, Path(root_dir))
 
             if len(paths_found) > 0:  # If at least one file is found
                 if len(paths_found) > 1:
@@ -388,12 +361,12 @@ class Index(metaclass=RootProcessMeta):
                 collections_table.c.path == path.as_posix()
             )
         ).scalar()
-        if cached_uid and _validate_path(path, cached_uid):
+        if cached_uid and validate_path(path, cached_uid):
             return CollectionUID(cached_uid)
 
         log.debug(f"No or invalid uid found in cache for collection <{path}>.")
 
-        identified_uid = _find_uid_from_path(path)
+        identified_uid = find_uid_from_path(path)
         if identified_uid:
             # store the collection in the cache
             # florez: this is hacky, fixes issue that if a collection is loaded from an
@@ -407,7 +380,7 @@ class Index(metaclass=RootProcessMeta):
 
     @_sql_transaction
     def sync_collection(
-        self, uid: str, path: Optional[StrPath] = None, *, force_all: bool = False
+        self, uid: str, path: StrPath | None = None, *, force_all: bool = False
     ) -> None:
         """Sync the table with the file system.
 
@@ -418,6 +391,7 @@ class Index(metaclass=RootProcessMeta):
             uid: UID of the collection
             path (Optional): Path of the collection
         """
+        log.info(f"Syncing collection {uid} with the file system.")
         path = Path(path or self.resolve_path(uid)).absolute()
         # Get all simulation names in the file system
         all_simulations_fs = set(
@@ -456,7 +430,7 @@ class Index(metaclass=RootProcessMeta):
     @property
     @RootProcessMeta.bcast_result
     @_sql_transaction
-    def all_collections(self) -> Sequence[store.CollectionRecord]:
+    def all_collections(self) -> list[store.CollectionRecord]:
         """Return all collections in the index."""
         return store.fetch_collections(self._s)
 
@@ -468,38 +442,153 @@ class Index(metaclass=RootProcessMeta):
         Args:
             uid: UID of the collection
         """
-        log.debug("Fetching collection from cache.")
-        return self._get_collection_record(uid)
+        log.debug(f"Fetching collection {uid} from cache.")
+        normalized_uid = CollectionUID(uid)
+        collection = store.fetch_collection(self._s, normalized_uid)
+        if collection is not None:
+            return collection
+
+        alias_uid = self._find_collection_uid_by_alias(uid)
+        if alias_uid is None:
+            return None
+
+        return store.fetch_collection(self._s, alias_uid)
 
     @property
     @RootProcessMeta.bcast_result
     @_sql_transaction
-    def all_simulations(self) -> Sequence[store.SimulationRecord]:
+    def all_simulations(self) -> list[store.SimulationRecord]:
         """Return all simulations in the index."""
         return store.fetch_simulations(self._s)
 
     @RootProcessMeta.bcast_result
     @_sql_transaction
-    def simulation(
-        self, collection_uid: str, name: str
-    ) -> store.SimulationRecord | None:
+    def simulation(self, uid: str | SimulationUID) -> store.SimulationRecord | None:
         """Return a simulation from the index.
 
         Args:
             collection_uid: UID of the collection
             name: Name of the simulation
         """
-        return store.fetch_simulation(self._s, collection_uid, name)
+        uid = SimulationUID(uid)
+        return store.fetch_simulation(self._s, uid.collection_uid, uid.simulation_name)
+
+    @RootProcessMeta.bcast_result
+    @_sql_transaction
+    def simulations(
+        self, uids: Iterable[str | SimulationUID]
+    ) -> list[store.SimulationRecord]:
+        """Return multiple simulations from the index.
+
+        Args:
+            uids: Iterable of simulation UIDs
+        """
+        normalized_uids = []
+        for uid in uids:
+            if isinstance(uid, str):
+                uid = SimulationUID(uid)
+            normalized_uids.append((uid.collection_uid, uid.simulation_name))
+
+        return store.fetch_simulations_by_uid(self._s, normalized_uids)
 
     @property
     @RootProcessMeta.bcast_result
     @_sql_transaction
-    def all_parameters(self) -> Sequence[store.ParameterRecord]:
+    def all_parameters(self) -> list[store.ParameterRecord]:
         """Return all parameters in the index."""
         return store.fetch_parameters(self._s)
 
+    @property
+    @RootProcessMeta.bcast_result
     @_sql_transaction
-    def _drop_collection(self, uid: str) -> None:
+    def all_links(self) -> list[store.LinkRecord]:
+        """Return all simulation links in the index."""
+        return store.fetch_links(self._s)
+
+    @RootProcessMeta.bcast_result
+    @_sql_transaction
+    def collection_links(self, uid: str) -> list[store.LinkRecord]:
+        """Return all simulation links for a specific collection.
+
+        Args:
+            uid: UID of the collection
+        """
+        return store.fetch_collection_links(self._s, uid)
+
+    @RootProcessMeta.bcast_result
+    @_sql_transaction
+    def collection_links_map(self, uid: str) -> dict[str, dict[str, str]]:
+        """Return a mapping of simulation names to their links for a specific collection.
+
+        Args:
+            uid: UID of the collection
+        """
+        return store.fetch_collection_links_map(self._s, uid)
+
+    @_sql_transaction
+    def insert_linked_sim_parameters(
+        self,
+        collection_record: store.CollectionRecord,
+        include_links: Iterable[str] | Literal[True] = True,
+    ) -> store.CollectionRecord:
+        """Insert parameters of linked simulations into the simulations of a collection record.
+
+        Modifies the collection record in place and returns it.
+
+        Args:
+            collection_record: The collection record to modify
+            include_links: If provided, only include parameters of linked simulations with
+                link names in this iterable. If True, include parameters of all linked
+                simulations.
+        """
+        from dataclasses import replace
+
+        all_links = store.fetch_collection_links(self._s, collection_record.uid)
+
+        # build a map of source_id -> {link_name: target_id}
+        links_map: dict[int, dict[str, int]] = {}
+        target_ids = set()
+        for link in all_links:
+            links_map.setdefault(link.source_id, {})[link.name] = link.target_id
+            target_ids.add(link.target_id)
+
+        linked_parameter_map = store._fetch_parameters_for(self._s, target_ids)
+
+        for sim in collection_record.simulations:
+            if sim.id not in links_map:
+                continue
+
+            sim_links = links_map[sim.id]
+            # although SimulationRecord is frozen, we still modify the parameter list in place
+            for link_name, target_id in sim_links.items():
+                if include_links is not True and link_name not in include_links:
+                    continue
+                additional_params = [
+                    replace(param, key=f"{link_name}.{param.key}")
+                    for param in linked_parameter_map.get(target_id, [])
+                ]
+                sim.parameters.extend(additional_params)
+
+        return collection_record
+
+    @RootProcessMeta.bcast_result
+    @_sql_transaction
+    def backlinks(self, uid: str | SimulationUID) -> list[tuple[SimulationUID, str]]:
+        """Return all simulations that link to the given simulation.
+
+        Args:
+            uid: UID of the target simulation.
+        """
+        uid = SimulationUID(uid)
+
+        rows = store.fetch_backlinks(self._s, uid.collection_uid, uid.simulation_name)
+        return [
+            (SimulationUID(row["collection_uid"], row["source_name"]), row["link_name"])
+            for row in rows
+        ]
+
+    @_sql_transaction
+    def drop_collection(self, uid: str) -> None:
         """Drop a collection from the cache.
 
         Args:
@@ -508,7 +597,7 @@ class Index(metaclass=RootProcessMeta):
         self._s.execute(store.delete_collection_stmt(uid))
 
     @_sql_transaction
-    def _drop_simulation(self, collection_uid: str, simulation_name: str) -> None:
+    def drop_simulation(self, collection_uid: str, simulation_name: str) -> None:
         """Drop a simulation from the cache.
 
         Args:
@@ -519,7 +608,7 @@ class Index(metaclass=RootProcessMeta):
 
     @_sql_transaction
     def upsert_collection(
-        self, uid: str, path: Path, metadata: Optional[Mapping[str, Any]] = None
+        self, uid: str, path: Path, metadata: Mapping[str, Any] | None = None
     ) -> None:
         """Cache a collection in the index.
 
@@ -531,7 +620,7 @@ class Index(metaclass=RootProcessMeta):
         normalized_uid = record["uid"]
         metadata_mapping = metadata or load_collection_metadata(path, normalized_uid)
         if metadata_mapping is not None:
-            record.update(_normalize_collection_metadata(metadata_mapping))
+            record.update(normalize_collection_metadata(metadata_mapping))
 
         self._s.execute(store.collections_upsert_stmt(record))
 
@@ -540,10 +629,11 @@ class Index(metaclass=RootProcessMeta):
         self,
         collection_uid: str,
         simulation_name: str,
-        parameters: Optional[Mapping[Any, Any]] = None,
-        metadata: Optional[Mapping[Any, Any]] = None,
+        parameters: Mapping[Any, Any] | None = None,
+        metadata: Mapping[Any, Any] | None = None,
+        links: Mapping[Any, Any] | None = None,
         *,
-        collection_path: Optional[StrPath] = None,
+        collection_path: StrPath | None = None,
     ) -> None:
         """Cache a simulation from a collection.
 
@@ -554,7 +644,7 @@ class Index(metaclass=RootProcessMeta):
         """
         collection_path = Path(collection_path or self.resolve_path(collection_uid))
 
-        if metadata is None and parameters is None:
+        if metadata is None and parameters is None and links is None:
             from bamboost.core.simulation.base import Simulation
 
             # if neither metadata nor parameters are provided, read them from the HDF5 file
@@ -569,18 +659,31 @@ class Index(metaclass=RootProcessMeta):
                 collection_uid=collection_uid,
             )
             with sim._file.open("r"):
-                metadata, parameters = sim.metadata._dict, sim.parameters._dict
+                metadata, parameters, links = (
+                    sim.metadata._dict,
+                    sim.parameters._dict,
+                    sim.links._dict,
+                )
 
         # Upsert the simulation table
         sim_payload = {
             "collection_uid": collection_uid,
             "name": simulation_name,
             "modified_at": datetime.now(),
-            **_normalize_simulation_metadata(metadata or {}),
+            **normalize_simulation_metadata(metadata or {}),
         }
+
         sim_id = self._s.execute(
             store.simulations_upsert_stmt(sim_payload)
         ).scalar_one()
+
+        if links:
+            self.update_simulation_links(
+                collection_uid,
+                simulation_name,
+                links,
+                raise_on_invalid_target=config.index.strictLinksWhenSyncing,
+            )
 
         # Upsert the parameters table
         if parameters:
@@ -602,8 +705,97 @@ class Index(metaclass=RootProcessMeta):
         payload = {
             "collection_uid": collection_uid,
             "name": simulation_name,
-        } | _normalize_simulation_metadata(data)
+        } | normalize_simulation_metadata(data)
         self._s.execute(store.simulations_upsert_stmt(payload))
+
+    @_sql_transaction
+    def update_simulation_links(
+        self,
+        collection_uid: str,
+        simulation_name: str,
+        links: Mapping[str, Any],
+        *,
+        raise_on_invalid_target: bool = config.index.strictLinksWhenSyncing,
+    ) -> None:
+        """Update the links of a simulation.
+
+        Args:
+            collection_uid: UID of the collection
+            simulation_name: Name of the simulation
+            links: Dictionary with new links
+            raise_on_invalid_target: If True, raise an error if any of the target
+                simulations do not exist in the index. If False, log a warning and skip
+                the invalid links.
+        """
+        scanned: bool = False  # flag to avoid multiple scans in case of multiple links
+        known_collection_uids: tuple[str, ...] = store.get_collection_uids(self._s)
+
+        sim_id = store.fetch_simulation_id(self._s, collection_uid, simulation_name)
+        if sim_id is None:
+            raise InvalidSimulationUIDError(
+                f"Simulation '{collection_uid}:{simulation_name}' does not exist in the index. "
+                "This happened because you are trying to update the links of a simulation that cannot be found."
+            )
+
+        def _raise_or_log_invalid_target(target_uid: SimulationUID) -> None:
+            if raise_on_invalid_target:
+                raise InvalidSimulationUIDError(
+                    f"Target simulation '{target_uid}' cannot be found. "
+                    "This happened because strict link checking is enabled and all link targets "
+                    "are required to exist in the index. To skip invalid targets instead of "
+                    "raising an error, disable strict link checking in your configuration or "
+                    "invoke this operation with 'raise_on_invalid_target=False'."
+                )
+            else:
+                log.warning(f"Stale link. '{target_uid}' can not be found.")
+
+        def _find_target(target_uid: SimulationUID) -> int | None:
+            nonlocal scanned, known_collection_uids
+            target_sim_id = store.fetch_simulation_id(
+                self._s, target_uid.collection_uid, target_uid.simulation_name
+            )
+            if target_sim_id is not None:
+                return target_sim_id
+
+            log.debug(
+                f"Target simulation '{target_uid}' not found in cache. "
+                "Scanning for/syncing collections and trying again."
+            )
+            if not scanned:
+                colls = self.scan_for_collections()
+                scanned = True
+                known_collection_uids = tuple(coll[0] for coll in colls)
+
+            if target_uid.collection_uid not in known_collection_uids:
+                _raise_or_log_invalid_target(target_uid)
+                return None
+
+            self.sync_collection(target_uid.collection_uid)
+            target_sim_id = store.fetch_simulation_id(
+                self._s, target_uid.collection_uid, target_uid.simulation_name
+            )
+            if target_sim_id is not None:
+                return target_sim_id
+
+            _raise_or_log_invalid_target(target_uid)
+            return None
+
+        link_payloads = []
+
+        for ref_name, target_uid_or_string in links.items():
+            target_uid = SimulationUID(target_uid_or_string)
+            target_sim_id = _find_target(target_uid)
+            if target_sim_id is None:
+                # if the target simulation can not be found, we skip storing the link in
+                # the database
+                continue
+
+            link_payloads.append(
+                {"source_id": sim_id, "target_id": target_sim_id, "name": ref_name}
+            )
+
+        if link_payloads:
+            self._s.execute(store.simulation_links_upsert_stmt(link_payloads))
 
     @_sql_transaction
     def update_simulation_parameters(
@@ -617,12 +809,11 @@ class Index(metaclass=RootProcessMeta):
         Args:
             parameters: Dictionary with new parameters
         """
-        sim_id = self._s.execute(
-            select(simulations_table.c.id).where(
-                simulations_table.c.collection_uid == collection_uid,
-                simulations_table.c.name == simulation_name,
+        sim_id = store.fetch_simulation_id(self._s, collection_uid, simulation_name)
+        if sim_id is None:
+            raise ValueError(
+                f"Simulation '{collection_uid}:{simulation_name}' not found."
             )
-        ).scalar_one()
 
         parameter_payload = [
             {"simulation_id": sim_id, "key": key, "value": value}
@@ -632,10 +823,7 @@ class Index(metaclass=RootProcessMeta):
 
     @RootProcessMeta.bcast_result
     @_sql_transaction
-    def _get_collection_path(
-        self,
-        uid: str,
-    ) -> Optional[Path]:
+    def _get_collection_path(self, uid: str) -> Path | None:
         res = self._s.execute(
             select(collections_table.c.path).where(
                 collections_table.c.uid == uid.upper()
@@ -657,7 +845,7 @@ class Index(metaclass=RootProcessMeta):
 
     @RootProcessMeta.bcast_result
     @_sql_transaction
-    def _get_collections(self) -> Sequence[store.CollectionRecord]:
+    def _get_collections(self) -> list[store.CollectionRecord]:
         return store.fetch_collections(self._s)
 
     @RootProcessMeta.bcast_result
@@ -666,226 +854,3 @@ class Index(metaclass=RootProcessMeta):
         self, collection_uid: CollectionUID | str, simulation_name: str
     ) -> store.SimulationRecord | None:
         return store.fetch_simulation(self._s, collection_uid, simulation_name)
-
-
-def load_collection_metadata(path: Path, uid: str) -> dict[str, Any] | None:
-    """Load the metadata of a collection from its identifier file.
-
-    Args:
-        path: Path to the collection directory
-        uid: UID of the collection
-    """
-    metadata_file = Path(path).joinpath(get_identifier_filename(uid))
-    if not metadata_file.exists():
-        return None
-
-    try:
-        raw = yaml.safe_load(metadata_file.read_text())
-    except FileNotFoundError:
-        return None
-    except Exception as exc:  # pragma: no cover - defensive logging
-        log.debug(
-            "Failed to load metadata for collection %s from %s: %s",
-            uid,
-            metadata_file,
-            exc,
-        )
-        raise Exception(
-            f"Failed to load metadata for collection {uid} (file: {metadata_file})"
-        ) from exc
-
-    if raw is None:
-        raw = {}
-
-    if not isinstance(raw, Mapping):
-        log.debug("Unexpected metadata format for collection %s: %r", uid, raw)
-        raise TypeError(
-            f"Unexpected metadata format for collection {uid}: {type(raw)}. "
-            "Revise the identifier/metadata file."
-        )
-
-    return _normalize_collection_metadata(raw)
-
-
-def _normalize_collection_metadata(data: Mapping[str, Any]) -> dict[str, Any]:
-    """Normalize the metadata of a collection.
-
-    This also handles backward compatibility for the "Date of creation" field.
-
-    Args:
-        data: The raw metadata dictionary.
-    """
-    metadata: dict[str, Any] = dict(**data)
-
-    created_at_value = None
-    # "Date of creation" is for backward compatibility only
-    # we will write "created_at" from now on
-    for key in ("created_at", "Date of creation"):
-        if key in data and data[key] is not None:
-            created_at_value = data[key]
-            break
-
-    parsed_created_at = _parse_datetime_value(created_at_value)
-    if parsed_created_at is not None:
-        metadata["created_at"] = parsed_created_at
-
-    if tags := data.get("tags"):
-        metadata["tags"] = _deduplicate_sequence(tags)
-    if aliases := data.get("aliases"):
-        metadata["aliases"] = _deduplicate_sequence(aliases, casefold=True)
-
-    return metadata
-
-
-def _normalize_simulation_metadata(data: Mapping[str, Any]) -> dict[str, Any]:
-    """Normalize simulation metadata before writing to SQL."""
-    metadata: dict[str, Any] = dict(**data)
-    if (tags := data.get("tags")) is not None:
-        metadata["tags"] = _deduplicate_sequence(tags)
-    return metadata
-
-
-def _deduplicate_sequence(values: Any, *, casefold: bool = False) -> list[str]:
-    """Deduplicate a sequence of strings.
-
-    Args:
-        values: The sequence of strings to deduplicate.
-        casefold: Whether to ignore case when deduplicating.
-    """
-    if values is None:
-        iterable: Iterable[Any] = []
-    elif isinstance(values, (str, bytes)):
-        iterable = [values]
-    else:
-        try:
-            iterable = list(values)
-        except TypeError:
-            iterable = [values]
-
-    seen: set[str] = set()
-    result: list[str] = []
-
-    for value in iterable:
-        text = str(value).strip()
-        if not text:
-            continue
-
-        key = text.casefold() if casefold else text
-        if key in seen:
-            continue
-
-        seen.add(key)
-        result.append(text)
-
-    return result
-
-
-def _parse_datetime_value(value: Any) -> datetime | None:
-    if isinstance(value, datetime):
-        return value
-    if isinstance(value, str):
-        candidate = value.strip()
-        if not candidate:
-            return None
-        try:
-            return datetime.fromisoformat(candidate)
-        except ValueError:
-            return None
-    return None
-
-
-def create_identifier_file(path: StrPath, uid: str) -> None:
-    """Create an identifier file in the collection directory.
-
-    Args:
-        path: Path to the collection directory
-        uid: UID of the collection
-    """
-    path = Path(path)
-    with open(path.joinpath(get_identifier_filename(uid)), "w") as f:
-        f.write("Date of creation: " + str(datetime.now()))
-
-
-def get_identifier_filename(uid: str) -> str:
-    return IDENTIFIER_PREFIX + IDENTIFIER_SEPARATOR + uid
-
-
-def _validate_path(path: Path, uid: str) -> bool:
-    return path.is_dir() and path.joinpath(get_identifier_filename(uid)).is_file()
-
-
-def _find_uid_from_path(path: Path) -> Optional[str]:
-    try:
-        return path.glob(f"{IDENTIFIER_PREFIX}*").__next__().name.rsplit("-", 1)[1]
-    except StopIteration:
-        return None
-
-
-def _find_collection(uid: str, root_dir: Path) -> tuple[Path, ...]:
-    """Find the collection with UID under given root_dir.
-
-    Args:
-        uid: UID to search for
-        root_dir: root directory for search
-    """
-    return tuple(
-        Path(i).parent for i in _find_files(get_identifier_filename(uid), root_dir)
-    )
-
-
-def _find_files(
-    pattern: str,
-    root_dir: str | os.PathLike,
-    exclude: Iterable[str] | None = None,
-) -> Tuple[Path, ...]:
-    """
-    Locate every file matching *pattern* under *root_dir* while **pruning**
-    directory names listed in *exclude* (exact-match on the final path part).
-
-    Returns an immutable tuple of absolute paths (str) just like the POSIX helper.
-    """
-    root = Path(root_dir)
-    hits: list[Path] = []
-
-    if exclude is None:
-        exclude = config.index.excludeDirs
-
-    for base, dirnames, filenames in os.walk(root, topdown=True):
-        # --- prune in–place so the walker never descends further ---
-        dirnames[:] = [d for d in dirnames if d not in exclude]
-
-        for fname in filenames:
-            if fnmatch.fnmatch(fname, pattern):
-                hits.append(Path(base, fname))
-
-    return tuple(hits)
-
-
-def _scan_directory_for_collections(root_dir: Path) -> tuple[tuple[str, Path], ...]:
-    """Scan the directory for collections.
-
-    Args:
-        root_dir: Directory to scan for collections
-
-    Returns:
-        Tuple of tuples with the UID and path of the collection
-    """
-
-    log.debug(f"Scanning {root_dir}")
-
-    if not root_dir.exists():
-        log.warning(f"Path does not exist: {root_dir}")
-        return ()
-
-    found_indicator_files = _find_files(
-        get_identifier_filename("*"), root_dir.as_posix()
-    )
-
-    if not found_indicator_files:
-        log.info(f"No collections found in {root_dir}")
-        return ()
-
-    return tuple(
-        (i.name.rsplit(IDENTIFIER_SEPARATOR, 1)[-1], i.parent)
-        for i in found_indicator_files
-    )

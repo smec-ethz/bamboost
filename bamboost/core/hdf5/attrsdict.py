@@ -92,11 +92,21 @@ class _AttrsEncoder:
 
 
 AttrsEncoder = _AttrsEncoder()
+
+# datetime is not natively supported by HDF5, so we encode it as ISO format string
 AttrsEncoder.register_encoder(datetime, lambda dt: dt.isoformat())
 AttrsEncoder.register_decoder(datetime, lambda s: datetime.fromisoformat(s))
+
+# sets are not natively supported by HDF5, so we encode them as lists
 AttrsEncoder.register_encoder(set, lambda s: list(s))
 AttrsEncoder.register_decoder(set, lambda x: set(x))
+
+# numpy scalars are encoded as their Python scalar equivalents
 AttrsEncoder.register_decoder(np.generic, lambda x: x.item())
+
+# special handling for None
+AttrsEncoder.register_encoder(type(None), lambda _: "None")
+AttrsEncoder.register_decoder(type(None), lambda _: None)
 
 
 class AttrsDict(H5Object[_MT], Mapping):

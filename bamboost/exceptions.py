@@ -15,3 +15,9 @@ class DuplicateSimulationError(ValueError):
     def __str__(self) -> str:
         base_message = super().__str__()
         return f"{base_message} Duplicates: {self.duplicates}"
+
+
+class InvalidSimulationUIDError(ValueError):
+    """Raised when a simulation UID is invalid or does not exist."""
+
+    pass

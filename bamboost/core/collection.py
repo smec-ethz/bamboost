@@ -26,7 +26,6 @@ from pathlib import Path
 from typing import (
     TYPE_CHECKING,
     Any,
-    Dict,
     Generator,
     Iterable,
     Literal,
@@ -43,18 +42,20 @@ from typing_extensions import Self, deprecated
 from bamboost._config import config
 from bamboost._logger import BAMBOOST_LOGGER
 from bamboost._typing import StrPath
-from bamboost.core.simulation.base import Simulation, SimulationName, SimulationWriter
+from bamboost.core.simulation.base import Simulation, SimulationWriter
 from bamboost.core.utilities import dedupe_str_iter, flatten_dict
 from bamboost.exceptions import DuplicateSimulationError, InvalidCollectionError
 from bamboost.index import (
     CollectionUID,
     Index,
+    SimulationName,
+    SimulationUID,
     create_identifier_file,
     get_identifier_filename,
 )
-from bamboost.index._filtering import Filter, Operator, Sorter, SortInstruction, _Key
-from bamboost.index.base import load_collection_metadata
-from bamboost.index.schema import CollectionMetadata, CollectionRecord
+from bamboost.index.filtering import Filter, Operator, Sorter, SortInstruction, _Key
+from bamboost.index.scanner import load_collection_metadata
+from bamboost.index.store import CollectionMetadata, CollectionRecord
 from bamboost.mpi import Communicator
 from bamboost.mpi.utilities import RootProcessMeta
 from bamboost.plugins import ElligibleForPlugin
@@ -212,13 +213,15 @@ class Collection(ElligibleForPlugin):
         sync_collection: bool = True,
         filter: Optional[Filter] = None,
         sorter: Optional[Sorter] = None,
+        include_links: Iterable[str] | Literal[True] | None = None,
     ):
         assert path or uid, "Either path or uid must be provided."
         assert not (path and uid), "Only one of path or uid must be provided."
 
-        self._index = index_instance or Index.default
+        self._index = index_instance or Index()
         self._filter = filter
         self._sorter = sorter
+        self._include_links = include_links
 
         # A key store with completion of all the parameters and metadata keys
         self.k = _FilterKeys(self)
@@ -330,7 +333,13 @@ class Collection(ElligibleForPlugin):
             possibly filtered.
         """
         collection_record = self._index.collection(self.uid)
-        assert collection_record is not None, "Collection not found in index."
+        if collection_record is None:
+            raise RuntimeError("Collection not found in index. This should not happen.")
+
+        if self._include_links:
+            collection_record = self._index.insert_linked_sim_parameters(
+                collection_record, self._include_links
+            )
         return collection_record.filtered(self._filter, self._sorter)
 
     @cached_property
@@ -356,18 +365,44 @@ class Collection(ElligibleForPlugin):
 
         return CollectionMetadataStore.from_dict(data, _collection=self)
 
-    @property
-    def df(self) -> pd.DataFrame:
+    def include_links(self, *keys: str) -> Self:
+        """Returns a new Collection that includes parameters of simulations linked with
+        the specified keys.
+
+        Args:
+            *keys: One or more keys representing the links to include. If no keys are
+                provided, all linked simulations will be included.
+
+        Returns:
+            Collection: A new Collection instance that includes the linked simulations.
+
+        Examples:
+            >>> linked_collection = collection.include_links("key1", "key2")
+            >>> all_linked = collection.include_links()  # include all linked simulations
+        """
+        if not keys:
+            return self._replace(_include_links=True)
+
+        return self._replace(_include_links=keys)
+
+    def to_pandas(self, flatten: bool = True) -> pd.DataFrame:
         """Returns a pandas DataFrame representing the collection and its parameter space.
 
         The DataFrame contains all simulations in the collection, including their
         parameters and metadata. The table is sorted according to the user-specified key
         and order in the configuration, if available.
 
+        Also includes parameters of linked simulations if `include_links` is set. (use
+        `coll.include_links(...).df` to include specific links)
+
+        Args:
+            flatten: If True (default), flatten nested parameter dictionaries into a single
+                level using dot notation. If False, keep nested dictionaries as they are.
+
         Returns:
             pd.DataFrame: DataFrame of the collection's simulations and parameters.
         """
-        df = self._record.to_pandas()
+        df = self._record.to_pandas(flatten=flatten)
 
         # apply filtering if necessary
         if self._filter is not None:
@@ -386,6 +421,22 @@ class Collection(ElligibleForPlugin):
             pass
 
         return df
+
+    @property
+    def df(self) -> pd.DataFrame:
+        """Returns a pandas DataFrame representing the collection and its parameter space.
+
+        The DataFrame contains all simulations in the collection, including their
+        parameters and metadata. The table is sorted according to the user-specified key
+        and order in the configuration, if available.
+
+        Also includes parameters of linked simulations if `include_links` is set. (use
+        `coll.include_links(...).df` to include specific links)
+
+        Returns:
+            pd.DataFrame: DataFrame of the collection's simulations and parameters.
+        """
+        return self.to_pandas()
 
     def filter(
         self, *operators: Operator, tags: str | Iterable[str] | None = None
@@ -473,7 +524,7 @@ class Collection(ElligibleForPlugin):
         description: Optional[str] = None,
         tags: Optional[Iterable[str]] = None,
         files: Optional[Iterable[StrPath]] = None,
-        links: Optional[Dict[str, str]] = None,
+        links: Optional[dict[str, str | SimulationUID]] = None,
         override: bool = False,
     ) -> SimulationWriter:
         """Create and initialize a new simulation in the collection, returning a
@@ -579,7 +630,7 @@ class Collection(ElligibleForPlugin):
 
             if exists and override:
                 with RootProcessMeta.comm_self(self):
-                    self._index._drop_simulation(self.uid, name)
+                    self._index.drop_simulation(self.uid, name)
                 shutil.rmtree(directory)  # remove the old directory
 
             # finally create the new directory
@@ -610,7 +661,7 @@ class Collection(ElligibleForPlugin):
             log.error(
                 f"Error occurred while creating simulation {name} at path {self.path}"
             )
-            self._index._drop_simulation(self.uid, name)
+            self._index.drop_simulation(self.uid, name)
             shutil.rmtree(directory)
             raise
 
@@ -659,7 +710,7 @@ class Collection(ElligibleForPlugin):
         if self._comm.rank == 0:
             with RootProcessMeta.comm_self(self), self._index.sql_transaction():
                 for n in names:
-                    self._index._drop_simulation(self.uid, n)
+                    self._index.drop_simulation(self.uid, n)
                     try:
                         shutil.rmtree(self.path.joinpath(n))
                     except PermissionError as e:

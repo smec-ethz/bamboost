@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from functools import reduce
-from typing import TYPE_CHECKING, Any, Generator, Mapping, cast
+from typing import TYPE_CHECKING, Any, Generator, Mapping, MutableMapping, cast
 
 import h5py
 import numpy as np
@@ -10,6 +10,7 @@ from bamboost import constants
 from bamboost.core import utilities
 from bamboost.core.hdf5.attrsdict import AttrsDict, AttrsEncoder, mutable_only
 from bamboost.core.hdf5.file import _MT, FileMode, Mutable, with_file_open
+from bamboost.index import SimulationUID
 
 if TYPE_CHECKING:
     from bamboost.core.simulation.base import _Simulation
@@ -87,7 +88,7 @@ class Parameters(AttrsDict[_MT]):
             if isinstance(value, np.ndarray):  # write arrays as datasets
                 self._obj.create_dataset(key, data=value)
             else:  # any other type as attribute
-                self._obj.attrs[key] = value
+                self._obj.attrs[key] = AttrsEncoder.encode(value)
 
         self.post_write_instruction(_write_item)
 
@@ -134,13 +135,42 @@ class Parameters(AttrsDict[_MT]):
 
 
 class Links(AttrsDict[_MT]):
+    _simulation: _Simulation
+    _dict: MutableMapping[str, SimulationUID]
+
     def __init__(self, simulation: _Simulation[_MT]) -> None:
         super().__init__(simulation._file, constants.PATH_LINKS)
+        self._simulation = simulation
+
+    def read(self) -> dict[str, SimulationUID]:
+        return {key: SimulationUID(value) for key, value in super().read().items()}
 
     def __getitem__(self, key: str) -> "_Simulation":
         from bamboost.core.simulation import Simulation
 
         return Simulation.from_uid(super().__getitem__(key))
+
+    @mutable_only
+    def __setitem__(self: Links[Mutable], key: str, value: str | SimulationUID) -> None:
+        self.update({key: value})
+
+    @mutable_only
+    def update(
+        self: Links[Mutable], update_dict: MutableMapping[str, SimulationUID | str]
+    ) -> None:
+        # update values to ensure they are all SimulationUIDs
+        _update_dict = {key: SimulationUID(value) for key, value in update_dict.items()}
+
+        # check sql first to avoid writing to hdf5 file if the update is not valid
+        self._simulation.update_database(links=_update_dict)
+
+        self._dict.update(_update_dict)
+        self.post_write_instruction(
+            # in the hdf5 file, we store the links as strings
+            lambda: self._obj.attrs.update(
+                {key: str(value) for key, value in _update_dict.items()}
+            )
+        )
 
 
 class Metadata(AttrsDict[_MT]):

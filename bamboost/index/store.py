@@ -1,50 +1,429 @@
-"""SQLAlchemy Core helper utilities for the BAMBOOST index database."""
+"""SQLAlchemy Core schema definitions and helper utilities for the BAMBOOST index database."""
 
 from __future__ import annotations
 
+import dataclasses
 import json
+from dataclasses import dataclass, field, fields
 from datetime import datetime
-from typing import TYPE_CHECKING, Any, Callable, Mapping, Sequence
+from typing import TYPE_CHECKING, Any, Callable, Iterable, Mapping, Sequence
 
-from sqlalchemy import RowMapping, Table, delete, select
+from sqlalchemy import (
+    JSON,
+    Boolean,
+    Column,
+    DateTime,
+    Engine,
+    ForeignKey,
+    Integer,
+    MetaData,
+    RowMapping,
+    String,
+    Table,
+    UniqueConstraint,
+    delete,
+    select,
+    tuple_,
+)
 from sqlalchemy.dialects.sqlite import insert
 from sqlalchemy.orm import Session
-from sqlalchemy.sql.dml import Insert, ReturningInsert
+from sqlalchemy.sql.dml import Delete, Insert, ReturningInsert
+from typing_extensions import Self
 
+from bamboost import constants
 from bamboost._logger import BAMBOOST_LOGGER
+from bamboost.constants import (
+    TABLENAME_COLLECTIONS,
+    TABLENAME_PARAMETERS,
+    TABLENAME_SIMULATION_LINKS,
+    TABLENAME_SIMULATIONS,
+)
+from bamboost.core.utilities import flatten_dict
+from bamboost.index.filtering import Filter, Sorter
+from bamboost.index.uids import SimulationUID
 
 if TYPE_CHECKING:
-    pass
-
-from .schema import (
-    CollectionRecord,
-    ParameterRecord,
-    SimulationRecord,
-    collections_table,
-    create_all,
-    parameters_table,
-    simulations_table,
-)
-
-__all__ = [
-    "collections_table",
-    "create_all",
-    "collections_upsert_stmt",
-    "simulations_upsert_stmt",
-    "parameters_upsert_stmt",
-    "fetch_collection",
-    "fetch_collections",
-    "fetch_collection_uid_by_alias",
-    "fetch_simulation",
-    "fetch_simulations",
-    "fetch_parameters",
-    "delete_collection_stmt",
-    "delete_simulation_stmt",
-    "json_serializer",
-    "json_deserializer",
-]
+    from pandas import DataFrame
 
 log = BAMBOOST_LOGGER.getChild(__name__)
+
+# ------------------------------------------------
+# Dataclasses representing the loaded records
+# ------------------------------------------------
+
+
+@dataclass(frozen=True)
+class ParameterRecord:
+    id: int
+    simulation_id: int
+    key: str
+    value: Any
+
+    @classmethod
+    def from_mapping(cls, row: RowMapping) -> ParameterRecord:
+        return cls(
+            id=row["id"],
+            simulation_id=row["simulation_id"],
+            key=row["key"],
+            value=row["value"],
+        )
+
+
+@dataclass(frozen=True)
+class LinkRecord:
+    id: int
+    source_id: int
+    target_id: int
+    source_uid: SimulationUID
+    name: str
+
+    @classmethod
+    def from_mapping(cls, row: RowMapping) -> LinkRecord:
+        return cls(
+            id=row["id"],
+            source_id=row["source_id"],
+            target_id=row["target_id"],
+            source_uid=SimulationUID(row["source_coll_uid"], row["source_name"]),
+            name=row["name"],
+        )
+
+
+@dataclass(frozen=True)
+class SimulationRecord:
+    id: int
+    collection_uid: str
+    name: str
+    created_at: datetime
+    modified_at: datetime
+    description: str | None
+    status: str
+    submitted: bool
+    tags: list[str] = field(default_factory=list)
+    parameters: list[ParameterRecord] = field(default_factory=list)
+
+    links: dict[str, SimulationUID] = field(default_factory=dict)
+
+    @classmethod
+    def from_mapping(
+        cls,
+        row: RowMapping,
+        parameters: list[ParameterRecord],
+        links: dict[str, SimulationUID],
+    ) -> SimulationRecord:
+        return cls(
+            id=row["id"],
+            collection_uid=row["collection_uid"],
+            name=row["name"],
+            created_at=row["created_at"],
+            modified_at=row["modified_at"],
+            description=row.get("description"),
+            tags=list(row.get("tags") or []),
+            status=row.get("status", ""),
+            submitted=bool(row.get("submitted", False)),
+            parameters=list(parameters or []),
+            links=links or {},
+        )
+
+    @property
+    def parameter_dict(self) -> dict[str, Any]:
+        return {parameter.key: parameter.value for parameter in self.parameters}
+
+    def as_dict(
+        self,
+        standalone: bool = True,
+        include_parameters: bool = True,
+        include_links: bool = True,
+    ) -> dict[str, Any]:
+        if standalone:
+            output_fields = ("id", "collection_uid", "name", "created_at", "modified_at", "description", "tags", "status", "submitted")  # fmt: off
+        else:
+            # When not standalone (e.g. for DataFrames), we exclude the internal 'id'
+            output_fields = ("name", "created_at", "description", "tags", "status", "submitted")  # fmt: off
+        if include_links:
+            output_fields += ("links",)
+
+        data = {field: getattr(self, field) for field in output_fields}
+        if include_links and self.links:
+            # Convert SimulationUID objects to strings for the dictionary
+            data["links"] = {k: str(v) for k, v in self.links.items()}
+
+        if include_parameters:
+            data.update(self.parameter_dict)
+        return data
+
+
+@dataclass(frozen=False)
+class CollectionMetadata:
+    """Collection metadata container. Can load/save from/to dicts, storing unknown
+    fields in an extras dictionary.
+    """
+
+    uid: str
+    """Unique identifier of the collection."""
+    created_at: datetime | None = field(default=None)
+    """Creation timestamp."""
+    tags: list[str] = field(default_factory=list)
+    """List of tags associated with the collection."""
+    aliases: list[str] = field(default_factory=list)
+    """List of aliases for the collection."""
+    author: str | dict | None = field(default=None)
+    """Author information, can be a string or a dictionary."""
+    description: str | None = field(default=None)
+    """Completely optional description of the collection."""
+
+    _extras: dict[str, Any] = field(default_factory=dict, init=False, repr=False)
+
+    def __post_init__(self):
+        self._fields = {f.name for f in fields(self) if f.init}  # ignore _extras
+
+    def to_dict(self) -> dict[str, Any]:
+        d = {k: getattr(self, k) for k in self._fields}
+        d = {k: v for k, v in d.items() if v is not None}  # remove None values
+        d.update(self._extras)
+        return d
+
+    @classmethod
+    def from_dict(cls, data: dict[str, Any], *_) -> Self:
+        """Create an instance from a dictionary, storing unknown fields in the extras
+        dictionary.
+
+        Args:
+            data: The input dictionary.
+        """
+        _fields = {f.name for f in fields(cls) if f.init}  # ignore _extras
+        known = {k: v for k, v in data.items() if k in _fields}
+        extras = {k: v for k, v in data.items() if k not in _fields}
+
+        obj = cls(**known)
+        obj._extras = extras
+        return obj
+
+
+@dataclass(frozen=False)
+class CollectionRecord(CollectionMetadata):
+    """Collection record, including metadata and associated simulations. Used for exposing
+    (read only) a record in the collection table in the sql database.
+    """
+
+    path: str = field(
+        default=""
+    )  # default to empty string for compatibility, it should always be set
+    """Path to the collection on disk. Guaranteed to be not null."""
+    simulations: list[SimulationRecord] | property = field(
+        default_factory=list, repr=False
+    )
+    """List of simulations associated with the collection."""
+
+    @classmethod
+    def from_mapping(
+        cls, row: RowMapping, simulations: list[SimulationRecord]
+    ) -> CollectionRecord:
+        return CollectionRecord(
+            uid=row["uid"],
+            path=row["path"],
+            created_at=row.get("created_at"),
+            description=row.get("description", ""),
+            tags=list(row.get("tags") or []),
+            aliases=list(row.get("aliases") or []),
+            author=row.get("author"),
+            simulations=simulations,
+        )
+
+    @property
+    def parameters(self) -> list[ParameterRecord]:
+        return [
+            parameter
+            for simulation in self.simulations
+            for parameter in simulation.parameters
+        ]
+
+    @property
+    def links(self) -> dict[str, dict[str, SimulationUID]]:
+        """Dictionary of links for each simulation in the collection."""
+        return {sim.name: sim.links for sim in self.simulations if sim.links}
+
+    def get_parameter_keys(self) -> tuple[list[str], list[int]]:
+        unique = list({parameter.key for parameter in self.parameters})
+        counts = [
+            sum(1 for parameter in self.parameters if parameter.key == key)
+            for key in unique
+        ]
+        return unique, counts
+
+    def to_pandas(self, flatten: bool = True) -> "DataFrame":
+        import pandas as pd
+
+        records = [
+            simulation.as_dict(standalone=False, include_links=False)
+            for simulation in self.simulations
+        ]
+        if flatten:
+            records = [flatten_dict(record) for record in records]
+        return pd.DataFrame.from_records(records)
+
+    def filtered(self, filter: Filter | None, sorter: Sorter | None) -> Self:
+        # TODO: this method is not efficient!
+        if (filter is None) and (sorter is None):
+            return self
+
+        df = self.to_pandas()
+        if filter is not None:
+            df = filter.apply(df)
+        if sorter is not None:
+            tmp_map = {
+                sim.name: sim
+                for sim in self.simulations
+                if sim.name in df["name"].values
+            }
+            df = sorter.apply(df)  # type: ignore
+            simulations = [tmp_map[name] for name in df["name"].values]
+        else:
+            simulations = [
+                sim for sim in self.simulations if sim.name in df["name"].values
+            ]
+
+        return dataclasses.replace(self, simulations=simulations)
+
+
+# ------------------------------------------------
+# SQL table definitions
+# ------------------------------------------------
+metadata = MetaData()
+
+collections_table = Table(
+    TABLENAME_COLLECTIONS,
+    metadata,
+    Column("uid", String, primary_key=True),
+    Column("path", String, nullable=False),
+    Column("created_at", DateTime, nullable=True),
+    Column("description", String, nullable=False, default="", server_default=""),
+    Column("tags", JSON, nullable=False, default=list, server_default="[]"),
+    Column("aliases", JSON, nullable=False, default=list, server_default="[]"),
+    Column("author", JSON, nullable=True, default=None, server_default="null"),
+)
+
+simulations_table = Table(
+    TABLENAME_SIMULATIONS,
+    metadata,
+    Column("id", Integer, primary_key=True, autoincrement=True),
+    Column(
+        "collection_uid",
+        String,
+        ForeignKey(f"{TABLENAME_COLLECTIONS}.uid", ondelete="CASCADE"),
+    ),
+    Column("name", String, nullable=False),
+    Column("created_at", DateTime, nullable=False, default=datetime.now),
+    Column("modified_at", DateTime, nullable=False, default=datetime.now),
+    Column("description", String, nullable=True),
+    Column("tags", JSON, nullable=False, default=list, server_default="[]"),
+    Column(
+        "status",
+        String,
+        nullable=False,
+        default="initialized",
+        server_default="initialized",
+    ),
+    Column("submitted", Boolean, nullable=False, default=False, server_default="0"),
+    UniqueConstraint("collection_uid", "name", name="uix_collection_name"),
+)
+
+simulation_links_table = Table(
+    TABLENAME_SIMULATION_LINKS,
+    metadata,
+    Column("id", Integer, primary_key=True, autoincrement=True),
+    Column(
+        "source_id",
+        Integer,
+        ForeignKey(f"{TABLENAME_SIMULATIONS}.id", ondelete="CASCADE"),
+        nullable=False,
+    ),
+    Column(
+        "target_id",
+        Integer,
+        ForeignKey(f"{TABLENAME_SIMULATIONS}.id", ondelete="CASCADE"),
+        nullable=False,
+    ),
+    Column("name", String, nullable=False),
+    UniqueConstraint("source_id", "name", name="uix_source_link_name"),
+)
+
+parameters_table = Table(
+    TABLENAME_PARAMETERS,
+    metadata,
+    Column("id", Integer, primary_key=True, autoincrement=True),
+    Column(
+        "simulation_id",
+        Integer,
+        ForeignKey(f"{TABLENAME_SIMULATIONS}.id", ondelete="CASCADE"),
+        nullable=False,
+    ),
+    Column("key", String, nullable=False),
+    Column("value", JSON, nullable=False),
+    UniqueConstraint("simulation_id", "key", name="uix_simulation_key"),
+)
+
+
+def create_all(engine: Engine) -> None:
+    """Create all tables defined in this module."""
+
+    metadata.create_all(engine, checkfirst=True)
+    with engine.begin() as connection:
+        for table in (
+            collections_table,
+            simulations_table,
+            parameters_table,
+            simulation_links_table,
+        ):
+            existing_columns = {
+                row[1]
+                for row in connection.exec_driver_sql(
+                    f"PRAGMA table_info({table.name})"
+                )
+            }
+
+            for column in table.columns:
+                if column.name in existing_columns:
+                    continue
+                connection.exec_driver_sql(
+                    f"ALTER TABLE {table.name} ADD COLUMN "
+                    f"{_column_sql_for_alter(engine, column)}"
+                )
+
+
+def _column_sql_for_alter(engine: Engine, column: Column[Any]) -> str:
+    """Build a SQLite-safe column definition for ALTER TABLE ADD COLUMN."""
+    type_sql = column.type.compile(dialect=engine.dialect)
+    clauses = [column.name, str(type_sql)]
+
+    default_sql = _server_default_sql(column)
+    # SQLite refuses ALTER TABLE ADD COLUMN for NOT NULL columns without a default.
+    # Keep migration permissive for legacy schemas by only enforcing NOT NULL when
+    # a server default is available.
+    if not column.nullable and default_sql is not None:
+        clauses.append("NOT NULL")
+
+    if default_sql is not None:
+        clauses.append(f"DEFAULT {default_sql}")
+
+    return " ".join(clauses)
+
+
+def _server_default_sql(column: Column[Any]) -> str | None:
+    if column.server_default is None:
+        return None
+
+    arg = column.server_default.arg  # type: ignore[unresolved-attribute]
+    if hasattr(arg, "text"):
+        return str(arg.text)
+    if isinstance(arg, bool):
+        return "1" if arg else "0"
+    if isinstance(arg, (int, float)):
+        return str(arg)
+    if isinstance(arg, str):
+        escaped = arg.replace("'", "''")
+        return f"'{escaped}'"
+    return None
+
 
 # ------------------------------------------------
 # JSON helpers retained for engine configuration
@@ -86,7 +465,7 @@ def json_deserializer(value: str) -> Any:
 class SqliteJSONEncoder(json.JSONEncoder):
     """JSON encoder that handles numpy and datetime types."""
 
-    def default(self, obj: Any) -> Any:  # ty:ignore[invalid-method-override]
+    def default(self, obj: Any) -> Any:  # type: ignore[invalid-method-override]
         import numpy as np
 
         if isinstance(obj, np.ndarray):
@@ -109,66 +488,8 @@ class SqliteJSONEncoder(json.JSONEncoder):
 # ------------------------------------------------
 
 
-def _build_collection(session: Session, row: RowMapping) -> CollectionRecord:
-    collection_uid = row["uid"]
-    simulations_rows = (
-        session.execute(
-            select(simulations_table).where(
-                simulations_table.c.collection_uid == collection_uid
-            )
-        )
-        .mappings()
-        .all()
-    )
-
-    simulation_ids = [sim_row["id"] for sim_row in simulations_rows]
-    parameters_map = _fetch_parameters_for(session, simulation_ids)
-    simulations = [
-        _build_simulation(sim_row, parameters_map.get(sim_row["id"], []))
-        for sim_row in simulations_rows
-    ]
-
-    return CollectionRecord(
-        uid=collection_uid,
-        path=row["path"],
-        created_at=row.get("created_at"),
-        description=row.get("description", ""),
-        tags=list(row.get("tags") or []),
-        aliases=list(row.get("aliases") or []),
-        author=row.get("author"),
-        simulations=simulations,
-    )
-
-
-def _build_simulation(
-    row: RowMapping,
-    parameters: Sequence[ParameterRecord] | None,
-) -> SimulationRecord:
-    return SimulationRecord(
-        id=row["id"],
-        collection_uid=row["collection_uid"],
-        name=row["name"],
-        created_at=row["created_at"],
-        modified_at=row["modified_at"],
-        description=row.get("description"),
-        tags=list(row.get("tags") or []),
-        status=row.get("status", ""),
-        submitted=bool(row.get("submitted", False)),
-        parameters=list(parameters or []),
-    )
-
-
-def _build_parameter(row: RowMapping) -> ParameterRecord:
-    return ParameterRecord(
-        id=row["id"],
-        simulation_id=row["simulation_id"],
-        key=row["key"],
-        value=row["value"],
-    )
-
-
 def _fetch_parameters_for(
-    session: Session, simulation_ids: Sequence[int]
+    session: Session, simulation_ids: Iterable[int]
 ) -> dict[int, list[ParameterRecord]]:
     if not simulation_ids:
         return {}
@@ -183,8 +504,42 @@ def _fetch_parameters_for(
     )
     result: dict[int, list[ParameterRecord]] = {}
     for row in rows:
-        parameter = _build_parameter(row)
+        parameter = ParameterRecord.from_mapping(row)
         result.setdefault(parameter.simulation_id, []).append(parameter)
+    return result
+
+
+def _fetch_links_for(
+    session: Session, simulation_ids: Sequence[int]
+) -> dict[int, dict[str, SimulationUID]]:
+    if not simulation_ids:
+        return {}
+
+    # We join with simulations_table to get the target UID (collection_uid:name)
+    stmt = (
+        select(
+            simulation_links_table.c.source_id,
+            simulation_links_table.c.name.label("link_name"),
+            simulations_table.c.collection_uid,
+            simulations_table.c.name.label("target_name"),
+        )
+        .select_from(
+            simulation_links_table.join(
+                simulations_table,
+                simulation_links_table.c.target_id == simulations_table.c.id,
+            )
+        )
+        .where(simulation_links_table.c.source_id.in_(simulation_ids))
+    )
+    rows = session.execute(stmt).mappings().all()
+
+    result: dict[int, dict[str, SimulationUID]] = {}
+
+    for row in rows:
+        source_id = row["source_id"]
+        link_name = row["link_name"]
+        target_uid = SimulationUID(row["collection_uid"], row["target_name"])
+        result.setdefault(source_id, {})[link_name] = target_uid
     return result
 
 
@@ -247,6 +602,37 @@ def parameters_upsert_stmt(
     )
 
 
+def simulation_links_upsert_stmt(
+    data: Sequence[Mapping[str, Any]] | Mapping[str, Any],
+) -> Insert:
+    payload, _ = _normalize_payload(data, simulation_links_table)
+    stmt = insert(simulation_links_table).values(payload)
+    return stmt.on_conflict_do_update(
+        index_elements=[
+            simulation_links_table.c.source_id,
+            simulation_links_table.c.name,
+        ],
+        set_={"target_id": stmt.excluded.target_id},
+    )
+
+
+def delete_collection_stmt(uid: str) -> Delete:
+    return delete(collections_table).where(collections_table.c.uid == uid)
+
+
+def delete_simulation_stmt(collection_uid: str, name: str) -> Delete:
+    return delete(simulations_table).where(
+        simulations_table.c.collection_uid == collection_uid,
+        simulations_table.c.name == name,
+    )
+
+
+def delete_simulation_links_stmt(source_id: int) -> Delete:
+    return delete(simulation_links_table).where(
+        simulation_links_table.c.source_id == source_id
+    )
+
+
 def _normalize_payload(
     data: Sequence[Mapping[str, Any]] | Mapping[str, Any],
     table: Table,
@@ -302,6 +688,12 @@ def _collect_update_columns(
 # ------------------------------------------------
 
 
+def get_collection_uids(session: Session) -> tuple[str, ...]:
+    """Fetch all collection UIDs without loading simulations."""
+    rows = session.execute(select(collections_table.c.uid)).scalars()
+    return tuple(rows)
+
+
 def fetch_collection(session: Session, uid: str) -> CollectionRecord | None:
     row = (
         session.execute(select(collections_table).where(collections_table.c.uid == uid))
@@ -310,12 +702,17 @@ def fetch_collection(session: Session, uid: str) -> CollectionRecord | None:
     )
     if row is None:
         return None
-    return _build_collection(session, row)
+
+    simulations = fetch_simulations(session, [uid])
+    return CollectionRecord.from_mapping(row, simulations)
 
 
 def fetch_collections(session: Session) -> list[CollectionRecord]:
     rows = session.execute(select(collections_table)).mappings().all()
-    return [_build_collection(session, row) for row in rows]
+    return [
+        CollectionRecord.from_mapping(row, fetch_simulations(session, [row["uid"]]))
+        for row in rows
+    ]
 
 
 def fetch_collection_uid_by_alias(session: Session, alias: str) -> str | None:
@@ -338,9 +735,34 @@ def fetch_collection_uid_by_alias(session: Session, alias: str) -> str | None:
     return None
 
 
+def fetch_simulation_id(
+    session: Session, collection_uid: str, simulation_name: str
+) -> None | int:
+    """Fetch the ID of a simulation given its collection UID and name."""
+    return session.execute(
+        select(simulations_table.c.id).where(
+            simulations_table.c.collection_uid == collection_uid,
+            simulations_table.c.name == simulation_name,
+        )
+    ).scalar()
+
+
+def fetch_simulation_uid(session: Session, simulation_id: int) -> SimulationUID | None:
+    """Fetch the UID of a simulation given its ID."""
+    row = session.execute(
+        select(simulations_table.c.collection_uid, simulations_table.c.name).where(
+            simulations_table.c.id == simulation_id
+        )
+    ).first()
+    if row is None:
+        return None
+    return SimulationUID(*row)
+
+
 def fetch_simulation(
     session: Session, collection_uid: str, name: str
 ) -> SimulationRecord | None:
+    """Fetch a simulation given its collection UID and name."""
     row = (
         session.execute(
             select(simulations_table).where(
@@ -354,27 +776,158 @@ def fetch_simulation(
     if row is None:
         return None
     parameters_map = _fetch_parameters_for(session, [row["id"]])
-    return _build_simulation(row, parameters_map.get(row["id"], []))
+    links_map = _fetch_links_for(session, [row["id"]])
+    return SimulationRecord.from_mapping(
+        row, parameters_map.get(row["id"], []), links_map.get(row["id"], {})
+    )
 
 
-def fetch_simulations(session: Session) -> list[SimulationRecord]:
-    rows = session.execute(select(simulations_table)).mappings().all()
+def fetch_simulations_by_uid(
+    session: Session, uids: Sequence[tuple[str, str]]
+) -> list[SimulationRecord]:
+    """Fetch multiple simulations by their collection UID and name."""
+    if not uids:
+        return []
+
+    stmt = select(simulations_table).where(
+        tuple_(simulations_table.c.collection_uid, simulations_table.c.name).in_(uids)
+    )
+    rows = session.execute(stmt).mappings().all()
     simulation_ids = [row["id"] for row in rows]
     parameters_map = _fetch_parameters_for(session, simulation_ids)
-    return [_build_simulation(row, parameters_map.get(row["id"], [])) for row in rows]
+    links_map = _fetch_links_for(session, simulation_ids)
+    return [
+        SimulationRecord.from_mapping(
+            row, parameters_map.get(row["id"], []), links_map.get(row["id"], {})
+        )
+        for row in rows
+    ]
+
+
+def fetch_simulations(
+    session: Session, collection_uids: list[str] | None = None
+) -> list[SimulationRecord]:
+    """Fetch all simulations in the database."""
+    stmt = select(simulations_table)
+    if collection_uids is not None:
+        stmt = select(simulations_table).where(
+            simulations_table.c.collection_uid.in_(collection_uids)
+        )
+
+    rows = session.execute(stmt).mappings().all()
+    simulation_ids = [row["id"] for row in rows]
+    parameters_map = _fetch_parameters_for(session, simulation_ids)
+    links_map = _fetch_links_for(session, simulation_ids)
+    return [
+        SimulationRecord.from_mapping(
+            row, parameters_map.get(row["id"], []), links_map.get(row["id"], {})
+        )
+        for row in rows
+    ]
 
 
 def fetch_parameters(session: Session) -> list[ParameterRecord]:
     rows = session.execute(select(parameters_table)).mappings().all()
-    return [_build_parameter(row) for row in rows]
+    return [ParameterRecord.from_mapping(row) for row in rows]
 
 
-def delete_collection_stmt(uid: str):
-    return delete(collections_table).where(collections_table.c.uid == uid)
-
-
-def delete_simulation_stmt(collection_uid: str, name: str):
-    return delete(simulations_table).where(
-        simulations_table.c.collection_uid == collection_uid,
-        simulations_table.c.name == name,
+def fetch_links(session: Session) -> list[LinkRecord]:
+    rows = (
+        session.execute(
+            select(
+                simulation_links_table,
+                simulations_table.c.collection_uid.label("source_coll_uid"),
+                simulations_table.c.name.label("source_name"),
+            ).join(
+                simulations_table,
+                simulation_links_table.c.source_id == simulations_table.c.id,
+            )
+        )
+        .mappings()
+        .all()
     )
+    return [LinkRecord.from_mapping(row) for row in rows]
+
+
+def fetch_collection_links(session: Session, collection_uid: str) -> list[LinkRecord]:
+    """Fetch all links for a collection."""
+    stmt = (
+        select(
+            simulation_links_table,
+            simulations_table.c.collection_uid.label("source_coll_uid"),
+            simulations_table.c.name.label("source_name"),
+        )
+        .join(
+            simulations_table,
+            simulation_links_table.c.source_id == simulations_table.c.id,
+        )
+        .where(simulations_table.c.collection_uid == collection_uid)
+    )
+    rows = session.execute(stmt).mappings().all()
+    return [LinkRecord.from_mapping(row) for row in rows]
+
+
+def fetch_collection_links_map(
+    session: Session, collection_uid: str
+) -> dict[str, dict[str, str]]:
+    """Fetch all links for a collection as a mapping from simulation name to links."""
+    sim_src = simulations_table.alias("sim_src")
+    sim_target = simulations_table.alias("sim_target")
+
+    stmt = (
+        select(
+            sim_src.c.name.label("source_name"),
+            simulation_links_table.c.name.label("link_name"),
+            sim_target.c.collection_uid.label("target_collection_uid"),
+            sim_target.c.name.label("target_name"),
+        )
+        .select_from(
+            simulation_links_table.join(
+                sim_src,
+                simulation_links_table.c.source_id == sim_src.c.id,
+            ).join(
+                sim_target,
+                simulation_links_table.c.target_id == sim_target.c.id,
+            )
+        )
+        .where(sim_src.c.collection_uid == collection_uid)
+    )
+
+    rows = session.execute(stmt).mappings().all()
+    result: dict[str, dict[str, str]] = {}
+    for row in rows:
+        source_name = row["source_name"]
+        link_name = row["link_name"]
+        target_uid = f"{row['target_collection_uid']}{constants.UID_SEPARATOR}{row['target_name']}"
+        result.setdefault(source_name, {})[link_name] = target_uid
+    return result
+
+
+def fetch_backlinks(
+    session: Session, collection_uid: str, simulation_name: str
+) -> Sequence[RowMapping]:
+    """Fetch all simulations that link to the given simulation."""
+    sim_src = simulations_table.alias("sim_src")
+    sim_target = simulations_table.alias("sim_target")
+
+    stmt = (
+        select(
+            sim_src.c.collection_uid,
+            sim_src.c.name.label("source_name"),
+            simulation_links_table.c.name.label("link_name"),
+        )
+        .select_from(
+            simulation_links_table.join(
+                sim_src,
+                simulation_links_table.c.source_id == sim_src.c.id,
+            ).join(
+                sim_target,
+                simulation_links_table.c.target_id == sim_target.c.id,
+            )
+        )
+        .where(
+            sim_target.c.collection_uid == collection_uid,
+            sim_target.c.name == simulation_name,
+        )
+    )
+    return session.execute(stmt).mappings().all()

@@ -4,7 +4,8 @@ from typing import Tuple
 import pytest
 
 from bamboost.core.collection import Collection
-from bamboost.index.base import Index
+from bamboost.exceptions import InvalidSimulationUIDError
+from bamboost.index import Index, SimulationUID
 
 
 @pytest.fixture
@@ -38,7 +39,7 @@ def test_upsert_simulation(index_with_collection: Tuple[Index, Path]):
         collection_path=collection_path,
     )
 
-    sim = index.simulation("COLL001", "sim1")
+    sim = index.simulation(SimulationUID("COLL001", "sim1"))
 
     assert sim is not None
     assert sim.name == "sim1"
@@ -57,7 +58,7 @@ def test_update_simulation_metadata(
     new_metadata = {"description": "Updated description", "tags": ["first", "first"]}
     index.update_simulation_metadata(coll.uid, sim_name, new_metadata)  # pyright: ignore[reportArgumentType]
 
-    sim = index.simulation(coll.uid, sim_name)
+    sim = index.simulation(SimulationUID(coll.uid, sim_name))
     assert sim.description == "Updated description"
     assert sim.tags == ["first"]
 
@@ -74,11 +75,164 @@ def test_update_simulation_parameters(
     sim_name = "testsim1"
     index.upsert_simulation(coll.uid, sim_name)
 
-    old_params = index.simulation(coll.uid, sim_name).parameter_dict
+    old_params = index.simulation(SimulationUID(coll.uid, sim_name)).parameter_dict
     index.update_simulation_parameters(coll.uid, sim_name, params)
-    sim = index.simulation(coll.uid, sim_name)
+    sim = index.simulation(SimulationUID(coll.uid, sim_name))
 
     # update old_params for comparison
     old_params.update(params)
 
     assert sim.parameter_dict == old_params
+
+
+def test_upsert_simulation_with_links(index_with_collection: Tuple[Index, Path]):
+    index, collection_path = index_with_collection
+
+    # Target simulations must exist first
+    index.upsert_simulation(
+        "COLL001",
+        "sim2",
+        metadata={},
+        parameters={},
+        links={},
+        collection_path=collection_path,
+    )
+    index.upsert_simulation(
+        "COLL001",
+        "sim3",
+        metadata={},
+        parameters={},
+        links={},
+        collection_path=collection_path,
+    )
+
+    links = {
+        "ref1": SimulationUID("COLL001:sim2"),
+        "ref2": SimulationUID("COLL001", "sim3"),
+    }
+
+    index.upsert_simulation(
+        collection_uid="COLL001",
+        simulation_name="sim1",
+        metadata={},
+        parameters={},
+        links=links,
+        collection_path=collection_path,
+    )
+
+    sim = index.simulation(SimulationUID("COLL001", "sim1"))
+    assert sim is not None
+    assert sim.links == links
+
+
+def test_upsert_simulation_with_missing_target(
+    index_with_collection: Tuple[Index, Path],
+):
+    index, collection_path = index_with_collection
+
+    links = {"ref1": "COLL001:MISSING_SIM"}
+
+    with (
+        pytest.MonkeyPatch.context() as m,
+        pytest.raises(InvalidSimulationUIDError, match="cannot be found"),
+    ):
+        # monkeypatch sync_collection to avoid syncing, we only check the existing index
+        m.setattr(Index, "sync_collection", lambda self, collection_uid: None)
+
+        index.upsert_simulation(
+            collection_uid="COLL001",
+            simulation_name="sim1",
+            metadata={},
+            parameters={},
+            collection_path=collection_path,
+        )
+
+        # this line should raise the error because the target simulation does not exist in the index
+        index.update_simulation_links(
+            "COLL001", "sim1", links, raise_on_invalid_target=True
+        )
+
+
+def test_update_simulation_links(index_with_collection: Tuple[Index, Path]):
+    index, collection_path = index_with_collection
+
+    # Target must exist
+    index.upsert_simulation(
+        "COLL001",
+        "sim2",
+        metadata={},
+        parameters={},
+        links={},
+        collection_path=collection_path,
+    )
+
+    index.upsert_simulation(
+        "COLL001",
+        "sim1",
+        metadata={},
+        parameters={},
+        links={},
+        collection_path=collection_path,
+    )
+
+    links = {"ref1": SimulationUID("COLL001:sim2")}
+    index.update_simulation_links("COLL001", "sim1", links)
+
+    sim = index.simulation(SimulationUID("COLL001", "sim1"))
+    assert sim.links == links
+
+
+def test_collection_links(index_with_collection: Tuple[Index, Path]):
+    index, collection_path = index_with_collection
+
+    # Targets
+    index.upsert_simulation(
+        "COLL001",
+        "T1",
+        metadata={},
+        parameters={},
+        links={},
+        collection_path=collection_path,
+    )
+    index.upsert_simulation(
+        "COLL001",
+        "T2",
+        metadata={},
+        parameters={},
+        links={},
+        collection_path=collection_path,
+    )
+
+    index.upsert_simulation(
+        "COLL001",
+        "sim1",
+        metadata={},
+        parameters={},
+        links={"l1": "COLL001:T1"},
+        collection_path=collection_path,
+    )
+    index.upsert_simulation(
+        "COLL001",
+        "sim2",
+        metadata={},
+        parameters={},
+        links={"l2": "COLL001:T2"},
+        collection_path=collection_path,
+    )
+
+    coll = index.collection("COLL001")
+    assert coll.links == {"sim1": {"l1": "COLL001:T1"}, "sim2": {"l2": "COLL001:T2"}}
+
+    # Test new efficient links queries
+    links = index.collection_links("COLL001")
+    assert len(links) == 2
+    assert {l.name for l in links} == {"l1", "l2"}
+
+    links_map = index.collection_links_map("COLL001")
+    assert links_map == {"sim1": {"l1": "COLL001:T1"}, "sim2": {"l2": "COLL001:T2"}}
+
+    # Test backlinks
+    backlinks = index.backlinks("COLL001:T1")
+    assert len(backlinks) == 1
+    assert backlinks[0][0] == SimulationUID("COLL001", "sim1")
+    assert backlinks[0][1] == "l1"

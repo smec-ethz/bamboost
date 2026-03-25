@@ -1,6 +1,6 @@
 [project]
 name = "bamboost"
-version = "0.12.1"
+version = "0.13.1"
 description = "A light weight scientific data management system using HDF5"
 readme = { file = "README.md", content-type = "text/markdown" }
 authors = [
@@ -29,8 +29,8 @@ dependencies = [
 
 [project.urls]
 Homepage = "https://bamboost.ch/"
-repository = "https://gitlab.com/cmbm-ethz/bamboost"
-changelog = "https://gitlab.com/cmbm-ethz/bamboost/-/tree/main/CHANGELOG.md"
+repository = "https://github.com/smec-ethz/bamboost"
+changelog = "https://github.com/smec-ethz/bamboost/blob/main/CHANGELOG.md"
 
 [project.scripts]
 bamboost = "bamboost.cli:app"
@@ -77,4 +77,5 @@ reportIncompatibleMethodOverride = false
 source = ["bamboost"]
 omit = [
     "bamboost/cli/*",
+    "bamboost/plugins_dev/*",
 ]

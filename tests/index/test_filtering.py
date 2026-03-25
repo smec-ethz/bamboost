@@ -5,7 +5,7 @@ import operator
 import pandas as pd
 import pytest
 
-from bamboost.index._filtering import (
+from bamboost.index.filtering import (
     Filter,
     Operator,
     Sorter,

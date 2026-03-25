@@ -9,17 +9,16 @@ import pytest
 from bamboost import constants
 from bamboost.core.collection import Collection
 from bamboost.core.hdf5.attrsdict import AttrsDict
-from bamboost.core.hdf5.file import FileMode
 from bamboost.core.hdf5.ref import Group
 from bamboost.core.simulation.base import (
     Simulation,
-    SimulationName,
     SimulationWriter,
     Status,
     StatusInfo,
     _Simulation,
 )
 from bamboost.core.simulation.series import Series
+from bamboost.index import SimulationName, SimulationUID
 
 
 @pytest.fixture
@@ -73,14 +72,15 @@ def test_update_database(tmp_collection: Collection):
         "tags": ["first", "first"],
     }
     sim.update_database(metadata=new_metadata)
-    assert index.simulation(tmp_collection.uid, sim.name).status == "test"
-    assert index.simulation(tmp_collection.uid, sim.name).description == "test"
-    assert index.simulation(tmp_collection.uid, sim.name).tags == ["first"]
+    uid = tmp_collection.uid
+    assert index.simulation(SimulationUID(uid, sim.name)).status == "test"
+    assert index.simulation(SimulationUID(uid, sim.name)).description == "test"
+    assert index.simulation(SimulationUID(uid, sim.name)).tags == ["first"]
 
     new_parameters = {"last_name": "Bourne", "first_name": "Jane"}
     sim.update_database(parameters=new_parameters)
     assert (
-        index.simulation(tmp_collection.uid, sim.name).parameter_dict == new_parameters
+        index.simulation(SimulationUID(uid, sim.name)).parameter_dict == new_parameters
     )
 
 

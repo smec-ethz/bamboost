@@ -1,5 +1,37 @@
 # Change log for bamboost
 
+## [0.13.1](https://github.com/smec-ethz/bamboost/compare/0.13.0...0.13.1) (2026-03-24)
+
+
+### Bug Fixes
+
+* **cli:** use relative index import to undo regression in startup time ([b3bcf78](https://github.com/smec-ethz/bamboost/commit/b3bcf7881ae6885e813fc83f8ceb02bb6406af5a))
+* **config:** add options config.index.strictLinks/strictLinksWhenSyncing ([dba58ad](https://github.com/smec-ethz/bamboost/commit/dba58ade8b9324faa7ecade7723be0fb3ff38de6))
+* **index:** soften enforcement of existing targets of links ([dba58ad](https://github.com/smec-ethz/bamboost/commit/dba58ade8b9324faa7ecade7723be0fb3ff38de6))
+
+## [0.13.0](https://github.com/smec-ethz/bamboost/compare/0.12.1...0.13.0) (2026-03-23)
+
+
+### Features
+
+* **collection:** add `include_links()` to bundle link parameters in df ([421ca74](https://github.com/smec-ethz/bamboost/commit/421ca74e57d68a518dc8c7c369adcbf7ab728236))
+* **index:** add helper functions to get links and backlinks ([9512594](https://github.com/smec-ethz/bamboost/commit/95125943178ef5bd45f3716ae1e7effc4497f140))
+
+
+### Bug Fixes
+
+* **config:** add `options.logLevel` config option ([1c2d64f](https://github.com/smec-ethz/bamboost/commit/1c2d64fdfac7c9fe069989d16d00fde5181dcd2f))
+* **hdf5:** support attributes/parameters of type None ([5c9185c](https://github.com/smec-ethz/bamboost/commit/5c9185c3d6a78efc85d3ccf16fdfea4a2b5f7425))
+* **index:** fix inserting links when starting with an empty database & other minor fixes ([254ac8e](https://github.com/smec-ethz/bamboost/commit/254ac8e0cda8a19e2ddbce39ef61999d856f7e88))
+* **remote:** local db name would append version repeateadly ([39ba824](https://github.com/smec-ethz/bamboost/commit/39ba82499a4548928022abde603c46a0b8f6ab9b))
+* **remote:** remote base path is added twice when rsyncning index ([#9](https://github.com/smec-ethz/bamboost/issues/9)) ([270d77a](https://github.com/smec-ethz/bamboost/commit/270d77abc6a3867e177d521e16db7c8ae822899e))
+
+
+### Performance Improvements
+
+* **index:** include links in sqlite database in separate links table ([9e484e3](https://github.com/smec-ethz/bamboost/commit/9e484e3cc4418458f95bde6b3ec357be4cbb15e4))
+* **index:** vectorize filtering of collections ([d26ab4d](https://github.com/smec-ethz/bamboost/commit/d26ab4d0ce054f87d0d603e40d55ae4b5a0c3f3c))
+
 ## [0.12.1](https://github.com/smec-ethz/bamboost/compare/0.12.0...0.12.1) (2026-02-17)
 
 
