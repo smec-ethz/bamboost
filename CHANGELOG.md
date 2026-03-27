@@ -1,5 +1,16 @@
 # Change log for bamboost
 
+## [0.13.2](https://github.com/smec-ethz/bamboost/compare/0.13.1...0.13.2) (2026-03-27)
+
+
+### Bug Fixes
+
+* **collection:** ensure exact parameter matching for duplicate check ([2aa2e2e](https://github.com/smec-ethz/bamboost/commit/2aa2e2e0d9c5d247f15bc0084f48f95f3d96c457))
+* **collection:** include links in duplicate check ([9007193](https://github.com/smec-ethz/bamboost/commit/90071933cd100f6159ee640ae81f47474b7ff0cb))
+* **collection:** validate parameter keys to avoid conflicts ([8d7b5cf](https://github.com/smec-ethz/bamboost/commit/8d7b5cfbd3c4168b70f5ab3ece4387f3341bbdde))
+* **index:** add links as json in simulation table ([fb1e2b5](https://github.com/smec-ethz/bamboost/commit/fb1e2b506ec49affdc526dc9d43ee933fd2f93fc))
+* **index:** make check_integrity respect current search paths ([#14](https://github.com/smec-ethz/bamboost/issues/14)) ([7ab0254](https://github.com/smec-ethz/bamboost/commit/7ab0254d58009c428154cb448808653daa8b9f13))
+
 ## [0.13.1](https://github.com/smec-ethz/bamboost/compare/0.13.0...0.13.1) (2026-03-24)
 
 
