@@ -743,89 +743,68 @@ class Index(metaclass=RootProcessMeta):
                 for collections and sync the target collection before trying again. This
                 can be helpful to find targets.
         """
-        scanned: bool = False  # flag to avoid multiple scans in case of multiple links
-        known_collection_uids: tuple[str, ...] = store.get_collection_uids(self._s)
+        sim_id, current_links = self._s.execute(
+            select(store.simulations_table.c.id, store.simulations_table.c.links).where(
+                store.simulations_table.c.collection_uid == collection_uid,
+                store.simulations_table.c.name == simulation_name,
+            )
+        ).first() or (None, None)
 
-        def _raise_or_log_invalid_target(target_uid: SimulationUID) -> None:
-            if raise_on_invalid_target:
+        if sim_id is None:
+            raise InvalidSimulationUIDError(
+                f"Simulation '{collection_uid}:{simulation_name}' does not exist in the index."
+            )
+
+        # normalize links to strings of SimulationUIDs
+        normalized_links = {k: str(SimulationUID(v)) for k, v in links.items()}
+
+        # update JSON Source of Truth (only if changed)
+        if normalized_links != current_links:
+            from sqlalchemy import update
+
+            self._s.execute(
+                update(store.simulations_table)
+                .where(store.simulations_table.c.id == sim_id)
+                .values(links=normalized_links)
+            )
+
+        # resolve and update relational links
+        link_payloads = []
+        scanned = False
+        known_collection_uids = store.get_collection_uids(self._s)
+
+        for ref_name, target_uid_str in normalized_links.items():
+            target_uid = SimulationUID(target_uid_str)
+            target_sim_id = store.fetch_simulation_id(
+                self._s, target_uid.collection_uid, target_uid.simulation_name
+            )
+
+            # if not found and discovery is enabled, try to find it
+            if target_sim_id is None and scan_and_sync:
+                if not scanned:
+                    colls = self.scan_for_collections()
+                    scanned = True
+                    known_collection_uids = tuple(coll[0] for coll in colls)
+
+                if target_uid.collection_uid in known_collection_uids:
+                    self.sync_collection(target_uid.collection_uid, heal_links=False)
+                    target_sim_id = store.fetch_simulation_id(
+                        self._s, target_uid.collection_uid, target_uid.simulation_name
+                    )
+
+            # handle result
+            if target_sim_id is not None:
+                link_payloads.append(
+                    {"source_id": sim_id, "target_id": target_sim_id, "name": ref_name}
+                )
+            elif raise_on_invalid_target:
                 raise InvalidSimulationUIDError(
-                    f"Target simulation '{target_uid}' cannot be found. "
-                    "This happened because strict link checking is enabled and all link targets "
-                    "are required to exist in the index. To skip invalid targets instead of "
-                    "raising an error, disable strict link checking in your configuration or "
-                    "invoke this operation with 'raise_on_invalid_target=False'."
+                    f"Target simulation '{target_uid}' cannot be found (strict mode)."
                 )
             else:
                 log.warning(f"Stale link. '{target_uid}' can not be found.")
 
-        def _find_target(target_uid: SimulationUID) -> int | None:
-            nonlocal scanned, known_collection_uids
-            target_sim_id = store.fetch_simulation_id(
-                self._s, target_uid.collection_uid, target_uid.simulation_name
-            )
-            if target_sim_id is not None:
-                return target_sim_id
-
-            if not scan_and_sync:
-                _raise_or_log_invalid_target(target_uid)
-                return None
-
-            log.debug(
-                f"Target simulation '{target_uid}' not found in cache. "
-                "Scanning for/syncing collections and trying again."
-            )
-            if not scanned:
-                colls = self.scan_for_collections()
-                scanned = True
-                known_collection_uids = tuple(coll[0] for coll in colls)
-
-            if target_uid.collection_uid not in known_collection_uids:
-                _raise_or_log_invalid_target(target_uid)
-                return None
-
-            self.sync_collection(target_uid.collection_uid, heal_links=False)
-            target_sim_id = store.fetch_simulation_id(
-                self._s, target_uid.collection_uid, target_uid.simulation_name
-            )
-            if target_sim_id is not None:
-                return target_sim_id
-
-            _raise_or_log_invalid_target(target_uid)
-            return None
-
-        sim_id = store.fetch_simulation_id(self._s, collection_uid, simulation_name)
-        if sim_id is None:
-            raise InvalidSimulationUIDError(
-                f"Simulation '{collection_uid}:{simulation_name}' does not exist in the index. "
-                "This happened because you are trying to update the links of a simulation that cannot be found."
-            )
-
-        # update the JSON column in the simulations table (Source of Truth)
-        # This ensures DataFrames and duplicate checks see all links.
-        from sqlalchemy import update
-
-        self._s.execute(
-            update(store.simulations_table)
-            .where(store.simulations_table.c.id == sim_id)
-            .values(links={k: str(SimulationUID(v)) for k, v in links.items()})
-        )
-
-        # update the relational table for resolved links
-        link_payloads = []
-
-        for ref_name, target_uid_or_string in links.items():
-            target_uid = SimulationUID(target_uid_or_string)
-            target_sim_id = _find_target(target_uid)
-            if target_sim_id is None:
-                # if the target simulation can not be found, we skip storing the link in
-                # the relational table for now.
-                continue
-
-            link_payloads.append(
-                {"source_id": sim_id, "target_id": target_sim_id, "name": ref_name}
-            )
-
-        # Remove existing relational links for this source before re-populating
+        # atomic update of the relational table
         self._s.execute(store.delete_simulation_links_stmt(sim_id))
         if link_payloads:
             self._s.execute(store.simulation_links_upsert_stmt(link_payloads))
@@ -864,9 +843,8 @@ class Index(metaclass=RootProcessMeta):
         """
         from sqlalchemy import func
 
-        # find all simulations where (count of resolved links) < (count of links in JSON)
-        # This is a bit tricky in pure SQL for JSON, so we'll just fetch simulations that
-        # HAVE links and do the check.
+        # identify simulations with potential stale links
+        # we fetch simulations that have links in the JSON source of truth.
         stmt = select(
             store.simulations_table.c.id,
             store.simulations_table.c.collection_uid,
@@ -880,11 +858,10 @@ class Index(metaclass=RootProcessMeta):
             )
 
         sims = self._s.execute(stmt).all()
-
         if not sims:
             return
 
-        # fetch counts of resolved links for these simulations in one go
+        # batch fetch currently resolved link counts
         sim_ids = [sim.id for sim in sims]
         counts_stmt = (
             select(
@@ -898,20 +875,18 @@ class Index(metaclass=RootProcessMeta):
             row.source_id: row.cnt for row in self._s.execute(counts_stmt).all()
         }
 
-        # if needed, attempt to add links to the relational links table
+        # if needed, resolve links for each simulation and update the relational table
         for sim_id, coll_uid, sim_name, links_json in sims:
-            if not links_json:
+            # skip if JSON is empty or already fully resolved in relational table
+            if not links_json or resolved_counts.get(sim_id, 0) >= len(links_json):
                 continue
 
-            resolved_count = resolved_counts.get(sim_id, 0)
-
-            if resolved_count < len(links_json):
-                log.debug(f"Attempting to heal links for {coll_uid}:{sim_name}")
-                # re-run the update logic which is now idempotent
-                # We disable scan_and_sync to avoid expensive filesystem operations during healing
-                self.update_simulation_links(
-                    coll_uid, sim_name, links_json, scan_and_sync=False
-                )
+            log.debug(f"Healing stale links for {coll_uid}:{sim_name}")
+            # update_simulation_links is idempotent and will reconcile the relational table.
+            # we disable scan_and_sync to keep this operation database-only.
+            self.update_simulation_links(
+                coll_uid, sim_name, links_json, scan_and_sync=False
+            )
 
     @RootProcessMeta.bcast_result
     @_sql_transaction
