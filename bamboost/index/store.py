@@ -30,7 +30,6 @@ from sqlalchemy.orm import Session
 from sqlalchemy.sql.dml import Delete, Insert, ReturningInsert
 from typing_extensions import Self
 
-from bamboost import constants
 from bamboost._logger import BAMBOOST_LOGGER
 from bamboost.constants import (
     TABLENAME_COLLECTIONS,
@@ -75,6 +74,7 @@ class LinkRecord:
     source_id: int
     target_id: int
     source_uid: SimulationUID
+    target_uid: SimulationUID
     name: str
 
     @classmethod
@@ -84,6 +84,7 @@ class LinkRecord:
             source_id=row["source_id"],
             target_id=row["target_id"],
             source_uid=SimulationUID(row["source_coll_uid"], row["source_name"]),
+            target_uid=SimulationUID(row["target_coll_uid"], row["target_name"]),
             name=row["name"],
         )
 
@@ -108,8 +109,11 @@ class SimulationRecord:
         cls,
         row: RowMapping,
         parameters: list[ParameterRecord],
-        links: dict[str, SimulationUID],
     ) -> SimulationRecord:
+        # pull links directly from the JSON column in the simulation row
+        raw_links = row.get("links") or {}
+        links = {k: SimulationUID(v) for k, v in raw_links.items()}
+
         return cls(
             id=row["id"],
             collection_uid=row["collection_uid"],
@@ -121,7 +125,7 @@ class SimulationRecord:
             status=row.get("status", ""),
             submitted=bool(row.get("submitted", False)),
             parameters=list(parameters or []),
-            links=links or {},
+            links=links,
         )
 
     @property
@@ -250,13 +254,11 @@ class CollectionRecord(CollectionMetadata):
         ]
         return unique, counts
 
-    def to_pandas(self, flatten: bool = True, include_links: bool = False) -> "DataFrame":
+    def to_pandas(self, flatten: bool = True, include_links: bool = True) -> DataFrame:
         import pandas as pd
 
         records = [
-            simulation.as_dict(
-                standalone=False, include_links=include_links or self.links is not None
-            )
+            simulation.as_dict(standalone=False, include_links=include_links)
             for simulation in self.simulations
         ]
         if flatten:
@@ -326,6 +328,7 @@ simulations_table = Table(
         server_default="initialized",
     ),
     Column("submitted", Boolean, nullable=False, default=False, server_default="0"),
+    Column("links", JSON, nullable=True),
     UniqueConstraint("collection_uid", "name", name="uix_collection_name"),
 )
 
@@ -514,10 +517,12 @@ def _fetch_parameters_for(
 def _fetch_links_for(
     session: Session, simulation_ids: Sequence[int]
 ) -> dict[int, dict[str, SimulationUID]]:
+    # this method is now ONLY for discovering valid relational targets
+    # if needed. SimulationRecord.from_mapping now pulls links from
+    # the JSON column.
     if not simulation_ids:
         return {}
 
-    # We join with simulations_table to get the target UID (collection_uid:name)
     stmt = (
         select(
             simulation_links_table.c.source_id,
@@ -536,12 +541,10 @@ def _fetch_links_for(
     rows = session.execute(stmt).mappings().all()
 
     result: dict[int, dict[str, SimulationUID]] = {}
-
     for row in rows:
         source_id = row["source_id"]
-        link_name = row["link_name"]
         target_uid = SimulationUID(row["collection_uid"], row["target_name"])
-        result.setdefault(source_id, {})[link_name] = target_uid
+        result.setdefault(source_id, {})[row["link_name"]] = target_uid
     return result
 
 
@@ -778,10 +781,7 @@ def fetch_simulation(
     if row is None:
         return None
     parameters_map = _fetch_parameters_for(session, [row["id"]])
-    links_map = _fetch_links_for(session, [row["id"]])
-    return SimulationRecord.from_mapping(
-        row, parameters_map.get(row["id"], []), links_map.get(row["id"], {})
-    )
+    return SimulationRecord.from_mapping(row, parameters_map.get(row["id"], []))
 
 
 def fetch_simulations_by_uid(
@@ -797,11 +797,8 @@ def fetch_simulations_by_uid(
     rows = session.execute(stmt).mappings().all()
     simulation_ids = [row["id"] for row in rows]
     parameters_map = _fetch_parameters_for(session, simulation_ids)
-    links_map = _fetch_links_for(session, simulation_ids)
     return [
-        SimulationRecord.from_mapping(
-            row, parameters_map.get(row["id"], []), links_map.get(row["id"], {})
-        )
+        SimulationRecord.from_mapping(row, parameters_map.get(row["id"], []))
         for row in rows
     ]
 
@@ -819,11 +816,8 @@ def fetch_simulations(
     rows = session.execute(stmt).mappings().all()
     simulation_ids = [row["id"] for row in rows]
     parameters_map = _fetch_parameters_for(session, simulation_ids)
-    links_map = _fetch_links_for(session, simulation_ids)
     return [
-        SimulationRecord.from_mapping(
-            row, parameters_map.get(row["id"], []), links_map.get(row["id"], {})
-        )
+        SimulationRecord.from_mapping(row, parameters_map.get(row["id"], []))
         for row in rows
     ]
 
@@ -834,53 +828,49 @@ def fetch_parameters(session: Session) -> list[ParameterRecord]:
 
 
 def fetch_links(session: Session) -> list[LinkRecord]:
-    rows = (
-        session.execute(
-            select(
-                simulation_links_table,
-                simulations_table.c.collection_uid.label("source_coll_uid"),
-                simulations_table.c.name.label("source_name"),
-            ).join(
-                simulations_table,
-                simulation_links_table.c.source_id == simulations_table.c.id,
-            )
-        )
-        .mappings()
-        .all()
-    )
-    return [LinkRecord.from_mapping(row) for row in rows]
-
-
-def fetch_collection_links(session: Session, collection_uid: str) -> list[LinkRecord]:
-    """Fetch all links for a collection."""
-    stmt = (
-        select(
-            simulation_links_table,
-            simulations_table.c.collection_uid.label("source_coll_uid"),
-            simulations_table.c.name.label("source_name"),
-        )
-        .join(
-            simulations_table,
-            simulation_links_table.c.source_id == simulations_table.c.id,
-        )
-        .where(simulations_table.c.collection_uid == collection_uid)
-    )
-    rows = session.execute(stmt).mappings().all()
-    return [LinkRecord.from_mapping(row) for row in rows]
-
-
-def fetch_collection_links_map(
-    session: Session, collection_uid: str
-) -> dict[str, dict[str, str]]:
-    """Fetch all links for a collection as a mapping from simulation name to links."""
+    """Fetch all links in the database. These are only resolved (valid) links."""
     sim_src = simulations_table.alias("sim_src")
     sim_target = simulations_table.alias("sim_target")
 
     stmt = (
         select(
+            simulation_links_table.c.id,
+            simulation_links_table.c.source_id,
+            simulation_links_table.c.target_id,
+            simulation_links_table.c.name,
+            sim_src.c.collection_uid.label("source_coll_uid"),
             sim_src.c.name.label("source_name"),
-            simulation_links_table.c.name.label("link_name"),
-            sim_target.c.collection_uid.label("target_collection_uid"),
+            sim_target.c.collection_uid.label("target_coll_uid"),
+            sim_target.c.name.label("target_name"),
+        )
+        .select_from(
+            simulation_links_table.join(
+                sim_src,
+                simulation_links_table.c.source_id == sim_src.c.id,
+            ).join(
+                sim_target,
+                simulation_links_table.c.target_id == sim_target.c.id,
+            )
+        )
+    )
+    rows = session.execute(stmt).mappings().all()
+    return [LinkRecord.from_mapping(row) for row in rows]
+
+
+def fetch_collection_links(session: Session, collection_uid: str) -> list[LinkRecord]:
+    """Fetch all links for a collection. Valid links only."""
+    sim_src = simulations_table.alias("sim_src")
+    sim_target = simulations_table.alias("sim_target")
+
+    stmt = (
+        select(
+            simulation_links_table.c.id,
+            simulation_links_table.c.source_id,
+            simulation_links_table.c.target_id,
+            simulation_links_table.c.name,
+            sim_src.c.collection_uid.label("source_coll_uid"),
+            sim_src.c.name.label("source_name"),
+            sim_target.c.collection_uid.label("target_coll_uid"),
             sim_target.c.name.label("target_name"),
         )
         .select_from(
@@ -894,14 +884,22 @@ def fetch_collection_links_map(
         )
         .where(sim_src.c.collection_uid == collection_uid)
     )
-
     rows = session.execute(stmt).mappings().all()
-    result: dict[str, dict[str, str]] = {}
-    for row in rows:
-        source_name = row["source_name"]
-        link_name = row["link_name"]
-        target_uid = f"{row['target_collection_uid']}{constants.UID_SEPARATOR}{row['target_name']}"
-        result.setdefault(source_name, {})[link_name] = target_uid
+    return [LinkRecord.from_mapping(row) for row in rows]
+
+
+def fetch_collection_links_map(
+    session: Session, collection_uid: str
+) -> dict[str, dict[str, SimulationUID]]:
+    """Fetch all links for a collection as a mapping from simulation name to links."""
+    stmt = select(simulations_table.c.name, simulations_table.c.links).where(
+        simulations_table.c.collection_uid == collection_uid
+    )
+    rows = session.execute(stmt).all()
+    result = {}
+    for name, raw_links in rows:
+        if raw_links:
+            result[name] = {k: SimulationUID(v) for k, v in raw_links.items()}
     return result
 
 

@@ -279,7 +279,7 @@ class Index(metaclass=RootProcessMeta):
             under_search_paths = any(
                 path.is_relative_to(s_path) for s_path in self.search_paths
             )
-            
+
             if not validate_path(path, uid) or not under_search_paths:
                 log.info(
                     "Invalid collection path in cache: %s -> removing.",
@@ -380,7 +380,12 @@ class Index(metaclass=RootProcessMeta):
 
     @_sql_transaction
     def sync_collection(
-        self, uid: str, path: StrPath | None = None, *, force_all: bool = False
+        self,
+        uid: str,
+        path: StrPath | None = None,
+        *,
+        force_all: bool = False,
+        heal_links: bool = True,
     ) -> None:
         """Sync the table with the file system.
 
@@ -390,6 +395,8 @@ class Index(metaclass=RootProcessMeta):
         Args:
             uid: UID of the collection
             path (Optional): Path of the collection
+            force_all: If True, sync all simulations regardless of modification time.
+            heal_links: If True, attempt to heal stale links in the collection after sync.
         """
         log.info(f"Syncing collection {uid} with the file system.")
         path = Path(path or self.resolve_path(uid)).absolute()
@@ -426,6 +433,9 @@ class Index(metaclass=RootProcessMeta):
             self.upsert_simulation(
                 collection_uid=uid, simulation_name=name, collection_path=path
             )
+
+        if heal_links:
+            self.heal_stale_links(uid)
 
     @property
     @RootProcessMeta.bcast_result
@@ -517,7 +527,7 @@ class Index(metaclass=RootProcessMeta):
 
     @RootProcessMeta.bcast_result
     @_sql_transaction
-    def collection_links_map(self, uid: str) -> dict[str, dict[str, str]]:
+    def collection_links_map(self, uid: str) -> dict[str, dict[str, SimulationUID]]:
         """Return a mapping of simulation names to their links for a specific collection.
 
         Args:
@@ -624,7 +634,6 @@ class Index(metaclass=RootProcessMeta):
 
         self._s.execute(store.collections_upsert_stmt(record))
 
-    @_sql_transaction
     def upsert_simulation(
         self,
         collection_uid: str,
@@ -670,12 +679,14 @@ class Index(metaclass=RootProcessMeta):
             "collection_uid": collection_uid,
             "name": simulation_name,
             "modified_at": datetime.now(),
+            "links": {k: str(SimulationUID(v)) for k, v in links.items()}
+            if links
+            else None,
             **normalize_simulation_metadata(metadata or {}),
         }
 
-        sim_id = self._s.execute(
-            store.simulations_upsert_stmt(sim_payload)
-        ).scalar_one()
+        with self.sql_transaction() as s:
+            sim_id = s.execute(store.simulations_upsert_stmt(sim_payload)).scalar_one()
 
         if links:
             self.update_simulation_links(
@@ -691,7 +702,8 @@ class Index(metaclass=RootProcessMeta):
                 {"simulation_id": sim_id, "key": key, "value": value}
                 for key, value in parameters.items()
             ]
-            self._s.execute(store.parameters_upsert_stmt(parameter_payload))
+            with self.sql_transaction() as s:
+                s.execute(store.parameters_upsert_stmt(parameter_payload))
 
     @_sql_transaction
     def update_simulation_metadata(
@@ -716,6 +728,7 @@ class Index(metaclass=RootProcessMeta):
         links: Mapping[str, Any],
         *,
         raise_on_invalid_target: bool = config.index.strictLinksWhenSyncing,
+        scan_and_sync: bool = True,
     ) -> None:
         """Update the links of a simulation.
 
@@ -726,16 +739,12 @@ class Index(metaclass=RootProcessMeta):
             raise_on_invalid_target: If True, raise an error if any of the target
                 simulations do not exist in the index. If False, log a warning and skip
                 the invalid links.
+            scan_and_sync: If True, if a target simulation is not found in the index, scan
+                for collections and sync the target collection before trying again. This
+                can be helpful to find targets.
         """
         scanned: bool = False  # flag to avoid multiple scans in case of multiple links
         known_collection_uids: tuple[str, ...] = store.get_collection_uids(self._s)
-
-        sim_id = store.fetch_simulation_id(self._s, collection_uid, simulation_name)
-        if sim_id is None:
-            raise InvalidSimulationUIDError(
-                f"Simulation '{collection_uid}:{simulation_name}' does not exist in the index. "
-                "This happened because you are trying to update the links of a simulation that cannot be found."
-            )
 
         def _raise_or_log_invalid_target(target_uid: SimulationUID) -> None:
             if raise_on_invalid_target:
@@ -757,6 +766,10 @@ class Index(metaclass=RootProcessMeta):
             if target_sim_id is not None:
                 return target_sim_id
 
+            if not scan_and_sync:
+                _raise_or_log_invalid_target(target_uid)
+                return None
+
             log.debug(
                 f"Target simulation '{target_uid}' not found in cache. "
                 "Scanning for/syncing collections and trying again."
@@ -770,7 +783,7 @@ class Index(metaclass=RootProcessMeta):
                 _raise_or_log_invalid_target(target_uid)
                 return None
 
-            self.sync_collection(target_uid.collection_uid)
+            self.sync_collection(target_uid.collection_uid, heal_links=False)
             target_sim_id = store.fetch_simulation_id(
                 self._s, target_uid.collection_uid, target_uid.simulation_name
             )
@@ -780,6 +793,24 @@ class Index(metaclass=RootProcessMeta):
             _raise_or_log_invalid_target(target_uid)
             return None
 
+        sim_id = store.fetch_simulation_id(self._s, collection_uid, simulation_name)
+        if sim_id is None:
+            raise InvalidSimulationUIDError(
+                f"Simulation '{collection_uid}:{simulation_name}' does not exist in the index. "
+                "This happened because you are trying to update the links of a simulation that cannot be found."
+            )
+
+        # update the JSON column in the simulations table (Source of Truth)
+        # This ensures DataFrames and duplicate checks see all links.
+        from sqlalchemy import update
+
+        self._s.execute(
+            update(store.simulations_table)
+            .where(store.simulations_table.c.id == sim_id)
+            .values(links={k: str(SimulationUID(v)) for k, v in links.items()})
+        )
+
+        # update the relational table for resolved links
         link_payloads = []
 
         for ref_name, target_uid_or_string in links.items():
@@ -787,13 +818,15 @@ class Index(metaclass=RootProcessMeta):
             target_sim_id = _find_target(target_uid)
             if target_sim_id is None:
                 # if the target simulation can not be found, we skip storing the link in
-                # the database
+                # the relational table for now.
                 continue
 
             link_payloads.append(
                 {"source_id": sim_id, "target_id": target_sim_id, "name": ref_name}
             )
 
+        # Remove existing relational links for this source before re-populating
+        self._s.execute(store.delete_simulation_links_stmt(sim_id))
         if link_payloads:
             self._s.execute(store.simulation_links_upsert_stmt(link_payloads))
 
@@ -820,6 +853,65 @@ class Index(metaclass=RootProcessMeta):
             for key, value in parameters.items()
         ]
         self._s.execute(store.parameters_upsert_stmt(parameter_payload))
+
+    @_sql_transaction
+    def heal_stale_links(self, collection_uid: str | None = None) -> None:
+        """Heal stale links in the database by resolving target_uids in JSON to target_ids.
+
+        Args:
+            collection_uid (Optional): UID of the collection to heal. If None, heal all
+                collections.
+        """
+        from sqlalchemy import func
+
+        # find all simulations where (count of resolved links) < (count of links in JSON)
+        # This is a bit tricky in pure SQL for JSON, so we'll just fetch simulations that
+        # HAVE links and do the check.
+        stmt = select(
+            store.simulations_table.c.id,
+            store.simulations_table.c.collection_uid,
+            store.simulations_table.c.name,
+            store.simulations_table.c.links,
+        ).where(store.simulations_table.c.links.is_not(None))
+
+        if collection_uid:
+            stmt = stmt.where(
+                store.simulations_table.c.collection_uid == collection_uid
+            )
+
+        sims = self._s.execute(stmt).all()
+
+        if not sims:
+            return
+
+        # fetch counts of resolved links for these simulations in one go
+        sim_ids = [sim.id for sim in sims]
+        counts_stmt = (
+            select(
+                store.simulation_links_table.c.source_id,
+                func.count().label("cnt"),
+            )
+            .where(store.simulation_links_table.c.source_id.in_(sim_ids))
+            .group_by(store.simulation_links_table.c.source_id)
+        )
+        resolved_counts = {
+            row.source_id: row.cnt for row in self._s.execute(counts_stmt).all()
+        }
+
+        # if needed, attempt to add links to the relational links table
+        for sim_id, coll_uid, sim_name, links_json in sims:
+            if not links_json:
+                continue
+
+            resolved_count = resolved_counts.get(sim_id, 0)
+
+            if resolved_count < len(links_json):
+                log.debug(f"Attempting to heal links for {coll_uid}:{sim_name}")
+                # re-run the update logic which is now idempotent
+                # We disable scan_and_sync to avoid expensive filesystem operations during healing
+                self.update_simulation_links(
+                    coll_uid, sim_name, links_json, scan_and_sync=False
+                )
 
     @RootProcessMeta.bcast_result
     @_sql_transaction

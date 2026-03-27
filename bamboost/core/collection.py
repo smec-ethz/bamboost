@@ -386,7 +386,9 @@ class Collection(ElligibleForPlugin):
 
         return self._replace(_include_links=keys)
 
-    def to_pandas(self, flatten: bool = True) -> pd.DataFrame:
+    def to_pandas(
+        self, flatten: bool = True, include_links: bool = True
+    ) -> pd.DataFrame:
         """Returns a pandas DataFrame representing the collection and its parameter space.
 
         The DataFrame contains all simulations in the collection, including their
@@ -399,11 +401,13 @@ class Collection(ElligibleForPlugin):
         Args:
             flatten: If True (default), flatten nested parameter dictionaries into a single
                 level using dot notation. If False, keep nested dictionaries as they are.
+            include_links: If True (default), the link (name and target) are included as
+                columns.
 
         Returns:
-            pd.DataFrame: DataFrame of the collection's simulations and parameters.
+            DataFrame of the collection's simulations and parameters.
         """
-        df = self._record.to_pandas(flatten=flatten)
+        df = self._record.to_pandas(flatten=flatten, include_links=include_links)
 
         # apply filtering if necessary
         if self._filter is not None:
