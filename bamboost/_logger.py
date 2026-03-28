@@ -6,11 +6,11 @@ STREAM_HANDLER: logging.StreamHandler = logging.StreamHandler()
 
 
 def add_stream_handler(logger: logging.Logger) -> None:
-    from bamboost.mpi import MPI, MPI_ON
+    from bamboost.mpi import COMM_WORLD, MPI_ON
 
     class _LogFormatterWithRank(logging.Formatter):
         def format(self, record):
-            record.rank = MPI.COMM_WORLD.rank
+            record.rank = COMM_WORLD.rank
             return super().format(record)
 
     if MPI_ON:

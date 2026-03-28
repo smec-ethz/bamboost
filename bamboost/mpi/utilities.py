@@ -4,7 +4,7 @@ from functools import wraps
 from typing import TYPE_CHECKING, Callable, Generator, Protocol, cast
 
 from bamboost._typing import _P, _T
-from bamboost.mpi import MPI
+import bamboost.mpi as _mpi
 
 if TYPE_CHECKING:
     from bamboost.mpi import Comm
@@ -126,7 +126,7 @@ class RootProcessMeta(type):
         """
         prev_comm = instance._comm
         try:
-            instance._comm = MPI.COMM_SELF
+            instance._comm = _mpi.COMM_SELF
             yield
         finally:
             instance._comm = prev_comm
