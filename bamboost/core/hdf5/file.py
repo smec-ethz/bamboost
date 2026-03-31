@@ -304,6 +304,7 @@ class HDF5File(h5py.File, Generic[_MT]):
     file_map: FileMap
     _is_open_on_root_only: bool = False
     _attrs_dict_instances: dict[str, "AttrsDict[_MT]"] = {}
+    wait_on_lock = True
 
     @overload
     def __init__(
@@ -437,6 +438,8 @@ class HDF5File(h5py.File, Generic[_MT]):
 
                 return self
             except BlockingIOError:
+                if not self.wait_on_lock: 
+                    raise
                 # If the file is locked, we wait and try again
                 if not waiting_logged:
                     level = logging._nameToLevel[config.options.log_file_lock_severity]
@@ -445,6 +448,7 @@ class HDF5File(h5py.File, Generic[_MT]):
                     )
                 waiting_logged = True
                 time.sleep(0.01)
+
 
     def close(self):
         self._context_stack = max(0, self._context_stack - 1)

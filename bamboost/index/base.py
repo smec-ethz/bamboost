@@ -417,9 +417,13 @@ class Index(metaclass=RootProcessMeta):
 
         for name in all_simulations_fs:
             log.debug(f"Syncing simulation {name} in collection {uid}.")
-            self.upsert_simulation(
-                collection_uid=uid, simulation_name=name, collection_path=path
-            )
+            try:
+                self.upsert_simulation(
+                    collection_uid=uid, simulation_name=name, collection_path=path
+                )
+            except BlockingIOError as exc:
+                log.info(f"Couldn't open hdf for {name} in collection {uid}: {exc}")
+                continue
 
     @property
     @RootProcessMeta.bcast_result
@@ -652,6 +656,7 @@ class Index(metaclass=RootProcessMeta):
                 index=self,
                 collection_uid=collection_uid,
             )
+            sim._file.wait_on_lock = False
             with sim._file.open("r"):
                 metadata, parameters, links = (
                     sim.metadata._dict,
