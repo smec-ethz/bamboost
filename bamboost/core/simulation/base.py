@@ -74,6 +74,14 @@ class Status(Enum):
         """Return the string representation of the status."""
         return self.value
 
+    def __eq__(self, other: Any, /) -> bool:
+        if isinstance(other, Status):
+            return self.value == other.value
+        elif isinstance(other, str):
+            return self.value == other.lower()
+        else:
+            return NotImplemented
+
 
 @dataclass
 class StatusInfo:
@@ -110,6 +118,14 @@ class StatusInfo:
             if self.message
             else self.status.value
         )
+
+    def __eq__(self, other: Any, /) -> bool:
+        if isinstance(other, StatusInfo):
+            return self.status == other.status and self.message == other.message
+        elif isinstance(other, Status):
+            return self.status == other
+        else:
+            return NotImplemented
 
 
 class _Simulation(H5Object[_MT], ABC):
