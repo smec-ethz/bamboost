@@ -433,8 +433,8 @@ class HDF5File(h5py.File, Generic[_MT]):
                 )
 
                 # create file map
-                if not self.file_map.valid:
-                    self.file_map.populate()
+                # if not self.file_map.valid:
+                    # self.file_map.populate()
 
                 return self
             except BlockingIOError:
