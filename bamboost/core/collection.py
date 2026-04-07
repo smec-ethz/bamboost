@@ -219,7 +219,7 @@ class Collection(ElligibleForPlugin):
         assert path or uid, "Either path or uid must be provided."
         assert not (path and uid), "Only one of path or uid must be provided."
 
-        self._index = index_instance or Index()
+        self._index = index_instance or Index.default
         self._filter = filter
         self._sorter = sorter
         self._include_links = include_links
@@ -241,8 +241,8 @@ class Collection(ElligibleForPlugin):
                 log.info(f"Initialized directory for collection at {path}")
 
         try:
-            # Use uid if provided, otherwise resolve it from the path
-            self.uid = CollectionUID(uid or self._index.resolve_uid(self.path))
+            # Resolve the UID from the path
+            self.uid = CollectionUID(self._index.resolve_uid(self.path))
         except InvalidCollectionError:
             # If the collection does not exist, create it in the index
             # and generate a new UID
