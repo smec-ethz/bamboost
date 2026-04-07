@@ -20,6 +20,7 @@ def pytest_sessionstart(session):
     config.options.mpi = False
     # Use in-memory database for testing
     config.index.databaseFile = ":memory:"
+    config.index.searchPaths = {}
 
     # Create config files if they don't exist
     os.makedirs(config.paths.localDir, exist_ok=True)
