@@ -413,7 +413,6 @@ def test_collections_with_alias_no_index(tmp_collection_burn: Collection):
     from bamboost.cli.alias import add
 
     alias = "test_alias"
-
     add(uid=tmp_collection_burn.uid, alias=alias)
 
     tmp_collection_burn._index.search_paths.add(tmp_collection_burn.path.parent)
