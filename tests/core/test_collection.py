@@ -406,3 +406,20 @@ def test_add_duplicate_action_replace_with_links(tmp_collection_burn: Collection
 
     assert "sim2" not in tmp_collection_burn.all_simulation_names()
     assert "sim3" in tmp_collection_burn.all_simulation_names()
+
+
+def test_collections_with_alias_no_index(tmp_collection_burn: Collection):
+    from bamboost import Collection
+    from bamboost.cli.alias import add
+
+    alias = "test_alias"
+
+    add(uid=tmp_collection_burn.uid, alias=alias)
+
+    tmp_collection_burn._index.search_paths.add(tmp_collection_burn.path.parent)
+    tmp_collection_burn._index.drop_collection(tmp_collection_burn.uid)
+
+    coll = Collection(uid=alias) # This should work!
+
+    assert coll.uid == tmp_collection_burn.uid
+    assert coll.path == tmp_collection_burn.path
