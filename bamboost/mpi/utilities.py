@@ -1,13 +1,24 @@
-import sys
 from contextlib import contextmanager
 from functools import wraps
-from typing import TYPE_CHECKING, Callable, Generator, Protocol, cast
+from typing import (
+    TYPE_CHECKING,
+    Callable,
+    ClassVar,
+    Concatenate,
+    Generator,
+    ParamSpec,
+    Protocol,
+    TypeVar,
+    cast,
+)
 
-from bamboost._typing import _P, _T
-from bamboost.mpi import MPI
+from bamboost.mpi import MPI, Communicator
 
 if TYPE_CHECKING:
     from bamboost.mpi import Comm
+
+_P = ParamSpec("_P")
+_T = TypeVar("_T")
 
 
 def on_rank(func: Callable[_P, _T], comm: "Comm", rank: int) -> Callable[_P, _T]:
@@ -40,7 +51,7 @@ def on_root(func: Callable[_P, _T], comm: "Comm") -> Callable[_P, _T]:
 
 
 class HasComm(Protocol):
-    _comm: "Comm"
+    _comm: Communicator
 
 
 class RootProcessMeta(type):
@@ -70,9 +81,7 @@ class RootProcessMeta(type):
                 continue
 
             # unwrap staticmethod and classmethod
-            if isinstance(attr_value, staticmethod) or isinstance(
-                attr_value, classmethod
-            ):
+            if isinstance(attr_value, (staticmethod, classmethod)):
                 continue
 
             if callable(attr_value):
@@ -132,14 +141,14 @@ class RootProcessMeta(type):
             instance._comm = prev_comm
 
     @staticmethod
-    def bcast_result(func):
+    def bcast_result(func: Callable[_P, _T]) -> Callable[_P, _T]:
         @wraps(func)
         def wrapper(self: HasComm, *args, **kwargs):
             result = None
 
             if self._comm.rank == 0:
                 with RootProcessMeta.comm_self(self):
-                    result = func(self, *args, **kwargs)
+                    result = func(self, *args, **kwargs)  # ty:ignore[invalid-argument-type]
 
             result = self._comm.bcast(result, root=0)
             return result
