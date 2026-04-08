@@ -153,7 +153,7 @@ def create_identifier_file(path: StrPath, uid: str) -> None:
     """
     path = Path(path)
     with open(path.joinpath(get_identifier_filename(uid)), "w") as f:
-        f.write("Date of creation: " + str(datetime.now()))
+        f.write("created_at: " + str(datetime.now()))
 
 
 def get_identifier_filename(uid: str) -> str:
@@ -178,29 +178,9 @@ def find_collection(uid: str, root_dir: Path) -> tuple[Path, ...]:
         uid: UID to search for
         root_dir: root directory for search
     """
-    # First, try to find from identifier-file
-    paths_by_cuid = tuple(
+    return tuple(
         Path(i).parent for i in find_files(get_identifier_filename(uid), root_dir)
     )
-
-    if paths_by_cuid:
-        return paths_by_cuid
-    
-    # Maybe the uid is an alias
-    log.debug(f"No identifier-file found for uid='{uid}', now scanning for aliases.")
-    norm_uid = uid.lower()
-
-    all_colls = scan_directory_for_collections(root_dir)
-
-    paths_by_alias = []
-    for coll_uid, coll_path in all_colls:
-        metadata_dict = load_collection_metadata(coll_path, coll_uid) or {}
-        aliases = metadata_dict.get("aliases", [])
-
-        if norm_uid in aliases:
-            paths_by_alias.append(coll_path)
-    
-    return tuple(paths_by_alias)
 
 
 def find_files(
