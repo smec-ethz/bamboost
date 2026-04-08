@@ -216,7 +216,6 @@ class Collection(ElligibleForPlugin):
         sorter: Optional[Sorter] = None,
         include_links: Iterable[str] | Literal[True] | None = None,
     ):
-        assert path or uid, "Either path or uid must be provided."
         assert not (path and uid), "Only one of path or uid must be provided."
 
         self._index = index_instance or Index.default
@@ -227,9 +226,19 @@ class Collection(ElligibleForPlugin):
         # A key store with completion of all the parameters and metadata keys
         self.k = _FilterKeys(self)
 
-        # Resolve the path (this updates the index if necessary)
-        # reason for type ignore: if not path -> uid is guaranteed to be not None
-        self.path = Path(path or self._index.resolve_path(uid.upper())).absolute()  # type: ignore
+        if uid is not None:
+            # Resolve the path (this updates the index if necessary)
+            # we return the resolved UID in case the provided UID was an alias
+            # index.resolve_path raises InvalidCollectionError if the collection with the
+            # given UID is not found
+            self.path, resolved_uid = self._index.resolve_path(
+                uid.upper(), return_uid=True
+            )
+        elif path is not None:
+            self.path = Path(path).absolute()
+            resolved_uid = None
+        else:
+            raise ValueError("Either path or uid must be provided.")
 
         # Create the diretory for the collection if necessary
         if not self.path.is_dir():
@@ -241,8 +250,8 @@ class Collection(ElligibleForPlugin):
                 log.info(f"Initialized directory for collection at {path}")
 
         try:
-            # Resolve the UID from the path
-            self.uid = CollectionUID(self._index.resolve_uid(self.path))
+            # Either take the resolved UID or resolve the UID from the path
+            self.uid = CollectionUID(resolved_uid or self._index.resolve_uid(self.path))
         except InvalidCollectionError:
             # If the collection does not exist, create it in the index
             # and generate a new UID

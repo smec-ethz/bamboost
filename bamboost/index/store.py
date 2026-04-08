@@ -299,7 +299,7 @@ collections_table = Table(
     metadata,
     Column("uid", String, primary_key=True),
     Column("path", String, nullable=False),
-    Column("created_at", DateTime, nullable=True),
+    Column("created_at", DateTime, nullable=True, default=None),
     Column("description", String, nullable=False, default="", server_default=""),
     Column("tags", JSON, nullable=False, default=list, server_default="[]"),
     Column("aliases", JSON, nullable=False, default=list, server_default="[]"),
@@ -555,21 +555,52 @@ def _fetch_links_for(
 
 def collections_upsert_stmt(
     data: Sequence[Mapping[str, Any]] | Mapping[str, Any],
-) -> Insert:
+) -> Insert | list[Insert]:
     """Create an upsert statement for collections.
 
     Args:
         data: A single dictionary or a sequence of dictionaries representing the
             collections to be inserted or updated.
-    """
-    payload, _ = _normalize_payload(data, collections_table)
-    update_columns = _collect_update_columns(payload, {"uid"})
 
-    stmt = insert(collections_table).values(payload)
-    set_clause = {column: getattr(stmt.excluded, column) for column in update_columns}
-    return stmt.on_conflict_do_update(
-        index_elements=[collections_table.c.uid], set_=set_clause
-    )
+    Returns:
+        A single Insert statement if the data is rectangular (all dicts have the same
+        keys) or A list of Insert statements if the data has heterogeneous keys.
+    """
+    payload, is_single = _normalize_payload(data, collections_table)
+
+    # determine if the data is rectangular (all dicts have the same keys) or not
+    is_rectangular = True
+    if not is_single:
+        assert isinstance(payload, Sequence)
+        first_keys = set(payload[0].keys())
+        is_rectangular = all(set(row.keys()) == first_keys for row in payload)
+
+    # batch path (rectangular or single record)
+    if is_rectangular:
+        update_columns = _collect_update_columns(payload, {"uid"})
+        stmt = insert(collections_table).values(payload)
+        set_clause = {
+            column: getattr(stmt.excluded, column) for column in update_columns
+        }
+        return stmt.on_conflict_do_update(
+            index_elements=[collections_table.c.uid], set_=set_clause
+        )
+
+    # one-by-one path (non-rectangular)
+    statements: list[Insert] = []
+    assert isinstance(payload, Sequence)
+    for row in payload:
+        update_columns = _collect_update_columns(row, {"uid"})
+        stmt = insert(collections_table).values(row)
+        set_clause = {
+            column: getattr(stmt.excluded, column) for column in update_columns
+        }
+        statements.append(
+            stmt.on_conflict_do_update(
+                index_elements=[collections_table.c.uid], set_=set_clause
+            )
+        )
+    return statements
 
 
 def simulations_upsert_stmt(
@@ -697,6 +728,41 @@ def get_collection_uids(session: Session) -> tuple[str, ...]:
     """Fetch all collection UIDs without loading simulations."""
     rows = session.execute(select(collections_table.c.uid)).scalars()
     return tuple(rows)
+
+
+def fetch_collection_path_and_uid(
+    session: Session, uid_or_alias: str
+) -> tuple[str, str] | None:
+    """Fetch the path and UID of a collection given its UID or an alias."""
+    # 1. Try direct match on UID (efficient)
+    row = (
+        session.execute(
+            select(collections_table.c.path, collections_table.c.uid).where(
+                collections_table.c.uid == uid_or_alias.upper()
+            )
+        )
+        .mappings()
+        .first()
+    )
+    if row:
+        return row["path"], row["uid"]
+
+    # 2. Try alias match (uses scan-based fetch_collection_uid_by_alias)
+    uid = fetch_collection_uid_by_alias(session, uid_or_alias)
+    if uid:
+        row = (
+            session.execute(
+                select(collections_table.c.path, collections_table.c.uid).where(
+                    collections_table.c.uid == uid
+                )
+            )
+            .mappings()
+            .first()
+        )
+        if row:
+            return row["path"], row["uid"]
+
+    return None
 
 
 def fetch_collection(session: Session, uid: str) -> CollectionRecord | None:
@@ -832,25 +898,22 @@ def fetch_links(session: Session) -> list[LinkRecord]:
     sim_src = simulations_table.alias("sim_src")
     sim_target = simulations_table.alias("sim_target")
 
-    stmt = (
-        select(
-            simulation_links_table.c.id,
-            simulation_links_table.c.source_id,
-            simulation_links_table.c.target_id,
-            simulation_links_table.c.name,
-            sim_src.c.collection_uid.label("source_coll_uid"),
-            sim_src.c.name.label("source_name"),
-            sim_target.c.collection_uid.label("target_coll_uid"),
-            sim_target.c.name.label("target_name"),
-        )
-        .select_from(
-            simulation_links_table.join(
-                sim_src,
-                simulation_links_table.c.source_id == sim_src.c.id,
-            ).join(
-                sim_target,
-                simulation_links_table.c.target_id == sim_target.c.id,
-            )
+    stmt = select(
+        simulation_links_table.c.id,
+        simulation_links_table.c.source_id,
+        simulation_links_table.c.target_id,
+        simulation_links_table.c.name,
+        sim_src.c.collection_uid.label("source_coll_uid"),
+        sim_src.c.name.label("source_name"),
+        sim_target.c.collection_uid.label("target_coll_uid"),
+        sim_target.c.name.label("target_name"),
+    ).select_from(
+        simulation_links_table.join(
+            sim_src,
+            simulation_links_table.c.source_id == sim_src.c.id,
+        ).join(
+            sim_target,
+            simulation_links_table.c.target_id == sim_target.c.id,
         )
     )
     rows = session.execute(stmt).mappings().all()

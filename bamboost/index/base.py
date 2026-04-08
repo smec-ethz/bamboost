@@ -38,9 +38,11 @@ from typing import (
     Mapping,
     ParamSpec,
     TypeVar,
+    cast,
+    overload,
 )
 
-from sqlalchemy import Engine, create_engine, event, select
+from sqlalchemy import Engine, Insert, create_engine, event, select
 from sqlalchemy.exc import SQLAlchemyError
 from sqlalchemy.orm import Session, sessionmaker
 from typing_extensions import Concatenate
@@ -238,7 +240,7 @@ class Index(metaclass=RootProcessMeta):
         """
         log.info("Scanning for collections in search paths: %s", self.search_paths)
         search_paths = PathSet(search_paths) or self.search_paths
-        all_found_collections = []
+        all_found_collections: list[tuple[str, Path]] = []
 
         for path in search_paths:
             found_collections: tuple[tuple[str, Path], ...] = (
@@ -257,7 +259,14 @@ class Index(metaclass=RootProcessMeta):
                 if metadata is not None:
                     record.update(metadata)
                 collections_data.append(record)
-            self._s.execute(store.collections_upsert_stmt(collections_data))
+
+            upsert_stmts = store.collections_upsert_stmt(collections_data)
+            if isinstance(upsert_stmts, list):
+                for stmt in upsert_stmts:
+                    self._s.execute(stmt)
+            else:
+                self._s.execute(upsert_stmts)
+
             log.debug(f"Inserting found collections:\n{collections_data}")
             all_found_collections.extend(found_collections)
 
@@ -287,35 +296,44 @@ class Index(metaclass=RootProcessMeta):
                 )
                 self._s.execute(store.delete_collection_stmt(uid))
 
-    def _find_collection_uid_by_alias(self, alias: str) -> str | None:
-        return store.fetch_collection_uid_by_alias(self._s, alias)
-
-    @RootProcessMeta.bcast_result
-    @_sql_transaction
+    @overload
     def resolve_path(
         self,
         uid: str,
         *,
         search_paths: set[StrPath] | None = None,
-    ) -> Path:
+        return_uid: Literal[False] = False,
+    ) -> Path: ...
+
+    @overload
+    def resolve_path(
+        self,
+        uid: str,
+        *,
+        search_paths: set[StrPath] | None = None,
+        return_uid: Literal[True],
+    ) -> tuple[Path, str]: ...
+
+    @RootProcessMeta.bcast_result
+    def resolve_path(self, uid: str, *, search_paths=None, return_uid=False):
         """Resolve and return the path of a collection from its UID. Raises a
         `FileNotFoundError` if the collection is not found in the search paths.
 
         Args:
             uid: UID of the collection
             search_paths: Paths to search for the collection
+            return_uid: If True, return a tuple of (path, uid). The uid is the resolved
+                UID of the collection, which can be different from the input uid if the
+                input uid is an alias.
 
         Raises:
-            FileNotFoundError: If the collection is not found in the search paths
+            InvalidCollectionError: If the collection is not found in the search paths
         """
-        collection = self.collection(uid)
-        stored_path = (
-            Path(collection.path) if collection else self._get_collection_path(uid)
-        )
-        target_uid = collection.uid if collection else uid.upper()
+        stored_path, target_uid = self._get_path_and_uid(uid)
+        target_uid = target_uid or uid.upper()
 
         if stored_path and validate_path(stored_path, target_uid):
-            return stored_path
+            return (stored_path, target_uid) if return_uid else stored_path
 
         log.debug(
             "No or invalid path found in cache for collection <%s>.",
@@ -339,7 +357,15 @@ class Index(metaclass=RootProcessMeta):
                 self.upsert_collection(target_uid, found_path)
                 return found_path
 
-        raise FileNotFoundError(f"Database with {uid} was not found.")
+        # last option is that the given uid is an alias, we scan all collections and then
+        # query the database again
+        log.debug(f"Trying to resolve {uid} as an alias by scanning all collections.")
+        self.scan_for_collections()
+        stored_path, target_uid = self._get_path_and_uid(uid)
+        if stored_path and target_uid:
+            return (stored_path, target_uid) if return_uid else stored_path
+
+        raise InvalidCollectionError(f"Collection with {uid} was not found.")
 
     @RootProcessMeta.bcast_result
     @_sql_transaction
@@ -401,13 +427,11 @@ class Index(metaclass=RootProcessMeta):
         log.info(f"Syncing collection {uid} with the file system.")
         path = Path(path or self.resolve_path(uid)).absolute()
         # Get all simulation names in the file system
-        all_simulations_fs = set(
-            (
-                i.name
-                for i in path.iterdir()
-                if i.is_dir() and i.joinpath(constants.HDF_DATA_FILE_NAME).is_file()
-            )
-        )
+        all_simulations_fs = {
+            i.name
+            for i in path.iterdir()
+            if i.is_dir() and i.joinpath(constants.HDF_DATA_FILE_NAME).is_file()
+        }
 
         collection = store.fetch_collection(self._s, uid)
 
@@ -632,7 +656,10 @@ class Index(metaclass=RootProcessMeta):
         if metadata_mapping is not None:
             record.update(normalize_collection_metadata(metadata_mapping))
 
-        self._s.execute(store.collections_upsert_stmt(record))
+        stmt = store.collections_upsert_stmt(record)
+        # stmt is guaranteed to be a single Insert statement here
+        stmt = cast(Insert, stmt)
+        self._s.execute(stmt)
 
     def upsert_simulation(
         self,
@@ -890,25 +917,21 @@ class Index(metaclass=RootProcessMeta):
 
     @RootProcessMeta.bcast_result
     @_sql_transaction
-    def _get_collection_path(self, uid: str) -> Path | None:
-        res = self._s.execute(
-            select(collections_table.c.path).where(
-                collections_table.c.uid == uid.upper()
-            )
-        ).scalar()
+    def _get_path_and_uid(self, uid: str) -> tuple[Path | None, str | None]:
+        """Fetch the path and UID of a collection given its UID or an alias."""
+        res = store.fetch_collection_path_and_uid(self._s, uid)
         if res:
-            return Path(res)
+            return Path(res[0]), res[1]
+        return None, None
 
-        alias_uid = self._find_collection_uid_by_alias(uid)
-        if alias_uid:
-            alias_path = self._s.execute(
-                select(collections_table.c.path).where(
-                    collections_table.c.uid == alias_uid
-                )
-            ).scalar()
-            if alias_path:
-                return Path(alias_path)
-        return None
+    @RootProcessMeta.bcast_result
+    @_sql_transaction
+    def _get_collection_path(self, uid: str) -> Path | None:
+        path, _ = self._get_path_and_uid(uid)
+        return path
+
+    def _find_collection_uid_by_alias(self, alias: str) -> str | None:
+        return store.fetch_collection_uid_by_alias(self._s, alias)
 
     @RootProcessMeta.bcast_result
     @_sql_transaction
