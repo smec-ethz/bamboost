@@ -1,7 +1,7 @@
 from __future__ import annotations
 
-from collections.abc import ItemsView, KeysView, Mapping, MutableMapping
-from typing import TYPE_CHECKING, Callable, Generator, Iterator, Type, Union
+from collections.abc import KeysView, Mapping, MutableMapping
+from typing import TYPE_CHECKING, Iterator, Type
 
 import h5py
 
@@ -10,7 +10,7 @@ from bamboost.core.hdf5.hdf5path import HDF5Path
 if TYPE_CHECKING:
     from bamboost.core.hdf5.file import HDF5File
 
-_VT_filemap = Type[Union[h5py.Group, h5py.Dataset]]
+_VT_filemap = Type[h5py.Group | h5py.Dataset]
 
 
 class KeysViewHDF5(KeysView):
@@ -41,21 +41,46 @@ class _FileMapMixin(Mapping[HDF5Path, _VT_filemap]):
 
 
 class FileMap(MutableMapping[HDF5Path, _VT_filemap], _FileMapMixin):
-    _valid: bool
-
     def __init__(self, file: HDF5File):
         self._file = file
+
         self._dict: dict[HDF5Path, _VT_filemap] = {}
-        self.valid = False
+        """A cache of all known paths in the file and their types (Group or Dataset).
+        Paths are absolute."""
+
+        self._children: dict[HDF5Path, set[str]] = {}
+        """A cache of immediate children names for each group path."""
+
+        self._expanded_groups: set[HDF5Path] = set()
+        """A set of group paths that have been expanded (i.e., their children have been
+        fetched from the file)."""
 
     def __getitem__(self, key: str, /) -> _VT_filemap:
+        path = HDF5Path(key)
+        if path not in self._dict and path != "/":
+            # If the item is not in the cache, try expanding its parent
+            parent = path.parent
+            if parent not in self._expanded_groups:
+                self.expand_group(parent)
+
         return self._dict[HDF5Path(key)]
 
     def __setitem__(self, key: str, value: _VT_filemap) -> None:
-        self._dict[HDF5Path(key)] = value
+        path = HDF5Path(key)
+        self._dict[path] = value
+        parent = path.parent
+        if parent in self._children:
+            self._children[parent].add(path.name)
 
     def __delitem__(self, key: str) -> None:
-        self._dict.pop(HDF5Path(key))
+        path = HDF5Path(key)
+        self._dict.pop(path, None)
+        parent = path.parent
+        if parent in self._children:
+            self._children[parent].discard(path.name)
+        # Also remove if it was a group with cached children
+        self._children.pop(path, None)
+        self._expanded_groups.discard(path)
 
     def __iter__(self) -> Iterator[HDF5Path]:
         return iter(self._dict)
@@ -63,35 +88,60 @@ class FileMap(MutableMapping[HDF5Path, _VT_filemap], _FileMapMixin):
     def __len__(self) -> int:
         return len(self._dict)
 
-    def populate(self, *, exclude_numeric: bool = False) -> None:
-        """Assumes the file is open."""
+    def expand_group(self, path: HDF5Path) -> None:
+        """Fetch immediate children of the given path from the HDF5 file and cache them."""
+        if path in self._expanded_groups:
+            return
 
-        # visit all groups and datasets to cache them
+        with self._file.open():
+            try:
+                obj = self._file[str(path)]
+                if not isinstance(obj, h5py.Group):
+                    self._expanded_groups.add(path)
+                    return
+
+                if path not in self._children:
+                    self._children[path] = set()
+
+                for name in obj.keys():
+                    child_path = path.joinpath(name)
+                    # Use get(name, getclass=True) to get the type without opening the object
+                    child_type = obj.get(name, getclass=True)
+                    self._dict[child_path] = child_type
+                    self._children[path].add(name)
+
+                self._expanded_groups.add(path)
+            except KeyError:
+                # Path doesn't exist in file
+                pass
+
+    def populate(self, *, exclude_numeric: bool = False) -> None:
+        """Eagerly visit all groups and datasets to cache them.
+        Assumes the file is open.
+        """
+
         def cache_items(name, _obj):
             path = HDF5Path(name)
             if exclude_numeric and path.basename.isdigit():
                 return
             self._dict[path] = type(_obj)
+            parent = path.parent
+            if parent not in self._children:
+                self._children[parent] = set()
+            self._children[parent].add(path.name)
 
         self._file.visititems(cache_items)
-        self.valid = True
 
     def invalidate(self) -> None:
-        self.valid = False
+        self._dict.clear()
+        self._children.clear()
+        self._expanded_groups.clear()
 
 
 class FilteredFileMap(MutableMapping[HDF5Path, _VT_filemap], _FileMapMixin):
     def __init__(self, file_map: FileMap, parent: str) -> None:
         self.parent = HDF5Path(parent)
         self.file_map = file_map
-
-    @property
-    def valid(self) -> bool:
-        return self.file_map.valid
-
-    @valid.setter
-    def valid(self, value: bool) -> None:
-        self.file_map.valid = value
 
     def __getitem__(self, key: str, /):
         return self.file_map[self.parent.joinpath(key)]
@@ -103,22 +153,24 @@ class FilteredFileMap(MutableMapping[HDF5Path, _VT_filemap], _FileMapMixin):
         del self.file_map[self.parent.joinpath(key)]
 
     def children(self) -> Iterator[HDF5Path]:
-        return filter(lambda path: "/" not in path, self)
+        return self.__iter__()
 
     def children_groups(self) -> Iterator[HDF5Path]:
-        return filter(lambda path: self[path] is h5py.Group, self.children())
+        return filter(lambda path: self[path] is h5py.Group, self)
 
     def children_datasets(self) -> Iterator[HDF5Path]:
-        return filter(lambda path: self[path] is h5py.Dataset, self.children())
+        return filter(lambda path: self[path] is h5py.Dataset, self)
 
     def __iter__(self):
-        return map(
-            lambda x: HDF5Path(x).relative_to(self.parent),
-            filter(
-                lambda x: HDF5Path(x).is_child_of(self.parent),
-                self.file_map,
-            ),
-        )
+        if self.parent not in self.file_map._expanded_groups:
+            self.file_map.expand_group(self.parent)
+
+        child_names = self.file_map._children.get(self.parent, set())
+        for name in sorted(child_names):
+            yield HDF5Path(name, absolute=False)
 
     def __len__(self):
-        return sum(1 for _ in self.__iter__())
+        if self.parent not in self.file_map._expanded_groups:
+            self.file_map.expand_group(self.parent)
+
+        return len(self.file_map._children.get(self.parent, set()))

@@ -39,6 +39,8 @@ def test_hdf5_path_relative_to_error():
     path = HDF5Path("/path/to/file")
     with pytest.raises(ValueError):
         path.relative_to("not_a_parent")
+    with pytest.raises(ValueError):
+        HDF5Path("/a/bc").relative_to("/a/b")
 
 
 def test_hdf5_path_join():
@@ -93,9 +95,11 @@ def test_filemap_populate(hdf5_file: HDF5File):
 
     # check that the file map is populated
     fm = FileMap(hdf5_file)
-    with hdf5_file.open("r"):
-        with patch("h5py.File.visititems", wraps=fm._file.visititems) as visititems:
-            fm.populate()
+    with (
+        hdf5_file.open("r"),
+        patch("h5py.File.visititems", wraps=fm._file.visititems) as visititems,
+    ):
+        fm.populate()
 
     # check that the visititems method was called
     visititems.assert_called_once()

@@ -193,7 +193,7 @@ class H5Reference(H5Object[_MT]):
 
 
 class Group(H5Reference[_MT]):
-    def __init__(self, path, file):
+    def __init__(self, path: str, file: HDF5File[_MT]):
         super().__init__(path, file)
 
         # Create a subset view of the file map with all objects
@@ -222,7 +222,7 @@ class Group(H5Reference[_MT]):
     @with_file_open(FileMode.APPEND)
     def __delitem__(self: Group[Mutable], key) -> None:
         """Deletes an item."""
-        if key in self.attrs.keys():
+        if key in self.attrs:
             del self.attrs[key]
         else:
             self._file.delete_object(self._path / key)
@@ -252,22 +252,14 @@ class Group(H5Reference[_MT]):
         for key in self.keys():
             yield self.__getitem__(key)
 
-    def _assert_file_map_is_valid(self):
-        if not self._group_map.valid:
-            with self._file.open(FileMode.READ):
-                self._group_map.file_map.populate()
-
     def keys(self):
-        self._assert_file_map_is_valid()
         return self._group_map.keys()
 
     def groups(self):
-        self._assert_file_map_is_valid()
-        return self._group_map.children_groups()
+        return tuple(self._group_map.children_groups())
 
     def datasets(self):
-        self._assert_file_map_is_valid()
-        return self._group_map.children_datasets()
+        return tuple(self._group_map.children_datasets())
 
     def items(
         self,
@@ -302,9 +294,9 @@ class Group(H5Reference[_MT]):
         from jinja2 import Template
 
         attrs = self.attrs
-        groups = {key: len(_obj[self._path / key]) for key in self.groups()}  # type: ignore
+        groups = {key: len(_obj[self._path / key]) for key in self.groups()}
         datasets = {
-            key: (_obj[self._path / key].dtype, _obj[self._path / key].shape)  # type: ignore
+            key: (_obj[self._path / key].dtype, _obj[self._path / key].shape)
             for key in self.datasets()
         }
 
@@ -365,7 +357,7 @@ class Group(H5Reference[_MT]):
         **kwargs,
     ) -> h5py.Dataset:
         grp = self._obj.require_dataset(name, shape, dtype, exact=exact, **kwargs)
-        self._group_map[name] = h5py.Dataset  # type: ignore
+        self._group_map[name] = h5py.Dataset
         return grp
 
     @mutable_only

@@ -84,7 +84,7 @@ from bamboost._logger import BAMBOOST_LOGGER
 from bamboost._typing import _MT, _P, _T, Immutable, Mutable
 from bamboost.core.hdf5.filemap import FileMap
 from bamboost.core.hdf5.hdf5path import HDF5Path
-from bamboost.mpi import MPI, MPI_ON, Communicator
+from bamboost.mpi import MPI_ON, Communicator
 from bamboost.mpi.utilities import RootProcessMeta
 from bamboost.plugins import ElligibleForPlugin
 from bamboost.utilities import StrPath
@@ -185,7 +185,7 @@ def add_to_file_queue(
     return inner
 
 
-class H5Object(Generic[_MT], ElligibleForPlugin):
+class H5Object(ElligibleForPlugin, Generic[_MT]):
     _file: HDF5File[_MT]
     _comm = Communicator()
 
@@ -303,7 +303,6 @@ class HDF5File(h5py.File, Generic[_MT]):
     mutable: bool
     file_map: FileMap
     _is_open_on_root_only: bool = False
-    _attrs_dict_instances: dict[str, "AttrsDict[_MT]"] = {}
 
     @overload
     def __init__(
@@ -327,6 +326,7 @@ class HDF5File(h5py.File, Generic[_MT]):
     ):
         self._filename = file.as_posix() if isinstance(file, Path) else file
         self._path = Path(self._filename).absolute()
+        self._attrs_dict_instances: dict[str, AttrsDict[_MT]] = {}
         self.file_map = FileMap(self)
         self.mutable = mutable
 
@@ -430,10 +430,6 @@ class HDF5File(h5py.File, Generic[_MT]):
                 log.debug(
                     f"[{id(self)}] opened file (mode {mode.value}) {self._filename}"
                 )
-
-                # create file map
-                if not self.file_map.valid:
-                    self.file_map.populate()
 
                 return self
             except BlockingIOError:
