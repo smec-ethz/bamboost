@@ -122,12 +122,13 @@ def test_filemap_getitem(filemap: FileMap):
 
 
 def test_filemap_len(filemap: FileMap):
-    assert len(filemap) == 5
+    assert len(filemap) == 6
 
 
 def test_filemap_iter(filemap: FileMap):
     for key in filemap:
         assert key in [
+            "/",
             "/group1",
             "/group2",
             "/group2/dataset2",
@@ -145,7 +146,8 @@ def test_filemap_datasets(filemap: FileMap):
 
 def test_filemap_groups(filemap: FileMap):
     groups = filemap.groups()
-    assert len(groups) == 3
+    assert len(groups) == 4
+    assert "/" in groups
     assert "/group1" in groups
     assert "/group2" in groups
     assert "/group2/group3" in groups
@@ -159,6 +161,41 @@ def test_filtered_filemap(filemap: FileMap):
     assert filtered.groups() == ("group3",)
     assert filtered["dataset2"] == h5py.Dataset
     assert filtered["group3"] == h5py.Group
+
+
+def test_filemap_lazy_access(tmp_path: Path):
+    h5_path = tmp_path / "test_lazy.h5"
+    with h5py.File(h5_path, "w") as f:
+        f.create_group("a/b/c")
+        f["a/b/d"] = [1, 2, 3]
+
+    hdf5_file = HDF5File(h5_path)
+    fm = FileMap(hdf5_file)
+
+    # Access / directly
+    assert HDF5Path("/") in fm._dict
+    assert fm["/"] is h5py.Group
+
+    # Access /a/b/c directly
+
+    # This should trigger expand_group("/a/b")
+    obj_type = fm["/a/b/c"]
+    assert obj_type is h5py.Group
+
+    # now /a/b/c should be in _dict
+    assert HDF5Path("/a/b/c") in fm._dict
+    assert HDF5Path("/a/b/d") in fm._dict
+
+    # /a/b is now also in _dict because expand_group adds itself
+    assert HDF5Path("/a/b") in fm._dict
+
+    # but /a is still not in _dict
+    assert HDF5Path("/a") not in fm._dict
+
+    # If we now access /a/b, it is already in _dict
+    obj_type = fm["/a/b"]
+    assert obj_type is h5py.Group
+    assert HDF5Path("/a") not in fm._dict
 
 
 # ------------------------------

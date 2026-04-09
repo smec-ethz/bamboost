@@ -44,7 +44,7 @@ class FileMap(MutableMapping[HDF5Path, _VT_filemap], _FileMapMixin):
     def __init__(self, file: HDF5File):
         self._file = file
 
-        self._dict: dict[HDF5Path, _VT_filemap] = {}
+        self._dict: dict[HDF5Path, _VT_filemap] = {HDF5Path("/"): h5py.Group}
         """A cache of all known paths in the file and their types (Group or Dataset).
         Paths are absolute."""
 
@@ -57,7 +57,7 @@ class FileMap(MutableMapping[HDF5Path, _VT_filemap], _FileMapMixin):
 
     def __getitem__(self, key: str, /) -> _VT_filemap:
         path = HDF5Path(key)
-        if path not in self._dict and path != "/":
+        if path not in self._dict:
             # If the item is not in the cache, try expanding its parent
             parent = path.parent
             if parent not in self._expanded_groups:
@@ -96,6 +96,8 @@ class FileMap(MutableMapping[HDF5Path, _VT_filemap], _FileMapMixin):
         with self._file.open():
             try:
                 obj = self._file[str(path)]
+                self._dict[path] = type(obj)
+
                 if not isinstance(obj, h5py.Group):
                     self._expanded_groups.add(path)
                     return
@@ -119,6 +121,7 @@ class FileMap(MutableMapping[HDF5Path, _VT_filemap], _FileMapMixin):
         """Eagerly visit all groups and datasets to cache them.
         Assumes the file is open.
         """
+        self._dict[HDF5Path("/")] = h5py.Group
 
         def cache_items(name, _obj):
             path = HDF5Path(name)
@@ -134,6 +137,7 @@ class FileMap(MutableMapping[HDF5Path, _VT_filemap], _FileMapMixin):
 
     def invalidate(self) -> None:
         self._dict.clear()
+        self._dict[HDF5Path("/")] = h5py.Group
         self._children.clear()
         self._expanded_groups.clear()
 
