@@ -25,7 +25,16 @@ from datetime import datetime
 from enum import Enum
 from functools import cached_property
 from pathlib import Path
-from typing import TYPE_CHECKING, Any, Iterable, Mapping, Optional, Sized, Union
+from typing import (
+    TYPE_CHECKING,
+    Any,
+    Iterable,
+    Mapping,
+    Optional,
+    Sized,
+    Union,
+    TypeAlias,
+)
 
 import numpy as np
 from typing_extensions import Self
@@ -47,7 +56,7 @@ if TYPE_CHECKING:
     from bamboost.index.store import SimulationRecord
     from bamboost.mpi import Comm
 
-    cached_property = property
+    cached_property: TypeAlias = property
 
 
 log = BAMBOOST_LOGGER.getChild("simulation")

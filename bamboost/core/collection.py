@@ -196,7 +196,7 @@ class Collection(ElligibleForPlugin):
     """Unique identifier of the collection."""
     path: Path
     """Path to the collection directory."""
-    fromUID = _CollectionPicker()
+    fromUID: _CollectionPicker = _CollectionPicker()
     """Helper for selecting collections by UID."""
     _comm = Communicator()
     _filter: Filter | None = None
@@ -826,7 +826,7 @@ class Collection(ElligibleForPlugin):
                 return np.array_equal(np.asarray(other), self.ori)
 
         # make all iterables comparable by converting them to ComparableIterable
-        for k in params.keys():
+        for k in params:
             if isinstance(params[k], Iterable) and not isinstance(params[k], str):
                 params[k] = ComparableIterable(params[k])
 
