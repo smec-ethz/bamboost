@@ -1,5 +1,24 @@
 # Change log for bamboost
 
+## [0.13.3](https://github.com/smec-ethz/bamboost/compare/0.13.2...0.13.3) (2026-04-09)
+
+
+### Bug Fixes
+
+* **collection:** uid does not default to alias if given uid is an alias ([464f838](https://github.com/smec-ethz/bamboost/commit/464f83865bfe2f164c4e3c876926bb88c4fb0bdd))
+* **file:** drop eager creation of a full filemap when opening file ([89f82bc](https://github.com/smec-ethz/bamboost/commit/89f82bc227fb1daa7b7b43443a74d8719c186c89))
+* **index:** collection is found from path if uid is alias ([1653052](https://github.com/smec-ethz/bamboost/commit/1653052f724a0b62c8ba1602bc23dab585f40b47))
+* **index:** collections upsert statement returns list of inserts if ([e704392](https://github.com/smec-ethz/bamboost/commit/e7043921e3a14530f6abb70154d3f0153d8042c2))
+* **index:** resolve collection path & uid if alias given ([e704392](https://github.com/smec-ethz/bamboost/commit/e7043921e3a14530f6abb70154d3f0153d8042c2))
+* **simulation:** simplify status equality check ([7ee7a98](https://github.com/smec-ethz/bamboost/commit/7ee7a989cf9f35cfdeff9979d9fdecade24b731e))
+* **simulation:** simplify status equality check ([1fc96b0](https://github.com/smec-ethz/bamboost/commit/1fc96b0b97af28f7901bacb7d4540b3d98ce0a0a))
+* **test:** temp index now only contains the temp directory in searchPaths ([963c85e](https://github.com/smec-ethz/bamboost/commit/963c85ef87ee975eeed9417aca72f2d0156e5b33))
+
+
+### Performance Improvements
+
+* **file:** also add parent group to filemap when expand_group is called ([7f5e0c3](https://github.com/smec-ethz/bamboost/commit/7f5e0c35b81e4159ceab05dbad940cfaf6d223e4))
+
 ## [0.13.2](https://github.com/smec-ethz/bamboost/compare/0.13.1...0.13.2) (2026-03-27)
 
 
