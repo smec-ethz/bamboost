@@ -1,5 +1,12 @@
 # Change log for bamboost
 
+## [0.13.4](https://github.com/smec-ethz/bamboost/compare/0.13.3...0.13.4) (2026-04-10)
+
+
+### Bug Fixes
+
+* **index:** branch in resolve path doesn't return resolved_uid if return_uid=True ([8c82ec6](https://github.com/smec-ethz/bamboost/commit/8c82ec6b319c93d5021bb3e37e6bf4f142689e42))
+
 ## [0.13.3](https://github.com/smec-ethz/bamboost/compare/0.13.2...0.13.3) (2026-04-09)
 
 
