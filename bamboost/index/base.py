@@ -355,7 +355,7 @@ class Index(metaclass=RootProcessMeta):
                 # Store the collection in the cache
                 found_path = paths_found[0]
                 self.upsert_collection(target_uid, found_path)
-                return found_path
+                return (found_path, target_uid) if return_uid else found_path
 
         # last option is that the given uid is an alias, we scan all collections and then
         # query the database again

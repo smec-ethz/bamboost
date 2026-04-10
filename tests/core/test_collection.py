@@ -43,6 +43,42 @@ def test_if_new_collection_created(tmp_collection: Collection):
     assert tmp_collection.path.exists()
 
 
+def test_collection_init_with_path(tmp_collection_burn: Collection):
+    coll = Collection(path=tmp_collection_burn.path)
+    assert coll.uid == tmp_collection_burn.uid
+    assert coll.path == tmp_collection_burn.path
+
+
+def test_collection_init_with_uid(tmp_collection_burn: Collection):
+    coll = Collection(uid=tmp_collection_burn.uid)
+    assert coll.uid == tmp_collection_burn.uid
+    assert coll.path == tmp_collection_burn.path
+
+    # drop collection from index and try again (should still work because path is valid)
+    index = tmp_collection_burn._index
+    index.drop_collection(tmp_collection_burn.uid)
+    index.search_paths.add(tmp_collection_burn.path.parent)
+
+    coll = Collection(uid=tmp_collection_burn.uid)
+    assert coll.uid == tmp_collection_burn.uid
+    assert coll.path == tmp_collection_burn.path
+
+
+def test_collection_init_with_alias_no_index(tmp_collection_burn: Collection):
+    from bamboost.cli.alias import add
+
+    alias = "test_alias"
+    add(uid=tmp_collection_burn.uid, alias=alias)
+
+    tmp_collection_burn._index.search_paths.add(tmp_collection_burn.path.parent)
+    tmp_collection_burn._index.drop_collection(tmp_collection_burn.uid)
+
+    coll = Collection(uid=alias)  # This should work!
+
+    assert coll.uid == tmp_collection_burn.uid
+    assert coll.path == tmp_collection_burn.path
+
+
 def test_length(test_collection: Collection):
     assert len(test_collection) == 3
 
@@ -406,19 +442,3 @@ def test_add_duplicate_action_replace_with_links(tmp_collection_burn: Collection
 
     assert "sim2" not in tmp_collection_burn.all_simulation_names()
     assert "sim3" in tmp_collection_burn.all_simulation_names()
-
-
-def test_collections_with_alias_no_index(tmp_collection_burn: Collection):
-    from bamboost import Collection
-    from bamboost.cli.alias import add
-
-    alias = "test_alias"
-    add(uid=tmp_collection_burn.uid, alias=alias)
-
-    tmp_collection_burn._index.search_paths.add(tmp_collection_burn.path.parent)
-    tmp_collection_burn._index.drop_collection(tmp_collection_burn.uid)
-
-    coll = Collection(uid=alias) # This should work!
-
-    assert coll.uid == tmp_collection_burn.uid
-    assert coll.path == tmp_collection_burn.path
