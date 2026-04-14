@@ -25,6 +25,7 @@ from bamboost._config import config
 from bamboost._logger import BAMBOOST_LOGGER
 from bamboost.core.collection import Collection, _FilterKeys
 from bamboost.core.simulation.base import Simulation
+from bamboost.exceptions import InvalidSimulationUIDError
 from bamboost.index import (
     CollectionUID,
     Index,
@@ -32,6 +33,7 @@ from bamboost.index import (
     get_identifier_filename,
 )
 from bamboost.index.filtering import Filter, Sorter
+from bamboost.index.store import SimulationRecord
 from bamboost.utilities import PathSet
 
 if TYPE_CHECKING:
@@ -163,7 +165,7 @@ class Remote(Index):
         self._initialize_root_process(self._url)
 
     def __repr__(self) -> str:
-        qualname = ".".join([__name__, self.__class__.__qualname__])
+        qualname = f"{__name__}.{self.__class__.__qualname__}"
         return f"<{qualname} (source={self._remote_url}, workspace={self._workspace_name})>"
 
     @classmethod
@@ -259,7 +261,7 @@ class Remote(Index):
         )
 
     @classmethod
-    def list(cls) -> list[Remote]:
+    def all_remote_databases(cls) -> list[Remote]:
         """List all remote databases in the cache."""
         # find all sqlite files in the cache directory
         return [
@@ -330,11 +332,12 @@ class RemoteCollection(Collection):
             _sort=self._sorter,
         )
 
-    def __getitem__(self, name_or_idx: str | int) -> RemoteSimulation:
-        if isinstance(name_or_idx, int):
-            name: str = self.df.iloc[name_or_idx]["name"]
+    def __getitem__(self, name_or_index: str | int) -> RemoteSimulation:
+        super().__getitem__(name_or_index)
+        if isinstance(name_or_index, int):
+            name: str = self.df.iloc[name_or_index]["name"]
         else:
-            name = name_or_idx
+            name = name_or_index
         return RemoteSimulation(
             name, self.path, collection_uid=self.uid, index=self._index, comm=self._comm
         )
@@ -389,9 +392,12 @@ class RemoteSimulation(Simulation):
         # initialization of base Simulation requires the path to exist
         # (including the data.h5 file)
         path = index.get_local_path(collection_uid).joinpath(name)
-        self.remote_path: Path = index._get_collection_path(collection_uid).joinpath(
-            name
-        )
+        collection_path = index._get_collection_path(collection_uid)
+        if collection_path is None:
+            raise FileNotFoundError(
+                f"Collection '{collection_uid}' not found in remote index '{index._remote_url}'."
+            )
+        self.remote_path: Path = collection_path.joinpath(name)
         if not path.exists() or not path.joinpath("data.h5").exists():
             log.info(
                 f"Local simulation '{name}' not found in collection '{collection_uid}'. "
@@ -408,6 +414,16 @@ class RemoteSimulation(Simulation):
             collection_uid=collection_uid,
             **kwargs,
         )
+
+    @property
+    def _orm(self) -> SimulationRecord:
+        # override the orm property to use the remote database
+        record = super()._orm
+        if record is None:
+            raise InvalidSimulationUIDError(
+                f"Simulation '{self.name}' not found in collection '{self.collection_uid}' of remote index '{self._index._remote_url}'."
+            )
+        return record
 
     @property
     def uid(self) -> str:
