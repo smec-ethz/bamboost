@@ -36,6 +36,7 @@ from typing import (
     Optional,
     Union,
     get_type_hints,
+    Annotated,
 )
 
 from bamboost._logger import BAMBOOST_LOGGER as log
@@ -45,6 +46,7 @@ from bamboost.utilities import PathSet
 
 if TYPE_CHECKING:
     from typing_extensions import Self
+    from rich.console import RenderableType
 
 if sys.version_info < (3, 11):
     import tomli  # type: ignore
@@ -280,6 +282,32 @@ class _Base:
                 )
 
         return instance
+    
+    def get_annotated_options(self) -> dict[str, str]:
+        hints = get_type_hints(self.__class__, include_extras=True)
+
+        annotated_options = {}
+        for field_name, hint in hints.items():
+            if hasattr(hint, "__metadata__"):
+                annotated_options[field_name] = hint.__metadata__[0]
+            
+        return annotated_options
+    
+    def info(self) -> RenderableType:
+        from rich.table import Table
+        from rich.panel import Panel
+        from rich.markup import escape
+
+        table = Table.grid(padding=(0, 2))
+        table.add_column(style="cyan bold")
+        table.add_column()
+
+        annotated_options = self.get_annotated_options()
+        for name, descr in annotated_options.items():
+            table.add_row(name, descr)
+
+        title = self._display_name if self._display_name else ""
+        return Panel(table, title=escape(title), title_align="left")
 
 
 # -----------------------------
@@ -292,14 +320,16 @@ class _Paths(_Base):
     """Paths used by bamboost.
 
     This dataclass contains the paths used by bamboost.
-
-    Attributes:
-        localDir: The directory where the local data is stored.
-        cacheDir: The directory where the cache is stored.
     """
+    _display_name = "Config Paths [paths]"
 
-    localDir: StrPath = field(default=LOCAL_DIR)
-    cacheDir: StrPath = field(default=CACHE_DIR)
+    localDir: Annotated[StrPath, "The directory where the local data is stored."] = (
+        field(default=LOCAL_DIR)
+    )
+
+    cacheDir: Annotated[StrPath, "The directory where the cache is stored."] = field(
+        default=CACHE_DIR
+    )
 
     def __setattr__(self, name: str, value: Any, /) -> None:
         if isinstance(value, str):
@@ -312,33 +342,38 @@ class _Options(_Base):
     """Core options for bamboost.
 
     This dataclass contains the core options for bamboost.
-
-    Attributes:
-        mpi: If True, the mpi4py package is available and used.
-        sortTableKey: The default key to sort the table by.
-        sortTableOrder: The default order to sort the table by.
     """
+    _display_name = "Core Options [options]"
 
-    mpi: bool = field(default=importlib.util.find_spec("mpi4py") is not None)
-    sortTableKey: str = field(default="created_at")
-    sortTableOrder: str = field(default="desc")
-
-    log_file_lock_severity: Literal["DEBUG", "INFO", "WARNING", "ERROR", "CRITICAL"] = (
-        field(default="WARNING")
+    mpi: Annotated[bool, "If True, the mpi4py package is available and used."] = field(
+        default=importlib.util.find_spec("mpi4py") is not None
     )
-    """The severity level for the log file lock."""
 
-    log_root_only: bool = False
-    """If True, only the root logger is used."""
-
-    logLevel: Literal["DEBUG", "INFO", "WARNING", "ERROR", "CRITICAL"] = field(
-        default="WARNING"
+    sortTableKey: Annotated[str, "The default key to sort the table by."] = field(
+        default="created_at"
     )
-    """The log level for the logger."""
 
-    clipboardCommand: str | None = None
-    """The command to use for copying to the clipboard. If None, an error is raised if
-    clipboard functionality is used but no command is set."""
+    sortTableOrder: Annotated[str, "The default order to sort the table by."] = field(
+        default="desc"
+    )
+
+    log_file_lock_severity: Annotated[
+        Literal["DEBUG", "INFO", "WARNING", "ERROR", "CRITICAL"],
+        "The severity level for the log file lock.",
+    ] = field(default="WARNING")
+
+    log_root_only: Annotated[bool, "If True, only the root logger is used."] = False
+
+    logLevel: Annotated[
+        Literal["DEBUG", "INFO", "WARNING", "ERROR", "CRITICAL"],
+        "The log level for the logger.",
+    ] = field(default="WARNING")
+
+    clipboardCommand: Annotated[
+        str | None,
+        "The command to use for copying to the clipboard. "
+        "If None, an error is raised if clipboard functionality is used but no command is set.",
+    ] = None
 
 
 @dataclass(repr=False)
@@ -346,61 +381,65 @@ class _IndexOptions(_Base):
     """Index options for bamboost.
 
     This dataclass contains the index options for bamboost.
-
-    Attributes:
-        searchPaths: A list of paths to index.
-        syncTables: If True, the sqlite tables are synchronized immediatly
-            after some queries.
-        convertArrays: If True, arrays are converted to np.arrays.
-        databaseFileName: The name of the database file.
-        databaseFile: The path to the database file.
-        isolated: If true, this project manages it's own database. The
-            searchPaths are reduced to the project root only.
     """
+    _display_name = "Index Options [index]"
 
     _field_aliases = {
         "paths": "searchPaths",
     }
 
-    searchPaths: Iterable[Union[str, Path]] = field(
-        default_factory=lambda: PathSet([Path("~").expanduser()])
+    searchPaths: Annotated[
+        Iterable[Union[str, Path]], "The list of paths to search for collections."
+    ] = field(default_factory=lambda: PathSet([Path("~").expanduser()]))
+
+    excludeDirs: Annotated[
+        Iterable[str], "The list of directory names to exclude from the search."
+    ] = field(default_factory=lambda: DEFAULT_EXCLUDE_DIRS)
+
+    extendDefaultExcludeDirs: Annotated[
+        Iterable[str] | None, "Use this to extend the default exclude directories."
+    ] = None
+
+    syncTables: Annotated[
+        bool,
+        "If True, the sqlite database is updated after some queries to keep it in sync.",
+    ] = field(default=True)
+
+    convertArrays: Annotated[
+        bool,
+        "If True, sqlite lists are converted to np.arrays. "
+        "If false, they are left as lists.",
+    ] = True
+
+    databaseFileName: Annotated[str, "The basename of the database file."] = field(
+        default=DEFAULT_DATABASE_FILE_NAME
     )
-    """The list of paths to search for collections."""
 
-    excludeDirs: Iterable[str] = field(default_factory=lambda: DEFAULT_EXCLUDE_DIRS)
-    """The list of directory names to exclude from the search."""
+    databaseFile: Annotated[
+        Path,
+        "The path to the default database file in the current context. "
+        "This can be the global database or a project-specific database.",
+    ] = field(init=False)
 
-    extendDefaultExcludeDirs: Iterable[str] | None = None
-    """Use this to extend the default exclude directories."""
+    isolated: Annotated[
+        bool,
+        "If true, this project manages it's own database. "
+        "The searchPaths are reduced to the project root only.",
+    ] = False
 
-    syncTables: bool = field(default=True)
-    """If True, the sqlite database is updated after some queries to keep it in sync."""
+    projectDir: Annotated[Optional[Path], "The project directory, if found."] = None
 
-    convertArrays: bool = True
-    """If True, sqlite lists are converted to np.arrays. If false, they are left as
-    lists."""
+    strictLinks: Annotated[
+        bool,
+        "If True, an error is raised when trying to set a link and the target is invalid.",
+    ] = True
 
-    databaseFileName: str = field(default=DEFAULT_DATABASE_FILE_NAME)
-    """The basename of the database file."""
-
-    databaseFile: Path = field(init=False)
-    """The path to the default database file in the current context. This can be the
-    global database or a project-specific database."""
-
-    isolated: bool = False
-    """If true, this project manages it's own database. The searchPaths are reduced to the
-    project root only."""
-
-    projectDir: Optional[Path] = None
-    """The project directory, if found."""
-
-    strictLinks: bool = True
-    """If True, an error is raised when trying to set a link and the target is invalid."""
-
-    strictLinksWhenSyncing: bool = False
-    """If True, strictLinks is also applied when syncing the database. This can lead to
-    errors if files have been moved or deleted since the last sync, but can help to catch
-    issues early."""
+    strictLinksWhenSyncing: Annotated[
+        bool,
+        "If True, strictLinks is also applied when syncing the database. "
+        "This can lead to errors if files have been moved or deleted since the last sync, "
+        "but can help to catch issues early.",
+    ] = False
 
     def __post_init__(self) -> None:
         # Parse search paths to Path objects
@@ -476,6 +515,11 @@ class _Config(_Base):
             s += getattr(self, field.name).__repr__()
             s += "\n"
         return s
+    
+    def info(self) -> RenderableType:
+        from rich.console import Group
+
+        return Group(self.paths.info(), self.options.info(), self.index.info())
 
 
 # Create the config instance (load the configuration)
