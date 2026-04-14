@@ -199,9 +199,16 @@ class Collection(ElligibleForPlugin):
     fromUID: _CollectionPicker = _CollectionPicker()
     """Helper for selecting collections by UID."""
     _comm = Communicator()
-    _filter: Filter | None = None
-    _sorter: Sorter | None = None
     _index: Index
+    _filter: Filter | None = None
+    """Internal variable to keep track of the filter applied to the collection. If None,
+    no filter is applied."""
+    _sorter: Sorter | None = None
+    """Internal variable to keep track of the sort instructions applied to the collection.
+    If None, no sorting is applied."""
+    _include_links: Iterable[str] | Literal[True] | None = None
+    """Internal variable to keep track of which links to include in the collection view.
+    If True, includes all links."""
 
     def __init__(
         self,
