@@ -412,6 +412,7 @@ class Index(metaclass=RootProcessMeta):
         *,
         force_all: bool = False,
         heal_links: bool = True,
+        progress_callback: Callable[[int, int], None] | None = None,
     ) -> None:
         """Sync the table with the file system.
 
@@ -432,11 +433,12 @@ class Index(metaclass=RootProcessMeta):
             for i in path.iterdir()
             if i.is_dir() and i.joinpath(constants.HDF_DATA_FILE_NAME).is_file()
         }
+        total_items = len(all_simulations_fs)
 
         collection = store.fetch_collection(self._s, uid)
 
         if collection:
-            for simulation in collection.simulations:
+            for i, simulation in enumerate(collection.simulations):
                 if simulation.name not in all_simulations_fs:
                     self._s.execute(store.delete_simulation_stmt(uid, simulation.name))
                     continue
@@ -451,6 +453,9 @@ class Index(metaclass=RootProcessMeta):
                     <= simulation.modified_at
                 ):
                     all_simulations_fs.remove(simulation.name)
+
+                if progress_callback:
+                    progress_callback(i + 1, total_items)
 
         for name in all_simulations_fs:
             log.debug(f"Syncing simulation {name} in collection {uid}.")
