@@ -16,7 +16,7 @@ from __future__ import annotations
 import json
 from collections.abc import MutableMapping
 from datetime import datetime
-from typing import Any, Callable, Dict, Mapping, Sequence, Type, Union
+from typing import Any, Callable, Dict, Mapping, Sequence, Type, Union, cast
 
 import h5py
 import numpy as np
@@ -132,8 +132,9 @@ class AttrsDict(H5Object[_MT], Mapping):
 
         # Singleton pattern for base attrs dict class
         # signature: __new__(cls, file: HDF5File[_MT], path: str)
-        file = args[0] if args else kwargs.get("file")
-        path = HDF5Path(args[1]) if len(args) > 1 else kwargs.get("path")
+        file = cast(HDF5File, args[0] if args else kwargs.get("file"))
+        path: str = args[1] if len(args) > 1 else kwargs.get("path")  # type: ignore
+        path = HDF5Path(path)
 
         instances = file._attrs_dict_instances
         if path not in instances:

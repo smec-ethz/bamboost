@@ -196,12 +196,19 @@ class Collection(ElligibleForPlugin):
     """Unique identifier of the collection."""
     path: Path
     """Path to the collection directory."""
-    fromUID = _CollectionPicker()
+    fromUID: _CollectionPicker = _CollectionPicker()
     """Helper for selecting collections by UID."""
     _comm = Communicator()
-    _filter: Filter | None = None
-    _sorter: Sorter | None = None
     _index: Index
+    _filter: Filter | None = None
+    """Internal variable to keep track of the filter applied to the collection. If None,
+    no filter is applied."""
+    _sorter: Sorter | None = None
+    """Internal variable to keep track of the sort instructions applied to the collection.
+    If None, no sorting is applied."""
+    _include_links: Iterable[str] | Literal[True] | None = None
+    """Internal variable to keep track of which links to include in the collection view.
+    If True, includes all links."""
 
     def __init__(
         self,
@@ -826,7 +833,7 @@ class Collection(ElligibleForPlugin):
                 return np.array_equal(np.asarray(other), self.ori)
 
         # make all iterables comparable by converting them to ComparableIterable
-        for k in params.keys():
+        for k in params:
             if isinstance(params[k], Iterable) and not isinstance(params[k], str):
                 params[k] = ComparableIterable(params[k])
 
