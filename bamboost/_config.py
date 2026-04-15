@@ -44,9 +44,9 @@ from bamboost._typing import StrPath
 from bamboost.constants import DEFAULT_CONFIG_FILE_NAME, DEFAULT_DATABASE_FILE_NAME
 from bamboost.utilities import PathSet
 
+from rich.console import RenderableType
 if TYPE_CHECKING:
     from typing_extensions import Self
-    from rich.console import RenderableType
 
 if sys.version_info < (3, 11):
     import tomli  # type: ignore
