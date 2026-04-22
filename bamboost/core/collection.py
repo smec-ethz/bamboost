@@ -34,6 +34,7 @@ from typing import (
     cast,
 )
 
+from bamboost.utilities import ComparableIterable
 import numpy as np
 import pandas as pd
 import yaml
@@ -822,15 +823,6 @@ class Collection(ElligibleForPlugin):
         if links:
             # Prefix links to match flattened DataFrame columns
             params.update(flatten_dict({"links": links}))
-
-        class ComparableIterable:
-            def __init__(self, ori):
-                self.ori = np.asarray(ori)
-
-            def __eq__(self, other):
-                if hasattr(other, "ori"):
-                    other = other.ori
-                return np.array_equal(np.asarray(other), self.ori)
 
         # make all iterables comparable by converting them to ComparableIterable
         for k in params:
