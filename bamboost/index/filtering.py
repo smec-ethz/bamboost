@@ -5,7 +5,6 @@ from datetime import datetime, timedelta
 from typing import TYPE_CHECKING, Any, Callable, Iterable, Sequence, Union, overload
 
 from bamboost.utilities import ComparableIterable
-import numpy as np
 
 if TYPE_CHECKING:
     from pandas import DataFrame, Series
@@ -64,6 +63,7 @@ def add_operators(cls):
 
     return cls
 
+
 @add_operators
 class Operator(_SupportsOperators):
     @overload
@@ -96,7 +96,6 @@ class Operator(_SupportsOperators):
             return self._op(resolve(self._a))
 
         return self._op(resolve(self._a), resolve(self._b))
- 
 
     def __repr__(self) -> str:
         return f"Operation({self._a} {self._op.__name__} {self._b})"

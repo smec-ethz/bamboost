@@ -1,6 +1,7 @@
 from functools import reduce
 from pathlib import Path
-from typing import Any, Callable, Iterable, Optional, TypeVar, Union
+from typing import Any, Callable, Iterable, Optional, Union
+
 import numpy as np
 
 from bamboost._typing import _P, _T, _U, StrPath
@@ -12,6 +13,7 @@ class PathSet(set[Path]):
 
     def add(self, element: Union[str, Path], /) -> None:
         return super().add(Path(element).expanduser().resolve())
+
 
 class ComparableIterable:
     def __init__(self, ori):
@@ -31,9 +33,6 @@ def maybe_apply(func: Callable[[_T], _U]) -> Callable[[Optional[_T]], Optional[_
             return func(x)
 
     return function
-
-
-_R = TypeVar("_R")
 
 
 # NOT USED
