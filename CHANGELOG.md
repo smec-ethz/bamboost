@@ -1,5 +1,13 @@
 # Change log for bamboost
 
+## [0.13.5](https://github.com/smec-ethz/bamboost/compare/0.13.4...0.13.5) (2026-04-23)
+
+
+### Bug Fixes
+
+* **collection:** assign default for _include_links ([935cce7](https://github.com/smec-ethz/bamboost/commit/935cce715137e3ff5cc921cb3f9f5cc1945b876b))
+* **filtering:** allow for lists in filtering operations ([#32](https://github.com/smec-ethz/bamboost/issues/32)) ([b648761](https://github.com/smec-ethz/bamboost/commit/b648761836f2b773b46e3259a455f7f7c03b1c3b))
+
 ## [0.13.4](https://github.com/smec-ethz/bamboost/compare/0.13.3...0.13.4) (2026-04-10)
 
 
