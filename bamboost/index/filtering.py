@@ -4,6 +4,8 @@ import operator
 from datetime import datetime, timedelta
 from typing import TYPE_CHECKING, Any, Callable, Iterable, Sequence, Union, overload
 
+from bamboost.utilities import ComparableIterable
+
 if TYPE_CHECKING:
     from pandas import DataFrame, Series
 
@@ -86,10 +88,13 @@ class Operator(_SupportsOperators):
                 return item[val._value]
             elif isinstance(val, Operator):
                 return val.evaluate(item)
+            elif isinstance(val, Iterable) and not isinstance(val, str):
+                return ComparableIterable(val)
             return val
 
         if self._b is None:
             return self._op(resolve(self._a))
+
         return self._op(resolve(self._a), resolve(self._b))
 
     def __repr__(self) -> str:
