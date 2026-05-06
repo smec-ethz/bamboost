@@ -32,8 +32,8 @@ from typing import (
     Mapping,
     Optional,
     Sized,
-    Union,
     TypeAlias,
+    Union,
 )
 
 import numpy as np

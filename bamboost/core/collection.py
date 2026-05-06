@@ -34,7 +34,6 @@ from typing import (
     cast,
 )
 
-from bamboost.utilities import ComparableIterable
 import numpy as np
 import pandas as pd
 import yaml
@@ -61,6 +60,7 @@ from bamboost.index.store import CollectionMetadata, CollectionRecord
 from bamboost.mpi import Communicator
 from bamboost.mpi.utilities import RootProcessMeta
 from bamboost.plugins import ElligibleForPlugin
+from bamboost.utilities import ComparableIterable
 
 if TYPE_CHECKING:
     from bamboost.mpi import Comm

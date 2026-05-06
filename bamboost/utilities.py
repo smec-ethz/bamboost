@@ -1,6 +1,7 @@
 from functools import reduce
 from pathlib import Path
 from typing import Any, Callable, Iterable, Optional, TypeVar, Union
+
 import numpy as np
 
 from bamboost._typing import _P, _T, _U, StrPath
@@ -24,6 +25,17 @@ class ComparableIterable:
         return (other == self.ori).all()
 
 
+class ComparableIterable:
+    def __init__(self, ori):
+        self.ori = np.asarray(ori)
+
+    def __eq__(self, other):
+        other = np.asarray(other)
+        if other.shape != self.ori.shape:
+            return False
+        return (other == self.ori).all()
+
+
 # NOT USED
 def maybe_apply(func: Callable[[_T], _U]) -> Callable[[Optional[_T]], Optional[_U]]:
     def function(x: Optional[_T]) -> Optional[_U]:
@@ -31,9 +43,6 @@ def maybe_apply(func: Callable[[_T], _U]) -> Callable[[Optional[_T]], Optional[_
             return func(x)
 
     return function
-
-
-_R = TypeVar("_R")
 
 
 # NOT USED

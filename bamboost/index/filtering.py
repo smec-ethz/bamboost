@@ -3,9 +3,9 @@ from __future__ import annotations
 import operator
 from datetime import datetime, timedelta
 from typing import TYPE_CHECKING, Any, Callable, Iterable, Sequence, Union, overload
+import numpy as np
 
 from bamboost.utilities import ComparableIterable
-import numpy as np
 
 if TYPE_CHECKING:
     from pandas import DataFrame, Series
