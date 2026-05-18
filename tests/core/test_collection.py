@@ -399,6 +399,30 @@ def test_add_duplicate_action_replace_exact_with_none(tmp_collection_burn: Colle
     assert tmp_collection_burn.all_simulation_names() == ["sim2"]
 
 
+def test_add_duplicate_action_works_with_none1(tmp_collection_burn: Collection):
+    params = {"thermostat": None, "a": 1}
+    tmp_collection_burn.add("sim1", parameters=params)
+    params = {"thermostat": None, "a": 2}
+
+    # None should be treated as equal missing value for duplicate detection.
+    tmp_collection_burn.add("sim2", parameters=params, duplicate_action="replace")
+
+    assert len(tmp_collection_burn) == 2
+    assert tmp_collection_burn.all_simulation_names() == ["sim1", "sim2"]
+
+
+def test_add_duplicate_action_works_with_none2(tmp_collection_burn: Collection):
+    params = {"thermostat": None, "a": 1}
+    tmp_collection_burn.add("sim1", parameters=params)
+    params = {"thermostat": 2, "a": 1}
+
+    # None should be treated as equal missing value for duplicate detection.
+    tmp_collection_burn.add("sim2", parameters=params, duplicate_action="replace")
+
+    assert len(tmp_collection_burn) == 2
+    assert tmp_collection_burn.all_simulation_names() == ["sim1", "sim2"]
+
+
 def test_add_duplicate_action_replace_partial_no_match(tmp_collection_burn: Collection):
     tmp_collection_burn.add("sim1", parameters={"a": 1, "b": 2})
     tmp_collection_burn.add("sim2", parameters={"a": 1, "b": 3})
