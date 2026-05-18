@@ -36,3 +36,11 @@ def show():
     from bamboost._config import CONFIG_FILE
 
     os.system(f"${{EDITOR:-vim}} {CONFIG_FILE}")
+
+
+@app_config.command()
+def info():
+    """Info about all possible options."""
+    from bamboost import config
+
+    console.print(config.info())
