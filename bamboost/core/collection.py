@@ -838,8 +838,13 @@ class Collection(ElligibleForPlugin):
         if s.empty:
             mask = pd.Series(True, index=df.index)
         else:
-            # Vectorized comparison (handles ComparableIterable via __eq__ and object-dtype columns)
-            mask = (df[s.keys()] == s).all(axis=1)
+            # Treat missing values as equal when both sides are missing.
+            # Pandas compares None/NaN as unequal with `==`, so combine equality
+            # with a per-cell both-missing condition.
+            subset = df[s.keys()]
+            eq = subset.eq(s)
+            both_missing = subset.isna() & s.isna()
+            mask = (eq | both_missing).all(axis=1)
 
         if exact:
             # For exact match, all other parameter/link columns must be NaN/missing.
