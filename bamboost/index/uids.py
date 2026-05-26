@@ -125,3 +125,8 @@ class SimulationUID:
 
     def __str__(self):
         return f"{self.collection_uid}{constants.UID_SEPARATOR}{self.simulation_name}"
+
+    def __getnewargs__(self):
+        # This method is used by pickle to serialize the object.
+        # It's needed to communicate the object across MPI ranks with bcast.
+        return (str(self),)
