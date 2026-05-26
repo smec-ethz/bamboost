@@ -3,8 +3,6 @@ from functools import wraps
 from typing import (
     TYPE_CHECKING,
     Callable,
-    ClassVar,
-    Concatenate,
     Generator,
     ParamSpec,
     Protocol,
@@ -19,6 +17,7 @@ if TYPE_CHECKING:
 
 _P = ParamSpec("_P")
 _T = TypeVar("_T")
+_CT = TypeVar("_CT", bound=Callable)
 
 
 def on_rank(func: Callable[_P, _T], comm: "Comm", rank: int) -> Callable[_P, _T]:
@@ -141,20 +140,20 @@ class RootProcessMeta(type):
             instance._comm = prev_comm
 
     @staticmethod
-    def bcast_result(func: Callable[_P, _T]) -> Callable[_P, _T]:
+    def bcast_result(func: _CT) -> _CT:
         @wraps(func)
         def wrapper(self: HasComm, *args, **kwargs):
             result = None
 
             if self._comm.rank == 0:
                 with RootProcessMeta.comm_self(self):
-                    result = func(self, *args, **kwargs)  # ty:ignore[invalid-argument-type]
+                    result = func(self, *args, **kwargs)
 
             result = self._comm.bcast(result, root=0)
             return result
 
-        wrapper._mpi_bcast_ = True  # type: ignore
-        return wrapper
+        wrapper._mpi_bcast_ = True  # ty:ignore[unresolved-attribute]
+        return wrapper  # ty:ignore[invalid-return-type]
 
     @staticmethod
     def exclude(func):
