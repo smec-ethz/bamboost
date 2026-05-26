@@ -319,7 +319,7 @@ class _Options(_Base):
         sortTableOrder: The default order to sort the table by.
     """
 
-    mpi: bool = field(default=importlib.util.find_spec("mpi4py") is not None)
+    mpi: bool = field(default=False)
     sortTableKey: str = field(default="created_at")
     sortTableOrder: str = field(default="desc")
 

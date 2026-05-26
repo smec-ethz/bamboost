@@ -46,26 +46,36 @@ log = BAMBOOST_LOGGER.getChild(__name__.split(".")[-1])
 
 
 def _detect_if_mpi_needed() -> bool:
-    if not config.options.mpi:  # user has disabled MPI via config
-        return False
-    if os.environ.get("BAMBOOST_MPI", None) == "0":  # user has disabled MPI via env
-        return False
+    # 1. environment variable override (highest priority)
+    env_mpi = os.environ.get("BAMBOOST_MPI", None)
+    if env_mpi is not None:
+        if env_mpi in ("0", "false", "False"):
+            return False
+        if env_mpi in ("1", "true", "True"):
+            return True
 
-    # Check if any of the common MPI environment variables are set
-    # fmt: off
-    mpi_env_vars = {
-        "OMPI_COMM_WORLD_SIZE", "OMPI_COMM_WORLD_RANK",        # Open MPI
-        "PMI_SIZE", "PMI_RANK",                                # MPICH and Intel MPI
-        "MV2_COMM_WORLD_SIZE", "MV2_COMM_WORLD_RANK",          # MVAPICH
-        "I_MPI_RANK", "I_MPI_SIZE",                            # Intel MPI
-        "SLURM_PROCID", "SLURM_NTASKS",                        # SLURM
-        "MPI_LOCALNRANKS", "MPI_LOCALRANKID"                   # General/Other
-    }
-    # fmt: on
-    if mpi_env_vars.intersection(os.environ):
-        return True
+    # 2. config opt-in for mpi
+    if config.options.mpi:
+        # Check if any of the common MPI environment variables are set
+        # fmt: off
+        mpi_env_vars = {
+            "OMPI_COMM_WORLD_SIZE", "OMPI_COMM_WORLD_RANK",        # Open MPI
+            "PMI_SIZE", "PMI_RANK",                                # MPICH and Intel MPI
+            "MV2_COMM_WORLD_SIZE", "MV2_COMM_WORLD_RANK",          # MVAPICH
+            "I_MPI_RANK", "I_MPI_SIZE",                            # Intel MPI
+            "SLURM_PROCID", "SLURM_NTASKS",                        # SLURM
+            "MPI_LOCALNRANKS", "MPI_LOCALRANKID"                   # General/Other
+        }
+        # fmt: on
+        if mpi_env_vars.intersection(os.environ):
+            return True
 
-    log.info("This script does not seem to be run with MPI. Using the mock MPI module.")
+        log.warning(
+            "MPI is enabled in the config, but no standard MPI launcher environment "
+            "variables were detected. This may indicate that the script is not being "
+            "run with MPI. Falling back to mock MPI."
+        )
+
     return False
 
 
