@@ -119,13 +119,19 @@ MPI, MPI_ON = get_mpi_from_env()
 
 
 class Communicator:
-    _active_comm: Comm = MPI.COMM_WORLD  # ty: ignore[unresolved-attribute]
+    _default_comm: Comm = MPI.COMM_WORLD
 
     def __set__(self, instance, value):
-        Communicator._active_comm = value
+        if instance is None:
+            raise AttributeError("Communicator cannot be set on the class.")
+        # store the communicator locally in the instance dict
+        instance.__dict__["_instance_comm"] = value
 
     def __get__(self, instance, owner) -> Comm:
-        return Communicator._active_comm
+        if instance is None:
+            return Communicator._default_comm
+        # fallback to the global COMM_WORLD if no instance comm is assigned
+        return instance.__dict__.get("_instance_comm", Communicator._default_comm)
 
     def __delete__(self, instance):
         raise AttributeError("Cannot delete the communicator.")
