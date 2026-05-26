@@ -318,7 +318,9 @@ class Index(metaclass=RootProcessMeta):
     ) -> tuple[Path, str]: ...
 
     @RootProcessMeta.bcast_result
-    def resolve_path(self, uid: str, *, search_paths=None, return_uid=False):
+    def resolve_path(
+        self, uid: str, *, search_paths=None, return_uid=False
+    ) -> Path | tuple[Path, str]:
         """Resolve and return the path of a collection from its UID. Raises a
         `FileNotFoundError` if the collection is not found in the search paths.
 
