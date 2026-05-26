@@ -92,4 +92,4 @@ def test_mpi_integration_off(monkeypatch):
     MPI, MPI_ON = get_mpi_from_env()
 
     assert MPI_ON is False
-    assert MPI.__name__ == "bamboost.mpi.mock"  # type: ignore
+    assert MPI.__name__ == "bamboost.mpi.serial"  # type: ignore
