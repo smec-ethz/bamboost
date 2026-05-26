@@ -2,12 +2,15 @@ from __future__ import annotations
 
 import uuid
 from dataclasses import dataclass
-from typing import overload
+from typing import TYPE_CHECKING, overload
 
 from typing_extensions import Self
 
 from bamboost import constants
 from bamboost.mpi import Communicator
+
+if TYPE_CHECKING:
+    from bamboost.mpi import Comm
 
 
 class CollectionUID(str):
@@ -18,17 +21,17 @@ class CollectionUID(str):
         the generated UUID from the root rank.
     """
 
-    def __new__(cls, uid: str | None = None, length: int = 10):
-        uid = uid or cls.generate_uid(length)
+    def __new__(
+        cls, uid: str | None = None, length: int = 10, *, comm: Comm | None = None
+    ):
+        uid = uid or cls.generate_uid(length, comm=comm)
         return super().__new__(cls, uid.upper())
 
     @staticmethod
-    def generate_uid(length: int) -> str:
-        if Communicator._active_comm.rank == 0:
-            uid = uuid.uuid4().hex[:length].upper()
-        else:
-            uid = ""
-        uid: str = Communicator._active_comm.bcast(uid, root=0)
+    def generate_uid(length: int, *, comm: Comm | None = None) -> str:
+        uid = uuid.uuid4().hex[:length].upper()
+        if comm is not None:
+            uid = comm.bcast(uid, root=0)
         return uid
 
 
@@ -46,17 +49,17 @@ class SimulationName(str):
         the generated UUID from the root rank.
     """
 
-    def __new__(cls, name: str | None = None, length: int = 10):
-        name = name or cls.generate_name(length)
+    def __new__(
+        cls, name: str | None = None, length: int = 10, *, comm: Comm | None = None
+    ):
+        name = name or cls.generate_name(length, comm=comm)
         return super().__new__(cls, name)
 
     @staticmethod
-    def generate_name(length: int) -> str:
-        if Communicator._active_comm.rank == 0:
-            uid = uuid.uuid4().hex[:length]
-        else:
-            uid = ""
-        uid: str = Communicator._active_comm.bcast(uid, root=0)
+    def generate_name(length: int, *, comm: Comm | None = None) -> str:
+        uid = uuid.uuid4().hex[:length]
+        if comm is not None:
+            uid = comm.bcast(uid, root=0)
         return uid
 
 

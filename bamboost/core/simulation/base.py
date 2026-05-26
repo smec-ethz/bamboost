@@ -161,6 +161,7 @@ class _Simulation(H5Object[_MT], ABC):
         parent: StrPath,
         comm: Optional[Comm] = None,
         index: Optional[Index] = None,
+        mutable: bool = False,
         **kwargs,
     ):
         self.name: str = name
@@ -171,6 +172,9 @@ class _Simulation(H5Object[_MT], ABC):
             )
 
         # MPI information
+        if comm is not None:
+            self._comm = comm
+
         self._psize: int = self._comm.size
         self._prank: int = self._comm.rank
         self._ranks = np.array([i for i in range(self._psize)])
@@ -186,6 +190,10 @@ class _Simulation(H5Object[_MT], ABC):
         self._data_file: Path = self.path.joinpath(constants.HDF_DATA_FILE_NAME)
         self._xdmf_file: Path = self.path.joinpath(constants.XDMF_FILE_NAME)
         self._bash_file: Path = self.path.joinpath(constants.RUN_FILE_NAME)
+
+        # the H5Object constructor assigns _file and _comm, so we call it at the end of
+        # the constructor
+        super().__init__(HDF5File(self._data_file, comm=self._comm, mutable=mutable))
 
     def __eq__(self, other: _Simulation, /) -> bool:
         return (
@@ -262,12 +270,15 @@ class _Simulation(H5Object[_MT], ABC):
         return self._index.simulation(self.uid)
 
     @classmethod
-    def from_uid(cls, uid: str | SimulationUID, **kwargs) -> Self:
+    def from_uid(
+        cls, uid: str | SimulationUID, *, comm: Comm | None = None, **kwargs
+    ) -> Self:
         """
         Return the `Simulation` instance corresponding to the given UID.
 
         Args:
-            uid (str): The full simulation UID in the format "<collection_uid>:<simulation_name>".
+            uid: The full simulation UID in the format "<collection_uid>:<simulation_name>".
+            comm: Optional MPI communicator to use for the simulation instance.
             **kwargs: Additional keyword arguments to pass to the constructor.
 
         Returns:
@@ -279,7 +290,9 @@ class _Simulation(H5Object[_MT], ABC):
         uid = SimulationUID(uid)
         index = kwargs.pop("index", None) or Index.default
         collection_path = index.resolve_path(uid.collection_uid)
-        return cls(uid.simulation_name, collection_path, index=index, **kwargs)
+        return cls(
+            uid.simulation_name, collection_path, index=index, comm=comm, **kwargs
+        )
 
     @property
     def uid(self) -> SimulationUID:
@@ -571,10 +584,7 @@ class Simulation(_Simulation[Immutable]):
         index: Optional[Index] = None,
         **kwargs,
     ):
-        super().__init__(name, parent, comm, index, **kwargs)
-        self._file: HDF5File[Immutable] = HDF5File(
-            self._data_file, comm=self._comm, mutable=False
-        )
+        super().__init__(name, parent, comm, index, mutable=False, **kwargs)
 
 
 class SimulationWriter(_Simulation[Mutable]):
@@ -607,10 +617,7 @@ class SimulationWriter(_Simulation[Mutable]):
         index: Optional[Index] = None,
         **kwargs,
     ):
-        super().__init__(name, parent, comm, index, **kwargs)
-        self._file: HDF5File[Mutable] = HDF5File(
-            self._data_file, comm=self._comm, mutable=True
-        )
+        super().__init__(name, parent, comm, index, mutable=True, **kwargs)
 
     def __enter__(self) -> SimulationWriter:
         self.status = Status.STARTED

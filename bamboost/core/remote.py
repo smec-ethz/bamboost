@@ -112,6 +112,9 @@ class Remote(Index):
         workspace_name: Optional[str] = None,
         skip_fetch: bool = False,
     ):
+        if comm is not None:
+            self._comm = comm
+
         cache_dir = Path(config.paths.cacheDir)
         self._remote_url = remote_url
         self.id = (
@@ -289,10 +292,16 @@ class RemoteCollection(Collection):
         uid: str,
         remote: Remote,
         *,
+        comm: Comm | None = None,
         filter: Filter | None = None,
         sorter: Sorter | None = None,
     ):
-        self.uid = CollectionUID(uid)
+        if comm is not None:
+            self._comm = comm
+        else:
+            self._comm = remote._comm
+
+        self.uid = CollectionUID(uid, comm=self._comm)
         self._index = remote  # pyright: ignore[reportIncompatibleVariableOverride]
 
         # A key store with completion of all the parameters and metadata keys

@@ -156,6 +156,9 @@ class Index(metaclass=RootProcessMeta):
         *,
         search_paths: Iterable[str | Path] | None = None,
     ) -> None:
+        if comm is not None:
+            self._comm = comm
+
         self.search_paths = PathSet(search_paths or config.index.searchPaths)
         """Paths to scan for collections."""
 
@@ -692,6 +695,7 @@ class Index(metaclass=RootProcessMeta):
                 simulation_name,
                 collection_path,
                 index=self,
+                comm=self._comm,
                 collection_uid=collection_uid,
             )
             with sim._file.open("r"):

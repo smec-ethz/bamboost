@@ -225,6 +225,11 @@ class Collection(ElligibleForPlugin):
     ):
         assert not (path and uid), "Only one of path or uid must be provided."
 
+        if comm is not None:
+            self._comm = comm
+            # ensure the index instance uses the same communicator
+            index_instance = index_instance or Index(comm=self._comm)
+
         self._index = index_instance or Index.default
         self._filter = filter
         self._sorter = sorter
@@ -262,7 +267,7 @@ class Collection(ElligibleForPlugin):
         except InvalidCollectionError:
             # If the collection does not exist, create it in the index
             # and generate a new UID
-            self.uid = CollectionUID()
+            self.uid = CollectionUID(comm=self._comm)
             self._index.upsert_collection(self.uid, self.path)
 
         # Check if identifier file exists (and create it if necessary)
@@ -607,7 +612,7 @@ class Collection(ElligibleForPlugin):
             "Invalid duplicate_action. Must be one of: 'ignore', 'replace', 'skip', 'raise'."
         )
 
-        name = SimulationName(name)  # Generates a unique id as name if not provided
+        name = SimulationName(name, comm=self._comm)  # Generates a unique id as name if not provided
         directory = self.path.joinpath(name)
 
         # Validate parameters keys (top-level only)
