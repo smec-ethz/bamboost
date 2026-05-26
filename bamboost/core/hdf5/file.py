@@ -191,6 +191,7 @@ class H5Object(ElligibleForPlugin, Generic[_MT]):
 
     def __init__(self, file: HDF5File[_MT]) -> None:
         self._file = file
+        self._comm = file._comm
 
     @overload
     def mutable(self: H5Object[Mutable]) -> Literal[True]: ...
@@ -255,6 +256,7 @@ class SingleProcessQueue(deque[Callable[[], None]], metaclass=RootProcessMeta):
 
     def __init__(self, file: HDF5File):
         self._file = file
+        self._comm = file._comm
         super().__init__()
 
     def add_instruction(self, instruction: Callable[[], None]) -> None:
@@ -329,6 +331,9 @@ class HDF5File(h5py.File, Generic[_MT]):
         self._attrs_dict_instances: dict[str, AttrsDict[_MT]] = {}
         self.file_map = FileMap(self)
         self.mutable = mutable
+
+        if comm is not None:
+            self._comm = comm
 
         # if the file is immutable, we immediately check if it exists.
         # if it doesn't, we raise an exception

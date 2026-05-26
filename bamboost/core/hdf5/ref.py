@@ -79,7 +79,7 @@ class H5Reference(H5Object[_MT]):
     _status: RefStatus = RefStatus.NOT_CHECKED
 
     def __init__(self, path: str, file: HDF5File[_MT]):
-        self._file = file
+        super().__init__(file)
         self._path = HDF5Path(path)
 
         # We validate the existance of the object in the file by first, checking the file

@@ -44,6 +44,7 @@ class XDMFWriter(metaclass=RootProcessMeta):
 
     def __init__(self, file: HDF5File):
         self._file = file
+        self._comm = file._comm
         self.root_element = ET.Element("Xdmf", Version="3.0")
         self.domain = ET.SubElement(self.root_element, "Domain")
         ET.register_namespace("xi", "https://www.w3.org/2001/XInclude/")

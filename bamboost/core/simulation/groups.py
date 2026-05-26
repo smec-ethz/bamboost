@@ -84,18 +84,16 @@ def get_git_status(repo_path) -> _GitStatus:
     import subprocess
 
     def run_git_command(command: str) -> str:
-        res = ""
-        if Communicator._active_comm.rank == 0:
-            try:
-                res = subprocess.run(
-                    ["git", "-C", str(repo_path), *command.split()],
-                    capture_output=True,
-                    text=True,
-                    check=True,
-                ).stdout.strip()
-            except CalledProcessError:
-                res = "Git command has failed"
-        return Communicator._active_comm.bcast(res, root=0)
+        try:
+            res = subprocess.run(
+                ["git", "-C", str(repo_path), *command.split()],
+                capture_output=True,
+                text=True,
+                check=True,
+            ).stdout.strip()
+        except CalledProcessError:
+            res = "Git command has failed"
+        return res
 
     return {
         "origin": run_git_command("remote get-url origin"),
