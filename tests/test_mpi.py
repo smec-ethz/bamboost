@@ -7,7 +7,6 @@ from _pytest.monkeypatch import MonkeyPatch
 from bamboost.mpi import (
     _assert_h5py_has_mpi_support,
     _detect_if_mpi_needed,
-    get_mpi_from_env,
 )
 
 
@@ -75,21 +74,32 @@ def test_h5py_mpi_check_on_import(monkeypatch: MonkeyPatch, h5py_mpi_disabled):
 def test_mpi_integration_on(monkeypatch, h5py_mpi_enabled):
     monkeypatch.setattr("bamboost.config.options.mpi", True)
     monkeypatch.setenv("PMI_SIZE", "16")  # force MPI detection
-    # Mock the _get_mpi_module to return a fake module and True
-    # skips actual mpi4py import
-    monkeypatch.setattr(
-        "bamboost.mpi._get_mpi_module", lambda: ("fake-real-comm", True)
-    )
 
-    MPI, MPI_ON = get_mpi_from_env()
+    import sys
+    from unittest.mock import MagicMock
 
-    assert MPI == "fake-real-comm"
-    assert MPI_ON is True
+    mock_mpi = MagicMock()
+    mock_mpi_module = MagicMock()
+    mock_mpi_module.MPI = mock_mpi
+
+    monkeypatch.setitem(sys.modules, "mpi4py", mock_mpi_module)
+
+    from bamboost.mpi import _MPIProxy
+
+    _MPIProxy.set_from_ctx()
+
+    assert _MPIProxy.enabled is True
+    # Clean up so we don't mess up other tests
+    _MPIProxy._mpi_module = None
+    _MPIProxy.enabled = False
 
 
 def test_mpi_integration_off(monkeypatch):
     monkeypatch.setattr("bamboost.config.options.mpi", False)
-    MPI, MPI_ON = get_mpi_from_env()
 
-    assert MPI_ON is False
-    assert MPI.__name__ == "bamboost.mpi.serial"  # type: ignore
+    from bamboost.mpi import _MPIProxy
+
+    _MPIProxy.set_from_ctx()
+
+    assert _MPIProxy.enabled is False
+    assert _MPIProxy._mpi_module.__name__ == "bamboost.mpi.serial"
