@@ -46,8 +46,8 @@ class GroupMeshes(Group[_MT]):
         """
         with self._file.open(FileMode.APPEND, driver="mpio"):
             new_grp = self.require_group(name)
-            new_grp.add_numerical_dataset("coordinates", vector=nodes)
-            new_grp.add_numerical_dataset(
+            new_grp.write_distributed_contiguous_array("coordinates", vector=nodes)
+            new_grp.write_distributed_contiguous_array(
                 "topology", vector=cells, attrs={"cell_type": cell_type.value}
             )
 
@@ -107,18 +107,23 @@ class GroupGit(Group[_MT]):
         super().__init__(".git", simulation._file)
 
     def add(self: GroupGit[Mutable], repo_name: str, repo_path: StrPath) -> None:
-        # Make sure the .git group exists
-        self.require_self()
+        # Only the root process should access the git repository
+        if self._comm.rank == 0:
+            status = get_git_status(repo_path)
 
-        status = get_git_status(repo_path)
-        if repo_name in self.keys():  # delete if already exists
-            del self[repo_name]
+        def _write():
+            # Make sure the .git group exists
+            self.require_self()
+            if repo_name in self.keys():  # delete if already exists
+                del self[repo_name]
 
-        new_grp = self.require_group(repo_name)
-        new_grp.attrs.update(
-            {k: v for k, v in status.items() if k in {"origin", "commit", "branch"}}
-        )
-        new_grp.add_dataset("patch", data=status["patch"])
+            new_grp = self.require_group(repo_name)
+            new_grp.attrs.update(
+                {k: v for k, v in status.items() if k in {"origin", "commit", "branch"}}
+            )
+            new_grp.add_dataset("patch", data=status["patch"])
+
+        self.post_write_instruction(_write)
 
     def __getitem__(self, key: str) -> GitItem:
         grp = super().__getitem__((key, Group[_MT]))

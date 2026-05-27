@@ -190,7 +190,7 @@ def test_group_setitem_immutability(hdf5_file: HDF5File):
 
 def test_group_setitem_array(group: Group):
     with patch.object(
-        group, "add_numerical_dataset", autospec=True
+        group, "write_distributed_array", autospec=True
     ) as mock_add_dataset:
         group["data"] = DATASET1_DATA
         mock_add_dataset.assert_called_once()
@@ -300,3 +300,16 @@ def test_dataset_shape(dataset):
 
 def test_dataset_dtype(dataset):
     assert dataset.dtype == DATASET1_DATA.dtype
+
+
+def test_group_write_dof_array(group):
+    indices = np.array([0, 2, 1])
+    vec = np.array([[10, 10], [30, 30], [20, 20]], dtype=np.int64)
+    group.write_distributed_array(
+        "dof_data", vec, indices=indices, attrs={"attr_dof": 42}
+    )
+    with group.open("r"):
+        dataset = group._obj["dof_data"]
+        expected = np.array([[10, 10], [20, 20], [30, 30]], dtype=np.int64)
+        np.testing.assert_array_equal(dataset[:], expected)
+        assert dataset.attrs["attr_dof"] == 42

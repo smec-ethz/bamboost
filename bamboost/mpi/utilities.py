@@ -106,6 +106,10 @@ class RootProcessMeta(type):
 def comm_self(instance: HasComm) -> Generator[None, None, None]:
     """Context manager to temporarily change the communicator to MPI.COMM_SELF.
 
+    This context manager allows collective operations (which normally require
+    execution across all ranks to prevent deadlocks) to be called from a single
+    rank only, as MPI.COMM_SELF represents a single-rank communicator.
+
     Args:
         instance: An instance of a class that has a _comm attribute (MPI communicator).
 

@@ -27,6 +27,7 @@ from typing import TYPE_CHECKING, Iterable, Optional, Union, overload
 
 import h5py
 import numpy as np
+from numpy.typing import NDArray
 
 import bamboost
 from bamboost import constants
@@ -115,7 +116,7 @@ class Series(H5Reference[_MT]):
             icon=icon,
             version=bamboost.__version__,
             attrs=self.attrs,
-            globals=[(k, self.globals[k].shape) for k in self.globals.keys()],
+            globals=[(k, self.globals[k].shape) for k in self.globals],
             fields=self.get_field_names(),
             size=len(self),
         )
@@ -253,6 +254,7 @@ class StepWriter(H5Object[Mutable]):
         *,
         mesh_name: str = DEFAULT_MESH_NAME,
         field_type: FieldType = FieldType.NODE,
+        indices: NDArray[np.int_] | None = None,
     ) -> None:
         """Add a field to the step.
 
@@ -262,13 +264,18 @@ class StepWriter(H5Object[Mutable]):
             mesh_name: The name of the mesh to which the field belongs.
             field_type: The type of the field (default: FieldType.NODE). This is only
                 relevant for XDMF writing.
+            indices: Optional array of indices (local_to_global map) in global array to
+                which the data corresponds. If not given, the data is assumed to be
+                contiguous and each rank writes a contiguous chunk of the field. If given,
+                the local data is written to the specified indices in the global array.
+                This allows for non-contiguous writes.
         """
         field = self._series.get_field(name)
         field.require_self()
-        field.add_numerical_dataset(
+        field.write_distributed_array(
             str(self._step),
             data,
-            file_map=True,
+            indices=indices,
             attrs={"mesh": mesh_name, "type": field_type.value},
         )
         log.debug(f"Added field {name} for step {self._step}")
@@ -360,7 +367,7 @@ class FieldData(Group[_MT]):
         """Get data of the field for a specific step or steps using standard slice
         notation. First index is the step number.
         """
-        if isinstance(key, Iterable):
+        if isinstance(key, tuple):
             step = key[0]
             rest = key[1:]
         else:
@@ -371,7 +378,7 @@ class FieldData(Group[_MT]):
             if isinstance(step, int):
                 step_positive = self._handle_negative_index(step)
                 try:
-                    return self._obj[str(step_positive)][rest]  # type: ignore
+                    return self._obj[str(step_positive)][rest]
                 except KeyError:
                     raise IndexError(
                         f"Index ({step_positive}) out of range for (0-{self._parent.last_step})"
