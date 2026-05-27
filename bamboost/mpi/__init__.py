@@ -178,8 +178,6 @@ class _WeakKeyDict:
 
 
 class Communicator:
-    _default_comm: Comm = MPI.COMM_WORLD
-
     # To allow composed objects to reuse the same communicator, we define a lookup table
     # (weakref dict?) that optionally maps instances to other instances to reuse the same
     # comm object. This allows users to set a communicator on a parent object and have
@@ -187,6 +185,10 @@ class Communicator:
     # pass it around.
     _child_to_parent_map: _WeakKeyDict = _WeakKeyDict()
     _instance_comms: _WeakKeyDict = _WeakKeyDict()
+
+    @classmethod
+    def get_default_comm(self) -> Comm:
+        return MPI.COMM_WORLD
 
     def __set__(self, instance, value) -> None:
         if instance is None:
@@ -204,7 +206,7 @@ class Communicator:
 
     def __get__(self, instance, owner) -> Comm:
         if instance is None:
-            return self._default_comm
+            return self.get_default_comm()
 
         # if the instance doesn't have an explicitly set comm, we check if it has a parent
         # to reuse we need to traverse the parent chain until we find an explicitly set
@@ -226,7 +228,7 @@ class Communicator:
 
         # if we reach here, it means no parent in the chain has an explicitly set comm, so
         # we return the default comm
-        return self._default_comm
+        return self.get_default_comm()
 
     def __delete__(self, instance):
         self._instance_comms.pop(instance, None)
