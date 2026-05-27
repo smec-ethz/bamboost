@@ -27,6 +27,7 @@ Type Aliases:
 from __future__ import annotations
 
 import os
+import weakref
 from typing import TYPE_CHECKING, Any, Union
 
 from typing_extensions import TypeAlias
@@ -79,20 +80,6 @@ def _detect_if_mpi_needed() -> bool:
     return False
 
 
-def _get_mpi_module() -> tuple[object, bool]:
-    """Attempt to import the real MPI module (`mpi4py.MPI`). Returns the module and a
-    flag."""
-    try:
-        from mpi4py import MPI  # ty: ignore[unresolved-import]
-
-        return MPI, True
-    except ImportError:
-        import bamboost.mpi.serial as SerialMPI
-
-        log.info("`mpi4py` unavailable [using the serial MPI module]")
-        return SerialMPI, False
-
-
 def _assert_h5py_has_mpi_support() -> None:
     import h5py
 
@@ -103,35 +90,144 @@ def _assert_h5py_has_mpi_support() -> None:
         )
 
 
-def get_mpi_from_env() -> tuple[Any, bool]:
-    """Get the MPI module and flag based on environment detection."""
-    mpi_needed = _detect_if_mpi_needed()
-    if not mpi_needed:
-        import bamboost.mpi.serial as SerialMPI
+class _MPIProxy:
+    """Proxy class to delay the import of the MPI module until it's actually needed."""
 
-        return SerialMPI, False
-    else:
-        _assert_h5py_has_mpi_support()  # raises if h5py lacks MPI support
-        return _get_mpi_module()
+    _mpi_module: Any = None
+    enabled: bool = False
+
+    @classmethod
+    def set_from_ctx(cls):
+        _should_use_mpi = _detect_if_mpi_needed()
+        if _should_use_mpi:
+            try:
+                _assert_h5py_has_mpi_support()
+                from mpi4py import MPI  # ty: ignore[unresolved-import]
+
+                cls._mpi_module = MPI
+                cls.enabled = True
+            except ImportError:
+                log.error(
+                    "MPI is required/enabled but `mpi4py` is not installed. "
+                    "To bypass this error, either install `mpi4py` or set `config.options.mpi = False` to disable MPI support."
+                )
+                raise
+        else:
+            from bamboost.mpi import serial
+
+            cls._mpi_module = serial
+            cls.enabled = False
+
+    def __getattr__(self, name: str) -> Any:
+        return getattr(self._mpi_module, name)
 
 
-MPI, MPI_ON = get_mpi_from_env()
+_MPIProxy.set_from_ctx()
+MPI = _MPIProxy()
+
+
+class ReuseComm:
+    """Marker class to indicate that a communicator should be reused from a parent object.
+
+    This is used in the `Communicator` descriptor to allow child objects to automatically
+    reuse the same communicator as their parent without needing to explicitly pass it around.
+    """
+
+    def __init__(self, parent_obj: Any):
+        self.parent_obj = parent_obj
+
+
+class _WeakKeyDict:
+    """A dictionary that stores keys as weak references, but supports unhashable keys
+    by using the key's object identity `id()` for underlying storage.
+    """
+
+    def __init__(self) -> None:
+        self._data: dict[int, tuple[weakref.ReferenceType, Any]] = {}
+
+    def __setitem__(self, key: Any, value: Any) -> None:
+        obj_id = id(key)
+
+        def cleanup(ref_obj: Any) -> None:
+            self._data.pop(obj_id, None)
+
+        self._data[obj_id] = (weakref.ref(key, cleanup), value)
+
+    def __getitem__(self, key: Any) -> Any:
+        obj_id = id(key)
+        if obj_id in self._data:
+            ref_obj, value = self._data[obj_id]
+            if ref_obj() is not None:
+                return value
+        raise KeyError(key)
+
+    def get(self, key: Any, default: Any = None) -> Any:
+        try:
+            return self[key]
+        except KeyError:
+            return default
+
+    def pop(self, key: Any, default: Any = None) -> Any:
+        obj_id = id(key)
+        if obj_id in self._data:
+            return self._data.pop(obj_id)[1]
+        return default
+
+    def __contains__(self, key: Any) -> bool:
+        return id(key) in self._data
 
 
 class Communicator:
     _default_comm: Comm = MPI.COMM_WORLD
 
-    def __set__(self, instance, value):
+    # To allow composed objects to reuse the same communicator, we define a lookup table
+    # (weakref dict?) that optionally maps instances to other instances to reuse the same
+    # comm object. This allows users to set a communicator on a parent object and have
+    # child objects automatically use the same communicator without needing to explicitly
+    # pass it around.
+    _child_to_parent_map: _WeakKeyDict = _WeakKeyDict()
+    _instance_comms: _WeakKeyDict = _WeakKeyDict()
+
+    def __set__(self, instance, value) -> None:
         if instance is None:
             raise AttributeError("Communicator cannot be set on the class.")
-        # store the communicator locally in the instance dict
-        instance.__dict__["_instance_comm"] = value
+
+        # if the value is a tuple, we assume the second element is the parent object to
+        # reuse the comm from
+        if isinstance(value, ReuseComm):
+            # register the parent-child relationship
+            self._child_to_parent_map[instance] = value.parent_obj
+        else:
+            self._instance_comms[instance] = value
+            # clear any old parent relationship if it exists
+            self._child_to_parent_map.pop(instance, None)
 
     def __get__(self, instance, owner) -> Comm:
         if instance is None:
-            return Communicator._default_comm
-        # fallback to the global COMM_WORLD if no instance comm is assigned
-        return instance.__dict__.get("_instance_comm", Communicator._default_comm)
+            return self._default_comm
+
+        # if the instance doesn't have an explicitly set comm, we check if it has a parent
+        # to reuse we need to traverse the parent chain until we find an explicitly set
+        # comm or run out of parents
+        current = instance
+        visited = set()
+        while current is not None:
+            # the visited set is to prevent infinite loops in case of circular
+            # parent-child relationships. this is unlikely to happen in practice
+            curr_id = id(current)
+            if curr_id in visited:
+                break
+            visited.add(curr_id)
+
+            if current in self._instance_comms:
+                return self._instance_comms[current]
+
+            current = self._child_to_parent_map.get(current)
+
+        # if we reach here, it means no parent in the chain has an explicitly set comm, so
+        # we return the default comm
+        return self._default_comm
 
     def __delete__(self, instance):
-        raise AttributeError("Cannot delete the communicator.")
+        self._instance_comms.pop(instance, None)
+        self._child_to_parent_map.pop(instance, None)
