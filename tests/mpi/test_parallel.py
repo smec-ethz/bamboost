@@ -118,7 +118,7 @@ def test_parallel_dataset_write(mpi_collection: Collection):
 
     # Write the dataset collectively in parallel
     with sim.edit() as writer:
-        writer.root.add_numerical_dataset("parallel_vec", local_data)
+        writer.root.write_distributed_contiguous_array("parallel_vec", local_data)
 
     # All ranks synchronize after writing
     comm.barrier()
@@ -180,7 +180,7 @@ def test_explicit_comm_when_globally_disabled(tmp_path_factory, monkeypatch):
     local_data = np.array([local_val], dtype=np.float64)
 
     with sim.edit() as writer:
-        writer.root.add_numerical_dataset("parallel_vec", local_data)
+        writer.root.write_distributed_contiguous_array("parallel_vec", local_data)
 
     comm.barrier()
 

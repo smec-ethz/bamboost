@@ -63,6 +63,7 @@ class NullComm:
 
 # operators
 SUM = lambda a, b: a + b
+MAX = max
 
 
 COMM_WORLD: SerialComm = SerialComm()

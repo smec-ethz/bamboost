@@ -442,9 +442,7 @@ class HDF5File(h5py.File, Generic[_MT]):
                 # If the file is locked, we wait and try again
                 if not waiting_logged:
                     level = logging._nameToLevel[config.options.log_file_lock_severity]
-                    log.log(
-                        level, f"[{id(self)}] file locked (waiting) {self._filename}"
-                    )
+                    log.log(level, f"[{self._filename}] file locked --> waiting")
                 waiting_logged = True
                 time.sleep(0.01)
 
