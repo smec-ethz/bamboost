@@ -64,7 +64,7 @@ from bamboost.index.scanner import (
 )
 from bamboost.index.store import collections_table
 from bamboost.index.uids import CollectionUID, SimulationUID
-from bamboost.mpi import Communicator
+from bamboost.mpi import Communicator, ReuseComm
 from bamboost.mpi.utilities import RootProcessMeta
 from bamboost.utilities import PathSet
 
@@ -152,7 +152,7 @@ class Index(metaclass=RootProcessMeta):
     def __init__(
         self,
         sql_file: StrPath | None = None,
-        comm: Comm | None = None,
+        comm: Comm | ReuseComm | None = None,
         *,
         search_paths: Iterable[str | Path] | None = None,
     ) -> None:
@@ -203,8 +203,8 @@ class Index(metaclass=RootProcessMeta):
             ...     s.execute(...)
         """
         # if not root rank, return dummy context manager
-        if not self._comm.rank == 0:
-            yield None
+        if self._comm.rank != 0:
+            yield None  # ty:ignore[invalid-yield]
             return
 
         if self._s.in_transaction():

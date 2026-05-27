@@ -4,53 +4,20 @@ from typing import (
     TYPE_CHECKING,
     Callable,
     Generator,
-    ParamSpec,
     Protocol,
     TypeVar,
-    cast,
 )
 
-from bamboost.mpi import MPI, Communicator
+from bamboost.mpi import MPI
 
 if TYPE_CHECKING:
     from bamboost.mpi import Comm
 
-_P = ParamSpec("_P")
-_T = TypeVar("_T")
 _CT = TypeVar("_CT", bound=Callable)
 
 
-def on_rank(func: Callable[_P, _T], comm: "Comm", rank: int) -> Callable[_P, _T]:
-    """Decorator to run a function on a specific rank and broadcast the result.
-
-    Args:
-        func: The function to decorate.
-        comm: The MPI communicator.
-        rank: The rank to run the function on.
-    """
-
-    @wraps(func)
-    def inner(*args, **kwargs) -> _T:
-        result = None
-        if comm.rank == rank:
-            result = func(*args, **kwargs)
-        return cast(_T, comm.bcast(result, root=rank))
-
-    return inner
-
-
-def on_root(func: Callable[_P, _T], comm: "Comm") -> Callable[_P, _T]:
-    """Decorator to run a function on the root rank and broadcast the result.
-
-    Args:
-        func: The function to decorate.
-        comm: The MPI communicator.
-    """
-    return on_rank(func, comm, 0)
-
-
 class HasComm(Protocol):
-    _comm: Communicator
+    _comm: "Comm"
 
 
 class RootProcessMeta(type):
@@ -84,20 +51,17 @@ class RootProcessMeta(type):
                 continue
 
             if callable(attr_value):
-                # check for @cast_result decorator
-                if hasattr(attr_value, "_mpi_bcast_"):
-                    continue
                 # check for @exclude decorator
                 if hasattr(attr_value, "_mpi_on_all_"):
                     continue
 
                 # wrap the remaining methods only
-                attrs[attr_name] = mcs._root_only_default(attr_value)
+                attrs[attr_name] = mcs.bcast_result(attr_value)
 
         return super().__new__(mcs, name, bases, attrs)
 
     @staticmethod
-    def _root_only_default(func):
+    def bcast_result(func: _CT) -> _CT:
         """Decorator that ensures a method is only executed on the root process (rank 0).
 
         Args:
@@ -109,53 +73,48 @@ class RootProcessMeta(type):
 
         @wraps(func)
         def wrapper(self: HasComm, *args, **kwargs):
+            status = True
             result = None
+            exc = None
 
             if self._comm.rank == 0:
-                with RootProcessMeta.comm_self(self):
-                    result = func(self, *args, **kwargs)
+                try:
+                    with comm_self(self):
+                        result = func(self, *args, **kwargs)
+                except Exception as e:
+                    status = False
+                    exc = e
 
-            # dummy broadcast to ensure synchronization
-            self._comm.bcast(result, root=0)
-            return result
+            # Synchronize status, result, and exceptions collectively
+            broadcast_data = self._comm.bcast((status, result, exc), root=0)
 
-        return wrapper
+            # If an exception occurred on Rank 0, raise it collectively on all ranks
+            if not broadcast_data[0]:
+                raise broadcast_data[2]
 
-    @staticmethod
-    @contextmanager
-    def comm_self(instance: HasComm) -> Generator[None, None, None]:
-        """Context manager to temporarily change the communicator to MPI.COMM_SELF.
+            return broadcast_data[1]
 
-        Args:
-            comm: The MPI communicator.
-
-        Yields:
-            None
-        """
-        prev_comm = instance._comm
-        try:
-            instance._comm = MPI.COMM_SELF
-            yield
-        finally:
-            instance._comm = prev_comm
-
-    @staticmethod
-    def bcast_result(func: _CT) -> _CT:
-        @wraps(func)
-        def wrapper(self: HasComm, *args, **kwargs):
-            result = None
-
-            if self._comm.rank == 0:
-                with RootProcessMeta.comm_self(self):
-                    result = func(self, *args, **kwargs)
-
-            result = self._comm.bcast(result, root=0)
-            return result
-
-        wrapper._mpi_bcast_ = True  # ty:ignore[unresolved-attribute]
         return wrapper  # ty:ignore[invalid-return-type]
 
     @staticmethod
     def exclude(func):
         func._mpi_on_all_ = True
         return func
+
+
+@contextmanager
+def comm_self(instance: HasComm) -> Generator[None, None, None]:
+    """Context manager to temporarily change the communicator to MPI.COMM_SELF.
+
+    Args:
+        instance: An instance of a class that has a _comm attribute (MPI communicator).
+
+    Yields:
+        None
+    """
+    prev_comm = instance._comm
+    try:
+        instance._comm = MPI.COMM_SELF
+        yield
+    finally:
+        instance._comm = prev_comm

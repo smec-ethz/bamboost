@@ -49,7 +49,7 @@ from bamboost.core.simulation.dict import Links, Metadata, Parameters
 from bamboost.core.simulation.groups import GroupGit, GroupMesh, GroupMeshes
 from bamboost.core.simulation.series import Series
 from bamboost.index import CollectionUID, Index, SimulationUID
-from bamboost.mpi import MPI_ON
+from bamboost.mpi import MPI, ReuseComm
 from bamboost.utilities import StrPath
 
 if TYPE_CHECKING:
@@ -159,7 +159,7 @@ class _Simulation(H5Object[_MT], ABC):
         self,
         name: str,
         parent: StrPath,
-        comm: Optional[Comm] = None,
+        comm: Comm | ReuseComm | None = None,
         index: Optional[Index] = None,
         mutable: bool = False,
         **kwargs,
@@ -193,7 +193,9 @@ class _Simulation(H5Object[_MT], ABC):
 
         # the H5Object constructor assigns _file and _comm, so we call it at the end of
         # the constructor
-        super().__init__(HDF5File(self._data_file, comm=self._comm, mutable=mutable))
+        super().__init__(
+            HDF5File(self._data_file, comm=ReuseComm(self), mutable=mutable)
+        )
 
     def __eq__(self, other: _Simulation, /) -> bool:
         return (
@@ -326,7 +328,7 @@ class _Simulation(H5Object[_MT], ABC):
         return SimulationWriter(
             self.name,
             self.path.parent,
-            self._comm,
+            ReuseComm(self),
             self._index,
             collection_uid=self.collection_uid,
         )
@@ -580,7 +582,7 @@ class Simulation(_Simulation[Immutable]):
         self,
         name: str,
         parent: StrPath,
-        comm: Optional[Comm] = None,
+        comm: Comm | ReuseComm | None = None,
         index: Optional[Index] = None,
         **kwargs,
     ):
@@ -613,7 +615,7 @@ class SimulationWriter(_Simulation[Mutable]):
         self,
         name: str,
         parent: StrPath,
-        comm: Optional[Comm] = None,
+        comm: Comm | ReuseComm | None = None,
         index: Optional[Index] = None,
         **kwargs,
     ):
@@ -783,7 +785,7 @@ class SimulationWriter(_Simulation[Mutable]):
             >>> sim_writer.run_simulation()  # Runs locally with bash
             >>> sim_writer.run_simulation(executable="sbatch")  # Submits to Slurm
         """
-        assert not MPI_ON, "This method is not available during MPI execution."
+        assert not MPI.enabled, "This method is not available during MPI execution."
 
         if not self._bash_file.exists():
             raise FileNotFoundError(

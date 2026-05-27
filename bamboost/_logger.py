@@ -6,14 +6,14 @@ STREAM_HANDLER: logging.StreamHandler = logging.StreamHandler()
 
 
 def add_stream_handler(logger: logging.Logger) -> None:
-    from bamboost.mpi import MPI, MPI_ON
+    from bamboost.mpi import MPI
 
     class _LogFormatterWithRank(logging.Formatter):
         def format(self, record):
             record.rank = MPI.COMM_WORLD.rank
             return super().format(record)
 
-    if MPI_ON:
+    if MPI.enabled:
         formatter = _LogFormatterWithRank(
             "[%(asctime)s] %(name)s: %(levelname)s [%(rank)d] - %(message)s",
             style="%",
