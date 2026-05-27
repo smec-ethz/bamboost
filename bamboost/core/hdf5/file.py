@@ -423,7 +423,8 @@ class HDF5File(h5py.File, Generic[_MT]):
         waiting_logged = False
         kwargs: dict[str, Any] = {}
         if driver == "mpio":
-            if HDF_MPI_ACTIVE and MPI.enabled:
+            # check for comm.size > 1 to avoid using mpio if comm is our serial mock comm
+            if HDF_MPI_ACTIVE and (MPI.enabled or self._comm.size > 1):
                 kwargs.update({"driver": driver, "comm": self._comm})
         else:
             kwargs.update({"driver": driver} if driver not in (None, "mpio") else {})
