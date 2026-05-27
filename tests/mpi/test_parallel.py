@@ -130,3 +130,63 @@ def test_parallel_dataset_write(mpi_collection: Collection):
         assert np.allclose(dataset, expected), (
             f"Dataset did not match expected parallel write. Got {dataset}, expected {expected}"
         )
+
+
+@pytest.mark.mpi(min_size=2)
+def test_explicit_comm_when_globally_disabled(tmp_path_factory, monkeypatch):
+    """Verify that even if globally MPI is disabled, passing an explicit comm works."""
+    from mpi4py import MPI as real_MPI
+
+    comm = real_MPI.COMM_WORLD
+
+    # monkeypatch global MPI settings to simulate globally disabled MPI
+    monkeypatch.setattr(MPI, "enabled", False)
+    from bamboost.mpi import serial
+
+    monkeypatch.setattr(MPI, "_mpi_module", serial)
+
+    # Convert Path to string on Rank 0 before broadcasting to avoid any pickling issues
+    if comm.rank == 0:
+        path_str = str(tmp_path_factory.mktemp("mpi_disabled_test"))
+    else:
+        path_str = None
+
+    shared_path_str = comm.bcast(path_str, root=0)
+    shared_path = Path(shared_path_str)
+
+    # Ensure Rank 0 creates the parent directory first, then barrier
+    if comm.rank == 0:
+        shared_path.mkdir(parents=True, exist_ok=True)
+    comm.barrier()
+
+    # Instantiate the collection, explicitly passing the parallel communicator
+    coll = Collection(
+        path=shared_path,
+        comm=comm,
+    )
+
+    # 1. Verify UID and path are synchronized
+    all_uids = comm.allgather(coll.uid)
+    assert len(set(all_uids)) == 1
+
+    # 2. Verify adding a simulation in parallel works
+    sim = coll.add(parameters={"parallel_disabled_test": True, "rank": comm.rank})
+
+    all_names = comm.allgather(sim.name)
+    assert len(set(all_names)) == 1
+
+    # 3. Verify editing & writing parallel dataset works if HDF_MPI_ACTIVE
+    local_val = float(comm.rank + 100)
+    local_data = np.array([local_val], dtype=np.float64)
+
+    with sim.edit() as writer:
+        writer.root.add_numerical_dataset("parallel_vec", local_data)
+
+    comm.barrier()
+
+    with sim.open("r") as reader:
+        dataset = reader["parallel_vec"][()]
+        expected = np.array(
+            [float(r + 100) for r in range(comm.size)], dtype=np.float64
+        )
+        assert np.allclose(dataset, expected)

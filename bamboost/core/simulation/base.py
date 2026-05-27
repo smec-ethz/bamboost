@@ -191,11 +191,10 @@ class _Simulation(H5Object[_MT], ABC):
         self._xdmf_file: Path = self.path.joinpath(constants.XDMF_FILE_NAME)
         self._bash_file: Path = self.path.joinpath(constants.RUN_FILE_NAME)
 
-        # the H5Object constructor assigns _file and _comm, so we call it at the end of
-        # the constructor
-        super().__init__(
-            HDF5File(self._data_file, comm=ReuseComm(self), mutable=mutable)
-        )
+        # the super H5Object constructor assigns comm = ReuseComm(file), which is not
+        # wanted here, that's why we set _file here directly instead of calling
+        # super().__init__()
+        self._file = HDF5File(self._data_file, comm=ReuseComm(self), mutable=mutable)  # ty:ignore[invalid-assignment]
 
     def __eq__(self, other: _Simulation, /) -> bool:
         return (
@@ -785,7 +784,9 @@ class SimulationWriter(_Simulation[Mutable]):
             >>> sim_writer.run_simulation()  # Runs locally with bash
             >>> sim_writer.run_simulation(executable="sbatch")  # Submits to Slurm
         """
-        assert not MPI.enabled, "This method is not available during MPI execution."
+        assert not MPI.enabled and self._comm.size <= 1, (
+            "This method is not available during MPI execution."
+        )
 
         if not self._bash_file.exists():
             raise FileNotFoundError(
