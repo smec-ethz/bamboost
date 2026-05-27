@@ -74,3 +74,8 @@ members = [
 
 [tool.uv.sources]
 simmr = { workspace = true }
+[tool.uv.workspace]
+members = [
+    "extensions/dataclasses",
+    "extensions/expdesign",
+]
