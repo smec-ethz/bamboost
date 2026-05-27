@@ -56,8 +56,8 @@ from bamboost.index import (
 from bamboost.index.filtering import Filter, Operator, Sorter, SortInstruction, _Key
 from bamboost.index.scanner import load_collection_metadata
 from bamboost.index.store import CollectionMetadata, CollectionRecord
-from bamboost.mpi import Communicator
-from bamboost.mpi.utilities import RootProcessMeta
+from bamboost.mpi import Communicator, ReuseComm
+from bamboost.mpi.utilities import RootProcessMeta, comm_self
 from bamboost.plugins import ElligibleForPlugin
 from bamboost.utilities import ComparableIterable
 
@@ -228,7 +228,7 @@ class Collection(ElligibleForPlugin):
         if comm is not None:
             self._comm = comm
             # ensure the index instance uses the same communicator
-            index_instance = index_instance or Index(comm=self._comm)
+            index_instance = index_instance or Index(comm=ReuseComm(self))
 
         self._index = index_instance or Index.default
         self._filter = filter
@@ -307,12 +307,14 @@ class Collection(ElligibleForPlugin):
             name = self.df.iloc[name_or_index]["name"]
         else:
             name = name_or_index
-        return Simulation(name, self.path, self._comm, collection_uid=self.uid)
+        return Simulation(name, self.path, ReuseComm(self), collection_uid=self.uid)
 
     def __iter__(self) -> Generator[Simulation, None, None]:
         """Iterate over all simulations in the collection."""
         for sim in self._record.simulations:
-            yield Simulation(sim.name, self.path, self._comm, collection_uid=self.uid)
+            yield Simulation(
+                sim.name, self.path, ReuseComm(self), collection_uid=self.uid
+            )
 
     @cache
     def _ipython_key_completions_(self):
@@ -612,7 +614,9 @@ class Collection(ElligibleForPlugin):
             "Invalid duplicate_action. Must be one of: 'ignore', 'replace', 'skip', 'raise'."
         )
 
-        name = SimulationName(name, comm=self._comm)  # Generates a unique id as name if not provided
+        name = SimulationName(
+            name, comm=self._comm
+        )  # Generates a unique id as name if not provided
         directory = self.path.joinpath(name)
 
         # Validate parameters keys (top-level only)
@@ -638,29 +642,29 @@ class Collection(ElligibleForPlugin):
         if must_fail:
             raise FileExistsError(fail_msg)
 
+        # Check for duplicate parameters/links if provided
+        if (parameters or links) and duplicate_action != "ignore" and not override:
+            try:
+                self._check_duplicate(parameters, links=links)
+            except DuplicateSimulationError as e:
+                if duplicate_action == "raise":
+                    raise
+                elif duplicate_action == "skip":
+                    log.info(
+                        f"Simulation with parameters {parameters} already exists as"
+                        f"{e.duplicates}. Skipping creation and returning first duplicate."
+                    )
+                    return self[e.duplicates[0]].edit()
+                elif duplicate_action == "replace":
+                    log.info(
+                        f"Removing (all) existing simulations with the given parameters: {e.duplicates}."
+                    )
+                    self.delete(e.duplicates)
+
         # Root process creates the directory if it does not exist
         if self._comm.rank == 0:
-            # Check for duplicate parameters/links if provided
-            if (parameters or links) and duplicate_action != "ignore" and not override:
-                try:
-                    self._check_duplicate(parameters, links=links)
-                except DuplicateSimulationError as e:
-                    if duplicate_action == "raise":
-                        raise
-                    elif duplicate_action == "skip":
-                        log.info(
-                            f"Simulation with parameters {parameters} already exists as"
-                            f"{e.duplicates}. Skipping creation and returning first duplicate."
-                        )
-                        return self[e.duplicates[0]].edit()
-                    elif duplicate_action == "replace":
-                        log.info(
-                            f"Removing (all) existing simulations with the given parameters: {e.duplicates}."
-                        )
-                        self.delete(e.duplicates)
-
             if exists and override:
-                with RootProcessMeta.comm_self(self):
+                with comm_self(self._index):
                     self._index.drop_simulation(self.uid, name)
                 shutil.rmtree(directory)  # remove the old directory
 
@@ -672,7 +676,7 @@ class Collection(ElligibleForPlugin):
         try:
             # Create the simulation instance
             sim = SimulationWriter(
-                name, self.path, self._comm, self._index, collection_uid=self.uid
+                name, self.path, ReuseComm(self), self._index, collection_uid=self.uid
             )
             with sim._file.open("w", driver="mpio"), self._index.sql_transaction():
                 sim.initialize()  # create groups, set metadata and status
@@ -742,7 +746,7 @@ class Collection(ElligibleForPlugin):
 
         # Only root process performs deletion
         if self._comm.rank == 0:
-            with RootProcessMeta.comm_self(self), self._index.sql_transaction():
+            with comm_self(self._index), self._index.sql_transaction():
                 for n in names:
                     self._index.drop_simulation(self.uid, n)
                     try:

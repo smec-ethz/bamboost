@@ -34,6 +34,7 @@ from bamboost.index import (
 )
 from bamboost.index.filtering import Filter, Sorter
 from bamboost.index.store import SimulationRecord
+from bamboost.mpi import ReuseComm
 from bamboost.utilities import PathSet
 
 if TYPE_CHECKING:
@@ -299,7 +300,7 @@ class RemoteCollection(Collection):
         if comm is not None:
             self._comm = comm
         else:
-            self._comm = remote._comm
+            self._comm = ReuseComm(remote)
 
         self.uid = CollectionUID(uid, comm=self._comm)
         self._index = remote  # pyright: ignore[reportIncompatibleVariableOverride]
@@ -348,7 +349,11 @@ class RemoteCollection(Collection):
         else:
             name = name_or_index
         return RemoteSimulation(
-            name, self.path, collection_uid=self.uid, index=self._index, comm=self._comm
+            name,
+            self.path,
+            collection_uid=self.uid,
+            index=self._index,
+            comm=ReuseComm(self),
         )
 
     @property
@@ -393,7 +398,7 @@ class RemoteSimulation(Simulation):
         parent: StrPath,
         collection_uid: CollectionUID,
         index: Remote,
-        comm: Optional[Comm] = None,
+        comm: Comm | ReuseComm | None = None,
         **kwargs,
     ):
         # if there is no local path, sync it from remote

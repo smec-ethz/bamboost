@@ -55,11 +55,8 @@ from bamboost.core.hdf5.file import (
 )
 from bamboost.core.hdf5.filemap import FilteredFileMap
 from bamboost.core.hdf5.hdf5path import HDF5Path
-from bamboost.mpi import MPI_ON
 
 log = BAMBOOST_LOGGER.getChild("hdf5")
-
-MPI_ACTIVE = "mpio" in h5py.registered_drivers() and h5py.get_config().mpi and MPI_ON
 
 _RT_group = TypeVar("_RT_group", bound=Union["Group", "Dataset"])
 

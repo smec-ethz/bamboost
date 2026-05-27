@@ -7,7 +7,6 @@ from typing import TYPE_CHECKING, overload
 from typing_extensions import Self
 
 from bamboost import constants
-from bamboost.mpi import Communicator
 
 if TYPE_CHECKING:
     from bamboost.mpi import Comm

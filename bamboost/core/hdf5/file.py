@@ -65,6 +65,7 @@ from functools import total_ordering, wraps
 from pathlib import Path
 from typing import (
     TYPE_CHECKING,
+    Any,
     Callable,
     Generator,
     Generic,
@@ -84,7 +85,7 @@ from bamboost._logger import BAMBOOST_LOGGER
 from bamboost._typing import _MT, _P, _T, Immutable, Mutable
 from bamboost.core.hdf5.filemap import FileMap
 from bamboost.core.hdf5.hdf5path import HDF5Path
-from bamboost.mpi import MPI_ON, Communicator
+from bamboost.mpi import MPI, Communicator, ReuseComm
 from bamboost.mpi.utilities import RootProcessMeta
 from bamboost.plugins import ElligibleForPlugin
 from bamboost.utilities import StrPath
@@ -103,9 +104,7 @@ if TYPE_CHECKING:
 log = BAMBOOST_LOGGER.getChild("hdf5")
 """Logger instance for this module."""
 
-HDF_MPI_ACTIVE = (
-    "mpio" in h5py.registered_drivers() and h5py.get_config().mpi and MPI_ON
-)
+HDF_MPI_ACTIVE = "mpio" in h5py.registered_drivers() and h5py.get_config().mpi
 """Indicates whether MPI support is available for HDF5."""
 
 
@@ -191,7 +190,7 @@ class H5Object(ElligibleForPlugin, Generic[_MT]):
 
     def __init__(self, file: HDF5File[_MT]) -> None:
         self._file = file
-        self._comm = file._comm
+        self._comm = ReuseComm(file)
 
     @overload
     def mutable(self: H5Object[Mutable]) -> Literal[True]: ...
@@ -229,11 +228,11 @@ class H5Object(ElligibleForPlugin, Generic[_MT]):
         """Context manager to suspend immediate write operations. Patches
         self._file.available_for_single_process_write to return False."""
         original_method = self._file.available_for_single_process_write
-        self._file.available_for_single_process_write = lambda: False
+        self._file.available_for_single_process_write: Callable = lambda: False
         try:
             yield
         finally:
-            self._file.available_for_single_process_write = original_method
+            self._file.available_for_single_process_write: Callable = original_method
             self._file.single_process_queue.apply()
 
 
@@ -256,7 +255,7 @@ class SingleProcessQueue(deque[Callable[[], None]], metaclass=RootProcessMeta):
 
     def __init__(self, file: HDF5File):
         self._file = file
-        self._comm = file._comm
+        self._comm = ReuseComm(file)
         super().__init__()
 
     def add_instruction(self, instruction: Callable[[], None]) -> None:
@@ -310,20 +309,20 @@ class HDF5File(h5py.File, Generic[_MT]):
     def __init__(
         self: HDF5File[Immutable],
         file: StrPath,
-        comm: Optional[Comm] = None,
+        comm: Comm | ReuseComm | None = None,
         mutable: Literal[False] = False,
     ): ...
     @overload
     def __init__(
         self: HDF5File[Mutable],
         file: StrPath,
-        comm: Optional[Comm] = None,
+        comm: Comm | ReuseComm | None = None,
         mutable: Literal[True] = True,
     ): ...
     def __init__(
         self,
         file: StrPath,
-        comm: Optional[Comm] = None,
+        comm: Comm | ReuseComm | None = None,
         mutable: bool = False,
     ):
         self._filename = file.as_posix() if isinstance(file, Path) else file
@@ -422,16 +421,17 @@ class HDF5File(h5py.File, Generic[_MT]):
         self, mode: FileMode, driver: Optional[Literal["mpio"]] = None
     ) -> Self:
         waiting_logged = False
+        kwargs: dict[str, Any] = {}
+        if driver == "mpio":
+            if HDF_MPI_ACTIVE and MPI.enabled:
+                kwargs.update({"driver": driver, "comm": self._comm})
+        else:
+            kwargs.update({"driver": driver} if driver not in (None, "mpio") else {})
 
         # try to open the file until it is available
         while True:
             try:
-                if HDF_MPI_ACTIVE and mode > FileMode.READ and driver == "mpio":
-                    h5py.File.__init__(
-                        self, self._filename, mode.value, driver=driver, comm=self._comm
-                    )
-                else:
-                    h5py.File.__init__(self, self._filename, mode.value)
+                h5py.File.__init__(self, self._filename, mode.value, **kwargs)
                 log.debug(
                     f"[{id(self)}] opened file (mode {mode.value}) {self._filename}"
                 )
@@ -447,6 +447,8 @@ class HDF5File(h5py.File, Generic[_MT]):
                 waiting_logged = True
                 time.sleep(0.01)
 
+    _is_applying_queue: bool = False
+
     def close(self):
         self._context_stack = max(0, self._context_stack - 1)
 
@@ -456,8 +458,12 @@ class HDF5File(h5py.File, Generic[_MT]):
             super().close()
 
             # if the file is mutable, we further apply the single process queue
-            if self.mutable:
-                self.single_process_queue.apply()
+            if self.mutable and not self._is_applying_queue:
+                self._is_applying_queue = True
+                try:
+                    self.single_process_queue.apply()
+                finally:
+                    self._is_applying_queue = False
 
         log.debug(f"[{id(self)}] context stack - ({self._context_stack})")
 
