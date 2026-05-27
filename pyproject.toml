@@ -57,21 +57,21 @@ requires = [
 ]
 build-backend = "hatchling.build"
 
-[tool.basedpyright]
-pythonVersion = "3.10"
-pythonPlatform = "Linux"
-typeCheckingMode = "standard"
+[tool.ty.environment]
+python-version = "3.10"
+python-platform = "linux"
+
+[tool.ty.src]
 exclude = [
     "build",
     "dist",
     "docs",
-    "tests",
     ".venv",
-    "**/*.ipynb",
 ]
-reportOptionalMemberAccess = false
-reportOptionalSubscript = false
-reportIncompatibleMethodOverride = false
+
+[tool.ty.rules]
+invalid-method-override = "warn"
+
 
 [tool.coverage.run]
 source = ["bamboost"]
