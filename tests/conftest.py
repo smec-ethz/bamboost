@@ -34,7 +34,7 @@ def pytest_sessionfinish(session, exitstatus):
 @pytest.fixture(scope="module")
 def tmp_path_module(tmp_path_factory):
     tmp_path = tmp_path_factory.mktemp("data")
-    tmp_path = Communicator._default_comm.bcast(tmp_path, root=0)
+    tmp_path = Communicator.get_default_comm().bcast(tmp_path, root=0)
     yield tmp_path
 
 
@@ -48,7 +48,7 @@ def tmp_collection(tmp_path_module: Path):
 
 @pytest.fixture
 def tmp_collection_burn(tmp_path: Path):
-    tmp_path = Communicator._default_comm.bcast(tmp_path, root=0)
+    tmp_path = Communicator.get_default_comm().bcast(tmp_path, root=0)
     yield Collection(
         path=tmp_path,
         index_instance=Index.default,

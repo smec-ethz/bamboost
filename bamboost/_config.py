@@ -20,7 +20,6 @@ Attributes:
 
 """
 
-import importlib.util
 import sys
 from collections.abc import MutableMapping
 from dataclasses import dataclass, field, fields
@@ -46,10 +45,10 @@ from bamboost.utilities import PathSet
 if TYPE_CHECKING:
     from typing_extensions import Self
 
-if sys.version_info < (3, 11):
-    import tomli  # type: ignore
-else:
+if sys.version_info >= (3, 11):
     import tomllib as tomli
+else:
+    import tomli  # type: ignore
 
 
 __all__ = [
@@ -320,6 +319,17 @@ class _Options(_Base):
     """
 
     mpi: bool = field(default=False)
+
+    def __setattr__(self, name: str, value: Any, /) -> None:
+        super().__setattr__(name, value)
+        if name == "mpi" and "bamboost.mpi" in sys.modules:
+            try:
+                from bamboost.mpi import _MPIProxy
+
+                _MPIProxy.set_from_ctx()
+            except ImportError:
+                pass
+
     sortTableKey: str = field(default="created_at")
     sortTableOrder: str = field(default="desc")
 
