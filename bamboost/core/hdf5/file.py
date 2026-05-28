@@ -420,7 +420,6 @@ class HDF5File(h5py.File, Generic[_MT]):
     def _try_open_repeat(
         self, mode: FileMode, driver: Optional[Literal["mpio"]] = None
     ) -> Self:
-        waiting_logged = False
         kwargs: dict[str, Any] = {}
         if driver == "mpio":
             # check for comm.size > 1 to avoid using mpio if comm is our serial mock comm
@@ -428,6 +427,12 @@ class HDF5File(h5py.File, Generic[_MT]):
                 kwargs.update({"driver": driver, "comm": self._comm})
         else:
             kwargs.update({"driver": driver} if driver not in (None, "mpio") else {})
+
+        waiting_logged = False
+        timeout = config.options.file_lock_timeout
+        start_time = time.monotonic()
+        last_logged = start_time
+        sleep_interval = 0.01
 
         # try to open the file until it is available
         while True:
@@ -438,13 +443,34 @@ class HDF5File(h5py.File, Generic[_MT]):
                 )
 
                 return self
-            except BlockingIOError:
+            except BlockingIOError as e:
+                now = time.monotonic()
+                elapsed = now - start_time
+
+                # Check if we exceeded the configured timeout
+                if timeout is not None and timeout > 0 and elapsed >= timeout:
+                    log.error(
+                        f"[{self._filename}] Timeout after {elapsed:.1f}s waiting for file lock"
+                    )
+                    raise TimeoutError(
+                        f"Timeout of {timeout}s exceeded while waiting to acquire lock "
+                        f"on HDF5 file '{self._filename}'."
+                    ) from e
+
                 # If the file is locked, we wait and try again
                 if not waiting_logged:
                     level = logging._nameToLevel[config.options.log_file_lock_severity]
                     log.log(level, f"[{self._filename}] file locked --> waiting")
-                waiting_logged = True
-                time.sleep(0.01)
+                    waiting_logged = True
+                    last_logged = now
+                elif now - last_logged >= 10.0:
+                    log.warning(
+                        f"[{self._filename}] still waiting for file lock (elapsed: {elapsed:.1f}s)..."
+                    )
+                    last_logged = now
+
+                time.sleep(sleep_interval)
+                sleep_interval = min(sleep_interval * 2, 1.0)
 
     _is_applying_queue: bool = False
 

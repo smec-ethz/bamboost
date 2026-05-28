@@ -338,6 +338,10 @@ class _Options(_Base):
     )
     """The severity level for the log file lock."""
 
+    file_lock_timeout: float | None = field(default=60.0)
+    """The timeout in seconds to wait for acquiring a file lock.
+    Set to None or 0 to wait indefinitely."""
+
     log_root_only: bool = False
     """If True, only the root logger is used."""
 
