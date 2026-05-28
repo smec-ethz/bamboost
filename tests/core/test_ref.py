@@ -286,7 +286,7 @@ def test_group_require_dataset(group: Group):
 )
 def test_group_add_numerical_dataset(group, vec, dtype):
     """Caution: Does not test MPI implementation."""
-    group.add_numerical_dataset("data", vec, attrs={"attr1": 3}, dtype=dtype)
+    group.write_distributed_array("data", vec, attrs={"attr1": 3}, dtype=dtype)
     with group.open("r"):
         dataset = group._obj["data"]
         np.testing.assert_array_equal(dataset[:], vec)

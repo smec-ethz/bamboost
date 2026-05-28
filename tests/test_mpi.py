@@ -59,11 +59,11 @@ def test_h5py_mpi_check(monkeypatch, h5py_mpi_disabled):
 
 
 def test_h5py_mpi_check_on_import(monkeypatch: MonkeyPatch, h5py_mpi_disabled):
-    # make sure MPI_ON is triggered to be True
-    monkeypatch.setattr("bamboost.config.options.mpi", True)
-    monkeypatch.setenv("PMI_SIZE", "16")  # ensure MPI is detected as needed
-
     with pytest.raises(RuntimeError):
+        # make sure MPI_ON is triggered to be True
+        monkeypatch.setattr("bamboost.config.options.mpi", True)
+        monkeypatch.setenv("PMI_SIZE", "16")  # ensure MPI is detected as needed
+
         import bamboost.mpi as mpi
 
         # reload the mpi module to trigger the check
