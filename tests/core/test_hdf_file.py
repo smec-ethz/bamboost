@@ -294,3 +294,14 @@ def test_hdf5_file_force_close(hdf5_file: HDF5File):
     hdf5_file.open("w")
     hdf5_file.force_close()
     assert not hdf5_file.is_open
+
+
+def test_hdf5_file_lock_timeout(hdf5_file: HDF5File):
+    from bamboost._config import config
+
+    with patch("h5py.File.__init__", side_effect=BlockingIOError):
+        with patch.object(config.options, "file_lock_timeout", 0.05):
+            with pytest.raises(TimeoutError) as exc_info:
+                hdf5_file.open("w")
+            assert "Timeout" in str(exc_info.value)
+
