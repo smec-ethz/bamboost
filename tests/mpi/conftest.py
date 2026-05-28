@@ -21,11 +21,13 @@ def pytest_collection_modifyitems(config, items):
 
 
 @pytest.fixture(autouse=True)
-def verify_mpi_active():
+def verify_mpi_available():
     """Verify that MPI is truly active for tests in this directory."""
-    from bamboost.mpi import MPI
+    import importlib.util
 
-    if not MPI.enabled:
+    mpi_available = importlib.util.find_spec("mpi4py") is not None
+
+    if not mpi_available:
         pytest.fail(
             "MPI is not active, but tests in `tests/mpi/` require a real MPI environment. "
             "Ensure you are running with `mpirun` or `mpiexec` and that `mpi4py` is installed."

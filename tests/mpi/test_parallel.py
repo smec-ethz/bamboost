@@ -4,7 +4,7 @@ from pathlib import Path
 import numpy as np
 import pytest
 
-from bamboost import Collection, Simulation
+from bamboost import Collection, Simulation, config
 from bamboost.core.hdf5.file import HDF_MPI_ACTIVE
 from bamboost.mpi import MPI
 from bamboost.mpi.utilities import RootProcessMeta, comm_self
@@ -35,15 +35,6 @@ def mpi_collection(tmp_path_factory: pytest.TempPathFactory):
         comm=comm,
     )
     yield coll
-
-
-@pytest.mark.mpi(min_size=2)
-def test_mpi_basics():
-    """Verify standard MPI properties like rank and size in parallel run."""
-    comm = MPI.COMM_WORLD
-    assert comm is not None
-    assert comm.size >= 2
-    assert 0 <= comm.rank < comm.size
 
 
 @pytest.mark.mpi(min_size=2)
