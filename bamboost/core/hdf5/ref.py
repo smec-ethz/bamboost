@@ -42,9 +42,8 @@ from typing import (
 
 import h5py
 import numpy as np
-from deprecated import deprecated
 from numpy.typing import NDArray
-from typing_extensions import Self
+from typing_extensions import Self, deprecated
 
 import bamboost
 from bamboost._logger import BAMBOOST_LOGGER
@@ -487,7 +486,7 @@ class Group(H5Reference[_MT]):
         if file_map:
             self._group_map[name] = h5py.Dataset
 
-    @deprecated(reason="This method is deprecated in favor of write_distributed_array")
+    @deprecated("This method is deprecated in favor of write_distributed_array")
     def add_numerical_dataset(self, *args, **kwargs):
         return self.write_distributed_contiguous_array(*args, **kwargs)
 

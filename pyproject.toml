@@ -43,7 +43,6 @@ dev = [
     "pip>=24.3.1",
     "twine>=5.1.1",
     "ipywidgets>=8.1.5",
-    "commitizen>=4.6.3",
 ]
 test = [
     "pytest",
