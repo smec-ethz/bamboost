@@ -358,23 +358,31 @@ class HDF5File(h5py.File, Generic[_MT]):
         self: HDF5File[Immutable],
         mode: Literal[FileMode.READ, "r"] = "r",
         driver: Optional[Literal["mpio"]] = None,
+        *,
+        timeout: float | None = None,
     ) -> HDF5File[Immutable]: ...
     @overload
     def open(
         self: HDF5File[Mutable],
         mode: Union[FileMode, Literal["r", "r+", "w", "w-", "x", "a"]] = "r",
         driver: Optional[Literal["mpio"]] = None,
+        *,
+        timeout: float | None = None,
     ) -> HDF5File[Mutable]: ...
     @overload
     def open(
         self: HDF5File,
         mode: Union[FileMode, str] = "r",
         driver: Optional[Literal["mpio"]] = None,
+        *,
+        timeout: float | None = None,
     ) -> HDF5File: ...
     def open(
         self,
         mode: Union[FileMode, str] = "r",
         driver=None,
+        *,
+        timeout: float | None = None,
     ) -> HDF5File:
         """Context manager to opens the HDF5 file with the specified mode and
         driver.
@@ -386,6 +394,8 @@ class HDF5File(h5py.File, Generic[_MT]):
             mode: The mode to open the file with. Defaults to "r" (read-only).
             driver: The driver to use for file I/O. If "mpio" and MPI is
                 active, it will use MPI I/O. Defaults to None.
+            timeout: Optional timeout in seconds to wait for the file lock. If None, use
+                default from config.
 
         Returns:
             HDF5File: The opened HDF5 file object.
@@ -415,10 +425,14 @@ class HDF5File(h5py.File, Generic[_MT]):
                 # just increase the context stack and return
                 return self
 
-        return self._try_open_repeat(mode, driver)
+        return self._try_open_repeat(mode, driver, timeout=timeout)
 
     def _try_open_repeat(
-        self, mode: FileMode, driver: Optional[Literal["mpio"]] = None
+        self,
+        mode: FileMode,
+        driver: Optional[Literal["mpio"]] = None,
+        *,
+        timeout: float | None = None,
     ) -> Self:
         kwargs: dict[str, Any] = {}
         if driver == "mpio":
@@ -428,8 +442,10 @@ class HDF5File(h5py.File, Generic[_MT]):
         else:
             kwargs.update({"driver": driver} if driver not in (None, "mpio") else {})
 
+        if timeout is None:
+            timeout = config.options.file_lock_timeout
+
         waiting_logged = False
-        timeout = config.options.file_lock_timeout
         start_time = time.monotonic()
         last_logged = start_time
         sleep_interval = 0.01
@@ -444,6 +460,14 @@ class HDF5File(h5py.File, Generic[_MT]):
 
                 return self
             except BlockingIOError as e:
+                if timeout == 0:
+                    log.error(
+                        f"[{self._filename}] File is locked and timeout is set to 0, not retrying."
+                    )
+                    raise TimeoutError(
+                        "File is locked and timeout is set to 0, not retrying."
+                    ) from e
+
                 now = time.monotonic()
                 elapsed = now - start_time
 

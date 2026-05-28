@@ -457,9 +457,19 @@ class Index(metaclass=RootProcessMeta):
 
         for name in all_simulations_fs:
             log.debug(f"Syncing simulation {name} in collection {uid}.")
-            self.upsert_simulation(
-                collection_uid=uid, simulation_name=name, collection_path=path
-            )
+            try:
+                self.upsert_simulation(
+                    collection_uid=uid,
+                    simulation_name=name,
+                    collection_path=path,
+                    timeout=0.1,
+                )
+            except TimeoutError as e:
+                # if we timeout while trying to read the HDF5 file, we skip the simulation and
+                # continue with the next one. This can happen if another process is currently writing
+                log.warning(
+                    f"Timeout while syncing simulation {name} in collection {uid}: {e}"
+                )
 
         if heal_links:
             self.heal_stale_links(uid)
@@ -663,6 +673,7 @@ class Index(metaclass=RootProcessMeta):
         links: Mapping[Any, Any] | None = None,
         *,
         collection_path: StrPath | None = None,
+        timeout: float | None = None,
     ) -> None:
         """Cache a simulation from a collection.
 
@@ -688,7 +699,7 @@ class Index(metaclass=RootProcessMeta):
                 comm=self._comm,
                 collection_uid=collection_uid,
             )
-            with sim._file.open("r"):
+            with sim._file.open("r", timeout=timeout):
                 metadata, parameters, links = (
                     sim.metadata._dict,
                     sim.parameters._dict,
