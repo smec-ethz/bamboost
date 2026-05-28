@@ -317,7 +317,6 @@ class Index(metaclass=RootProcessMeta):
         return_uid: Literal[True],
     ) -> tuple[Path, str]: ...
 
-    @RootProcessMeta.bcast_result
     def resolve_path(
         self, uid: str, *, search_paths=None, return_uid=False
     ) -> Path | tuple[Path, str]:
@@ -372,7 +371,6 @@ class Index(metaclass=RootProcessMeta):
 
         raise InvalidCollectionError(f"Collection with {uid} was not found.")
 
-    @RootProcessMeta.bcast_result
     @_sql_transaction
     def resolve_uid(self, path: StrPath) -> CollectionUID:
         """Resolve the UID of a collection from a path.
@@ -467,13 +465,11 @@ class Index(metaclass=RootProcessMeta):
             self.heal_stale_links(uid)
 
     @property
-    @RootProcessMeta.bcast_result
     @_sql_transaction
     def all_collections(self) -> list[store.CollectionRecord]:
         """Return all collections in the index."""
         return store.fetch_collections(self._s)
 
-    @RootProcessMeta.bcast_result
     @_sql_transaction
     def collection(self, uid: str) -> store.CollectionRecord | None:
         """Return a collection from the index.
@@ -494,13 +490,11 @@ class Index(metaclass=RootProcessMeta):
         return store.fetch_collection(self._s, alias_uid)
 
     @property
-    @RootProcessMeta.bcast_result
     @_sql_transaction
     def all_simulations(self) -> list[store.SimulationRecord]:
         """Return all simulations in the index."""
         return store.fetch_simulations(self._s)
 
-    @RootProcessMeta.bcast_result
     @_sql_transaction
     def simulation(self, uid: str | SimulationUID) -> store.SimulationRecord | None:
         """Return a simulation from the index.
@@ -512,7 +506,6 @@ class Index(metaclass=RootProcessMeta):
         uid = SimulationUID(uid)
         return store.fetch_simulation(self._s, uid.collection_uid, uid.simulation_name)
 
-    @RootProcessMeta.bcast_result
     @_sql_transaction
     def simulations(
         self, uids: Iterable[str | SimulationUID]
@@ -531,20 +524,17 @@ class Index(metaclass=RootProcessMeta):
         return store.fetch_simulations_by_uid(self._s, normalized_uids)
 
     @property
-    @RootProcessMeta.bcast_result
     @_sql_transaction
     def all_parameters(self) -> list[store.ParameterRecord]:
         """Return all parameters in the index."""
         return store.fetch_parameters(self._s)
 
     @property
-    @RootProcessMeta.bcast_result
     @_sql_transaction
     def all_links(self) -> list[store.LinkRecord]:
         """Return all simulation links in the index."""
         return store.fetch_links(self._s)
 
-    @RootProcessMeta.bcast_result
     @_sql_transaction
     def collection_links(self, uid: str) -> list[store.LinkRecord]:
         """Return all simulation links for a specific collection.
@@ -554,7 +544,6 @@ class Index(metaclass=RootProcessMeta):
         """
         return store.fetch_collection_links(self._s, uid)
 
-    @RootProcessMeta.bcast_result
     @_sql_transaction
     def collection_links_map(self, uid: str) -> dict[str, dict[str, SimulationUID]]:
         """Return a mapping of simulation names to their links for a specific collection.
@@ -610,7 +599,6 @@ class Index(metaclass=RootProcessMeta):
 
         return collection_record
 
-    @RootProcessMeta.bcast_result
     @_sql_transaction
     def backlinks(self, uid: str | SimulationUID) -> list[tuple[SimulationUID, str]]:
         """Return all simulations that link to the given simulation.
@@ -921,7 +909,6 @@ class Index(metaclass=RootProcessMeta):
                 coll_uid, sim_name, links_json, scan_and_sync=False
             )
 
-    @RootProcessMeta.bcast_result
     @_sql_transaction
     def _get_path_and_uid(self, uid: str) -> tuple[Path | None, str | None]:
         """Fetch the path and UID of a collection given its UID or an alias."""
@@ -930,7 +917,6 @@ class Index(metaclass=RootProcessMeta):
             return Path(res[0]), res[1]
         return None, None
 
-    @RootProcessMeta.bcast_result
     @_sql_transaction
     def _get_collection_path(self, uid: str) -> Path | None:
         path, _ = self._get_path_and_uid(uid)
@@ -939,12 +925,10 @@ class Index(metaclass=RootProcessMeta):
     def _find_collection_uid_by_alias(self, alias: str) -> str | None:
         return store.fetch_collection_uid_by_alias(self._s, alias)
 
-    @RootProcessMeta.bcast_result
     @_sql_transaction
     def _get_collections(self) -> list[store.CollectionRecord]:
         return store.fetch_collections(self._s)
 
-    @RootProcessMeta.bcast_result
     @_sql_transaction
     def _get_simulation(
         self, collection_uid: CollectionUID | str, simulation_name: str
