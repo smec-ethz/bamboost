@@ -305,3 +305,9 @@ def test_hdf5_file_lock_timeout(hdf5_file: HDF5File):
                 hdf5_file.open("w")
             assert "Timeout" in str(exc_info.value)
 
+
+def test_hdf5_file_lock_timeout_zero(hdf5_file: HDF5File):
+    with patch("h5py.File.__init__", side_effect=BlockingIOError):
+        with pytest.raises(TimeoutError) as exc_info:
+            hdf5_file.open("w", timeout=0)
+        assert "not retrying" in str(exc_info.value)
