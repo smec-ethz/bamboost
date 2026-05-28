@@ -117,8 +117,25 @@ def comm_self(instance: HasComm) -> Generator[None, None, None]:
         None
     """
     prev_comm = instance._comm
+    comm_self_val = MPI.COMM_SELF
+
+    from bamboost.mpi.serial import NullComm, SerialComm
+
+    # If the original communicator is a real mpi4py communicator (even when globally MPI is
+    # disabled, e.g., via local comm overrides), we must swap it with mpi4py's real COMM_SELF
+    # rather than the serial mock COMM_SELF.
+    # We check against SerialComm/NullComm first to avoid mpi4py import overhead on serial runs.
+    if not isinstance(prev_comm, (SerialComm, NullComm)):
+        try:
+            from mpi4py import MPI as real_MPI  # ty: ignore[unresolved-import]
+
+            if isinstance(prev_comm, real_MPI.Comm):
+                comm_self_val = real_MPI.COMM_SELF
+        except ImportError:
+            pass
+
     try:
-        instance._comm = MPI.COMM_SELF
+        instance._comm = comm_self_val
         yield
     finally:
         instance._comm = prev_comm
