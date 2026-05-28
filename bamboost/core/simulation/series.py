@@ -116,7 +116,7 @@ class Series(H5Reference[_MT]):
             icon=icon,
             version=bamboost.__version__,
             attrs=self.attrs,
-            globals=[(k, self.globals[k].shape) for k in self.globals],
+            globals=[(k, self.globals[k].shape) for k in self.globals.keys()],
             fields=self.get_field_names(),
             size=len(self),
         )
