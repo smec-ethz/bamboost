@@ -1,5 +1,29 @@
 # Change log for bamboost
 
+## [0.14.0](https://github.com/smec-ethz/bamboost/compare/0.13.5...0.14.0) (2026-05-28)
+
+
+### Features
+
+* **file:** add file_lock_timeout option & improve open method ([f35dfff](https://github.com/smec-ethz/bamboost/commit/f35dfffa8bc1013f3b9ac6a39f600e2237276d44))
+* **mpi:** adds grp.write_distributed_array (replaces add_numerical_dataset) ([8d5ee5e](https://github.com/smec-ethz/bamboost/commit/8d5ee5e12396aedfc75cdf0211a7575008076929))
+
+
+### Bug Fixes
+
+* **file:** add timeout option to file.open ([0f3cdb6](https://github.com/smec-ethz/bamboost/commit/0f3cdb67e58c7b2acfbf193009b1923cce98f9a0))
+* **index:** reduce lock timeout for collection sync and skip locked ones ([0f3cdb6](https://github.com/smec-ethz/bamboost/commit/0f3cdb67e58c7b2acfbf193009b1923cce98f9a0))
+* **index:** remove bcast_result decorators (this is default now) ([82a90ed](https://github.com/smec-ethz/bamboost/commit/82a90ed184a6b6967f50abd5b98a3e537321ef25))
+* **mpi:** allow explicit comm by passing comm, even if globally mpi=False ([b6a59aa](https://github.com/smec-ethz/bamboost/commit/b6a59aa78521152bd4d449a51e14ad802314d793))
+* **mpi:** allow passing explicit comm to objects (which enables communication) ([13abf05](https://github.com/smec-ethz/bamboost/commit/13abf050bb7f55e3e2f59f335f5e785533126460))
+* **mpi:** automatically reload mpi config if options.mpi is set ([5f2d7a9](https://github.com/smec-ethz/bamboost/commit/5f2d7a96f2112300f8a83052c4a04ecff36d9924))
+* **mpi:** change config and mpi init to be False by default ([c7e7dfc](https://github.com/smec-ethz/bamboost/commit/c7e7dfc7b2e6ad7bbe1206b1c11d1e118518d058))
+* **mpi:** in comm_self, swap for real MPI.COMM_SELF if original comm was from mpi4py ([241d232](https://github.com/smec-ethz/bamboost/commit/241d2320fe0e54f56b823480eec62307c9094553))
+* **mpi:** store communicator locally per instance with global one as fallback ([64bad44](https://github.com/smec-ethz/bamboost/commit/64bad44a47cada757897003b50c544e5c8251ae4))
+* none kills duplicates ([#34](https://github.com/smec-ethz/bamboost/issues/34)) ([4bc32a9](https://github.com/smec-ethz/bamboost/commit/4bc32a9681fe846723bf4c2d0faf4f1643bc31bd))
+* **series:** revert introduced bug in series html repr ([3ed4df0](https://github.com/smec-ethz/bamboost/commit/3ed4df00153775a48183bcbd57c4b41ec5edd5a3))
+* **uid:** add getnewargs for save pickling of SimulationUID ([0e662de](https://github.com/smec-ethz/bamboost/commit/0e662de6c921c6b66fa23159395e9feaf10cfcda))
+
 ## [0.13.5](https://github.com/smec-ethz/bamboost/compare/0.13.4...0.13.5) (2026-04-23)
 
 
