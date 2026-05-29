@@ -8,6 +8,7 @@ from bamboost.cli import _completion, indexing
 from bamboost.cli.alias import subapp_alias
 from bamboost.cli.common import console
 from bamboost.cli.config import app_config
+from bamboost.cli.run import run
 
 app = typer.Typer(no_args_is_help=True, pretty_exceptions_show_locals=False)
 app.add_typer(indexing.app_index, rich_help_panel="Subgroups")
@@ -19,6 +20,9 @@ app.command()(indexing.list)
 app.command("ls", hidden=True)(indexing.list)
 app.command()(indexing.scan)
 app.command()(indexing.clean)
+
+# add from run.py: run
+app.command(no_args_is_help=True)(run)
 
 
 @app.callback(context_settings={"help_option_names": ["-h", "--help"]})

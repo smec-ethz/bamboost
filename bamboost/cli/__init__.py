@@ -1,7 +1,9 @@
 import logging
 
 from bamboost._logger import BAMBOOST_LOGGER, STREAM_HANDLER
-from bamboost.cli.app import app as app  # noqa: E402
+from bamboost.cli.app import app as app
+from bamboost.cli.run import configure as configure
+from bamboost.cli.run import execute as execute
 
 
 # For the cli, any logging should be printed to the console instead.
