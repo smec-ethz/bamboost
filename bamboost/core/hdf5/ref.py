@@ -221,13 +221,16 @@ class Group(H5Reference[_MT]):
             self.attrs.__setitem__(key, newvalue)
 
     @mutable_only
-    @with_file_open(FileMode.APPEND)
     def __delitem__(self: Group[Mutable], key) -> None:
         """Deletes an item."""
-        if key in self.attrs:
-            del self.attrs[key]
-        else:
-            self._file.delete_object(self._path / key)
+
+        def delete_instruction():
+            if key in self.attrs:
+                del self.attrs[key]
+            else:
+                self._file.delete_object(self._path / key)
+
+        self.post_write_instruction(delete_instruction)
 
     def __contains__(self, key: str) -> bool:
         return key in self._group_map
