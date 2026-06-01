@@ -9,6 +9,7 @@ from typing import TYPE_CHECKING, Any, Callable, Optional, overload
 import typer
 from typing_extensions import Annotated
 
+from bamboost import config
 from bamboost.cli.common import console
 
 if TYPE_CHECKING:
@@ -72,6 +73,7 @@ def execute(func: Callable[[SimulationWriter], None]):
 class CommandChoice(str, Enum):
     CONFIGURE = "configure"
     EXECUTE = "execute"
+    BOTH = "both"
 
 
 def run(
@@ -86,8 +88,22 @@ def run(
         Optional[str],
         typer.Argument(help="Simulation UID to run (only for 'execute' subcommand)."),
     ] = None,
+    mpi: Annotated[
+        bool,
+        typer.Option(
+            "--mpi",
+            help="Whether to run the execution script with MPI (only for 'execute' subcommand).",
+        ),
+    ] = False,
 ) -> None:
     """Run a decorated simulation script (either 'configure' or 'execute')."""
+    if mpi:
+        from bamboost.mpi import MPI
+
+        config.options.mpi = True
+        if MPI.COMM_WORLD.rank != 0:
+            console.quiet = True
+
     script_path_abs = Path(script_path).resolve()
     if not script_path_abs.exists():
         console.print(f"[red]:cross_mark: Script file not found: {script_path_abs}")
@@ -103,7 +119,7 @@ def run(
     sys.modules["user_script"] = module
     spec.loader.exec_module(module)
 
-    if command == CommandChoice.CONFIGURE:
+    if command in (CommandChoice.CONFIGURE, CommandChoice.BOTH):
         fn = _workflow_registry.get("configure")
         if fn is None:
             console.print(
@@ -129,8 +145,11 @@ def run(
         )
 
         if meta.get("create_default_run_script", DEFAULT_CREATE_SCRIPT):
+            sim.copy_files([script_path_abs])
             sim.create_run_script(
-                commands=[f"bamboost run {script_path_abs} execute {sim.uid}"]
+                commands=[
+                    f"bamboost run $SIMULATION_DIR/{Path(script_path_abs).name} execute $SIMULATION_ID"
+                ]
             )
             console.print(
                 f"[green]:heavy_check_mark: Created run script for simulation {sim.uid}"
@@ -141,7 +160,10 @@ def run(
             sim.submit_simulation()
             console.print("[green]✅ Simulation submitted successfully.")
 
-    elif command == CommandChoice.EXECUTE:
+        # Assign simulation uid to be used in execute if command is BOTH
+        uid = sim.uid
+
+    if command in (CommandChoice.EXECUTE, CommandChoice.BOTH):
         fn = _workflow_registry.get("execute")
         if fn is None:
             console.print(
@@ -159,9 +181,3 @@ def run(
 
         sim = SimulationWriter.from_uid(uid)
         fn(sim)
-
-    else:
-        console.print(
-            f"[red]:cross_mark: Unknown subcommand '{command}'. Choose 'configure' or 'execute'."
-        )
-        raise typer.Exit(1)

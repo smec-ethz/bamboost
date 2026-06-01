@@ -22,7 +22,10 @@ app.command()(indexing.scan)
 app.command()(indexing.clean)
 
 # add from run.py: run
-app.command(no_args_is_help=True)(run)
+app.command(
+    no_args_is_help=True,
+    context_settings={"allow_extra_args": True, "ignore_unknown_options": True},
+)(run)
 
 
 @app.callback(context_settings={"help_option_names": ["-h", "--help"]})
