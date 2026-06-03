@@ -233,7 +233,6 @@ class H5Object(ElligibleForPlugin, Generic[_MT]):
             yield
         finally:
             self._file.available_for_single_process_write: Callable = original_method
-            self._file.single_process_queue.apply()
 
 
 _T_H5Object = TypeVar("_T_H5Object", bound=H5Object)
