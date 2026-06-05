@@ -1,8 +1,9 @@
 from contextlib import contextmanager
 
-import rich
+from rich.console import Console
 
-console = rich.get_console()
+console = Console(stderr=True)
+console_stdout = Console()
 
 
 @contextmanager

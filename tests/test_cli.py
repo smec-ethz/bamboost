@@ -29,8 +29,9 @@ class Params:
     runner = CliRunner()
     result = runner.invoke(app, ["run", "create", str(script_path), "--collection", str(collection_path)])
 
-    assert result.exit_code == 0, f"CLI command failed: {result.stdout}"
-    assert "Created simulation" in result.stdout
+    output = result.stdout + result.stderr
+    assert result.exit_code == 0, f"CLI command failed: {output}"
+    assert "Created simulation" in output
 
     # Verify that the simulation was created and parameters were recorded
     coll = Collection(collection_path)
@@ -63,8 +64,9 @@ def get_params():
     runner = CliRunner()
     result = runner.invoke(app, ["run", "create", str(script_path), "--collection", str(collection_path)])
 
-    assert result.exit_code == 0, f"CLI command failed: {result.stdout}"
-    assert "Created simulation" in result.stdout
+    output = result.stdout + result.stderr
+    assert result.exit_code == 0, f"CLI command failed: {output}"
+    assert "Created simulation" in output
 
     # Verify that the simulation was created and parameters were recorded
     coll = Collection(collection_path)
@@ -95,7 +97,7 @@ class Params:
 
 @script.main
 def run_sim(sim):
-    sim.metadata["status"] = "run_completed"
+    sim.metadata["run_status"] = "run_completed"
 
 @script.stage("post")
 def post_sim(sim):
@@ -108,8 +110,9 @@ def post_sim(sim):
     result_create = runner.invoke(
         app, ["run", "create", str(script_path), "--collection", str(collection_path)]
     )
-    assert result_create.exit_code == 0, f"Create failed: {result_create.stdout}"
-    assert "Created simulation" in result_create.stdout
+    output_create = result_create.stdout + result_create.stderr
+    assert result_create.exit_code == 0, f"Create failed: {output_create}"
+    assert "Created simulation" in output_create
 
     # Get collection and simulation details
     coll = Collection(collection_path)
@@ -120,23 +123,25 @@ def post_sim(sim):
 
     # 2. Run the simulation locally (default "main" stage)
     result_run = runner.invoke(
-        app, ["run", "local", coll.uid, sim.name]
+        app, ["run", "local-sim", "--uid", f"{coll.uid}:{sim.name}"]
     )
-    assert result_run.exit_code == 0, f"Run failed: {result_run.stdout}"
-    assert "Executing stage 'main'" in result_run.stdout
-    assert "Stage 'main' execution completed" in result_run.stdout
+    output_run = result_run.stdout + result_run.stderr
+    assert result_run.exit_code == 0, f"Run failed: {output_run}"
+    assert "Executing stage 'main'" in output_run
+    assert "Stage 'main' execution completed" in output_run
 
     # Verify that the simulation execution modified the metadata
     sim_reloaded = coll[sim.name]
-    assert sim_reloaded.metadata["status"] == "run_completed"
+    assert sim_reloaded.metadata["run_status"] == "run_completed"
 
     # 3. Run the custom "post" stage locally
     result_post = runner.invoke(
-        app, ["run", "local", coll.uid, sim.name, "--stage", "post"]
+        app, ["run", "local-sim", "--uid", f"{coll.uid}:{sim.name}", "--stage", "post"]
     )
-    assert result_post.exit_code == 0, f"Post failed: {result_post.stdout}"
-    assert "Executing stage 'post'" in result_post.stdout
-    assert "Stage 'post' execution completed" in result_post.stdout
+    output_post = result_post.stdout + result_post.stderr
+    assert result_post.exit_code == 0, f"Post failed: {output_post}"
+    assert "Executing stage 'post'" in output_post
+    assert "Stage 'post' execution completed" in output_post
 
     # Verify that the post stage modified the metadata
     sim_final = coll[sim.name]
