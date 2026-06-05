@@ -1,9 +1,8 @@
 import logging
 
-from bamboost._logger import BAMBOOST_LOGGER, STREAM_HANDLER
+from bamboost._logger import BAMBOOST_LOGGER
 from bamboost.cli.app import app as app
-from bamboost.cli.run import configure as configure
-from bamboost.cli.run import execute as execute
+from bamboost.cli.run import Script as Script
 
 
 # For the cli, any logging should be printed to the console instead.
@@ -11,9 +10,11 @@ from bamboost.cli.run import execute as execute
 # and immmediately prints the message to the console.
 class CliHandler(logging.Handler):
     def emit(self, record):
-        print(record.getMessage())
+        from bamboost.mpi import MPI
+
+        if MPI.COMM_WORLD.rank == 0:
+            print(record.getMessage())
 
 
-BAMBOOST_LOGGER.addHandler(CliHandler())
-BAMBOOST_LOGGER.removeHandler(STREAM_HANDLER)
-BAMBOOST_LOGGER.setLevel("CRITICAL")
+# BAMBOOST_LOGGER.addHandler(CliHandler())
+BAMBOOST_LOGGER.setLevel("ERROR")

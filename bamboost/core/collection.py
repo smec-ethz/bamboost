@@ -554,6 +554,7 @@ class Collection(ElligibleForPlugin):
         files: Optional[Iterable[StrPath]] = None,
         links: Optional[dict[str, str | SimulationUID]] = None,
         override: bool = False,
+        entry_point: StrPath | None = None,
     ) -> SimulationWriter:
         """Create and initialize a new simulation in the collection, returning a
         SimulationWriter object.
@@ -587,6 +588,7 @@ class Collection(ElligibleForPlugin):
             override: If True, overwrite any existing simulation with the same name. If
                 False (default), raises FileExistsError if a simulation with the same name
                 exists.
+            entry_point: Optional path to the script or command that will be executed for this simulation.
 
         Returns:
             SimulationWriter: An object for writing data and metadata to the new
@@ -686,6 +688,21 @@ class Collection(ElligibleForPlugin):
                 sim.parameters.update(parameters or {})
                 sim.links.update(links or {})
                 sim.copy_files(files or [])
+
+            # Copy files and the entry point script if provided
+            if (files or entry_point) and (self._comm.rank == 0):
+                sim.copy_files(files or [])
+                if entry_point:
+                    entry_point_path = Path(entry_point)
+                    if entry_point_path.is_file():
+                        shutil.copy(
+                            entry_point_path,
+                            sim.path.joinpath("entry_point.py"),
+                        )
+                    else:
+                        log.warning(
+                            f"Entry point {entry_point} is not a valid file. Skipping copy."
+                        )
 
             # Invalidate the file_map such that it is reloaded
             sim._file.file_map.invalidate()
