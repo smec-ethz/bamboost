@@ -2,7 +2,6 @@ from __future__ import annotations
 
 from enum import Enum
 from pathlib import Path
-from subprocess import CalledProcessError
 from typing import TYPE_CHECKING, Any, Callable, TypeVar
 
 import typer
@@ -13,12 +12,13 @@ from bamboost.cli import _completion
 from bamboost.cli.common import console
 from bamboost.cli.run.script import Script as Script
 from bamboost.cli.run.script import _get_script
+from bamboost.exceptions import InvalidCollectionError
 
 if TYPE_CHECKING:
     from bamboost.core.simulation import SimulationWriter
 
-T_Callable = TypeVar("T_Callable", bound=Callable[..., Any])
-T_Param = TypeVar("T_Param", bound=Callable[..., Any] | type[Any])
+    T_Callable = TypeVar("T_Callable", bound=Callable[..., Any])
+    T_Param = TypeVar("T_Param", bound=Callable[..., Any] | type[Any])
 
 
 app_run = typer.Typer(
@@ -50,20 +50,66 @@ class DuplicateAction(str, Enum):
     RAISE = "raise"
 
 
+def _resolve_collection_path(
+    collection_uid: str | None,
+    collection_path: Path | None,
+    script: Script,
+) -> Path:
+    """Resolve a collection path from a collection UID/alias, directory path, or script fallback."""
+    from bamboost.index import Index
+
+    resolved_path = None
+    if collection_uid:
+        try:
+            resolved_path = Index.default.resolve_path(collection_uid)
+        except InvalidCollectionError as e:
+            console.print(
+                f"[red]:cross_mark: Collection UID/alias '{collection_uid}' cannot be resolved: {e}"
+            )
+            raise typer.Exit(1)
+    elif collection_path:
+        resolved_path = collection_path.resolve()
+    elif script._collection_uid:
+        try:
+            resolved_path = Index.default.resolve_path(script._collection_uid)
+        except InvalidCollectionError as e:
+            console.print(
+                f"[red]:cross_mark: Default collection UID/alias '{script._collection_uid}' from script cannot be resolved: {e}"
+            )
+            raise typer.Exit(1)
+
+    if resolved_path is None:
+        console.print(
+            "[red]:cross_mark: No collection UID or collection path provided."
+        )
+        raise typer.Exit(1)
+
+    return resolved_path
+
+
 @app_run.command()
 def create(
     entry_point: Annotated[
         Path, typer.Argument(..., help="Path to the simulation script.")
     ],
-    collection_path: Annotated[
-        Path,
+    collection_uid: Annotated[
+        str | None,
         typer.Option(
             "--collection",
             "-c",
+            help="UID or alias of the collection where the simulation should be created.",
+            autocompletion=_completion._get_uids_from_db,
+        ),
+    ] = None,
+    collection_path: Annotated[
+        Path | None,
+        typer.Option(
+            "--collection-path",
+            "-cp",
             help="Path to the collection where the simulation should be created.",
             show_default=False,
         ),
-    ],
+    ] = None,
     duplicate_action: Annotated[
         DuplicateAction | None,
         typer.Option(
@@ -83,7 +129,8 @@ def create(
 ) -> None:
     """Create a simulation in a collection using script parameters."""
     script = _get_script(entry_point)
-    sim = _create(script, entry_point, collection_path, duplicate_action)
+    resolved_path = _resolve_collection_path(collection_uid, collection_path, script)
+    sim = _create(script, entry_point, resolved_path, duplicate_action)
 
     if submit:
         for s in sim:
@@ -250,6 +297,7 @@ def _submit(sim: SimulationWriter, script: Script) -> str:
 
     import os
     import subprocess
+    from subprocess import CalledProcessError
 
     try:
         with console.status("[bold green]Submitting simulation to cluster..."):
@@ -351,6 +399,8 @@ def local(
     from bamboost.index.scanner import find_uid_from_path
 
     sim = None
+    # if no collection info is provided, try to infer from the script path (for the common
+    # case of running from a script within a collection directory)
     if collection_uid is None and collection_path is None:
         script_dir = entry_point.parent
         possible_coll_uid = find_uid_from_path(script_dir.parent)
@@ -361,22 +411,10 @@ def local(
             )
 
     if sim is None:
-        from bamboost.index import Index
-
-        if collection_uid:
-            collection_path = Index.default.resolve_path(collection_uid)
-        elif collection_path:
-            collection_path = collection_path.resolve()
-        elif script._collection_uid:
-            collection_path = Index.default.resolve_path(script._collection_uid)
-
-        if collection_path is None:
-            console.print(
-                "[red]:cross_mark: No collection UID found in the script path and no collection path provided."
-            )
-            raise typer.Exit(1)
-
-        sims = _create(script, entry_point, collection_path, duplicate_action)
+        resolved_path = _resolve_collection_path(
+            collection_uid, collection_path, script
+        )
+        sims = _create(script, entry_point, resolved_path, duplicate_action)
         # for now, we only run the first simulation if multiple were created from the parameters function
         sim = sims[0]
 

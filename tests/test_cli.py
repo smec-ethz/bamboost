@@ -1,4 +1,5 @@
 from pathlib import Path
+
 from typer.testing import CliRunner
 
 from bamboost.cli.app import app
@@ -27,7 +28,10 @@ class Params:
 
     # Run the `create` subcommand
     runner = CliRunner()
-    result = runner.invoke(app, ["run", "create", str(script_path), "--collection", str(collection_path)])
+    result = runner.invoke(
+        app,
+        ["run", "create", str(script_path), "--collection-path", str(collection_path)],
+    )
 
     output = result.stdout + result.stderr
     assert result.exit_code == 0, f"CLI command failed: {output}"
@@ -62,7 +66,10 @@ def get_params():
 
     # Run the `create` subcommand
     runner = CliRunner()
-    result = runner.invoke(app, ["run", "create", str(script_path), "--collection", str(collection_path)])
+    result = runner.invoke(
+        app,
+        ["run", "create", str(script_path), "--collection-path", str(collection_path)],
+    )
 
     output = result.stdout + result.stderr
     assert result.exit_code == 0, f"CLI command failed: {output}"
@@ -108,7 +115,8 @@ def post_sim(sim):
     runner = CliRunner()
     # 1. Create the simulation
     result_create = runner.invoke(
-        app, ["run", "create", str(script_path), "--collection", str(collection_path)]
+        app,
+        ["run", "create", str(script_path), "--collection-path", str(collection_path)],
     )
     output_create = result_create.stdout + result_create.stderr
     assert result_create.exit_code == 0, f"Create failed: {output_create}"
@@ -146,3 +154,61 @@ def post_sim(sim):
     # Verify that the post stage modified the metadata
     sim_final = coll[sim.name]
     assert sim_final.metadata["post_status"] == "post_completed"
+
+
+def test_cli_run_default_collection_uid(tmp_path: Path, monkeypatch):
+    # Set up collection and script paths
+    collection_path = tmp_path / "default_coll"
+    script_path = tmp_path / "default_script.py"
+
+    # Create the collection first so resolving its UID works
+    from bamboost.core.collection import Collection
+
+    coll = Collection(collection_path, create_if_not_exist=True)
+
+    # Write a test simulation script with collection_uid set in Script()
+    script_content = f"""
+from dataclasses import dataclass
+from bamboost.cli.run import Script
+
+script = Script(collection_uid="{coll.uid}")
+
+@script.parameters
+@dataclass
+class Params:
+    val: int = 999
+
+@script.main
+def run_sim(sim):
+    sim.metadata["test_default_uid"] = "worked"
+"""
+    script_path.write_text(script_content)
+
+    runner = CliRunner()
+
+    # Change to directory of the script so _find_local_script() can find it
+    monkeypatch.chdir(tmp_path)
+
+    # 1. Create the simulation without specifying --collection option
+    result_create = runner.invoke(app, ["run", "create", str(script_path)])
+    output_create = result_create.stdout + result_create.stderr
+    assert result_create.exit_code == 0, f"Create failed: {output_create}"
+    assert "Created simulation" in output_create
+
+    # Get created simulation details
+    sims = list(coll)
+    assert len(sims) == 1
+    sim = sims[0]
+    assert sim.parameters["val"] == 999
+
+    # 2. Run the simulation using the full UID
+    result_run = runner.invoke(
+        app, ["run", "local-sim", "--uid", f"{coll.uid}:{sim.name}"]
+    )
+    output_run = result_run.stdout + result_run.stderr
+    assert result_run.exit_code == 0, f"Run failed: {output_run}"
+    assert "Executing stage 'main'" in output_run
+
+    # Verify that the simulation execution worked and modified the metadata
+    sim_reloaded = coll[sim.name]
+    assert sim_reloaded.metadata["test_default_uid"] == "worked"

@@ -61,9 +61,7 @@ def _get_collection_sim_completion(ctx: typer.Context, incomplete: str):
 
     # 1. First step: Suggest the collection UID or alias (append a colon)
     if ":" not in incomplete:
-        rows = INDEX.query(
-            "SELECT uid, path, aliases FROM collections"
-        )
+        rows = INDEX.query("SELECT uid, path, aliases FROM collections")
         results = []
         for uid, path, aliases_json in rows:
             if uid.startswith(incomplete):
