@@ -35,6 +35,7 @@ def __getattr__(name: str):
     if name == "__version__":
         try:
             from importlib.metadata import version
+
             return version("bamboost")
         except Exception:
             return "unknown"
@@ -49,4 +50,3 @@ def __dir__():
 # this ensures that log messages are printed to the console by default
 add_stream_handler(BAMBOOST_LOGGER)
 BAMBOOST_LOGGER.setLevel(config.options.logLevel)
-

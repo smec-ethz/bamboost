@@ -96,22 +96,23 @@ def list(
             Index.default.sync_collection(coll_uid)
 
         coll = Index.default.collection(coll_uid)
+        assert coll is not None, f"Collection with UID {coll_uid} not found."
 
-        try:
-            df = _render._list_simulations(coll, nb_entries=nb_entries)
-        except ValueError as e:
-            return console.print(str(e), style="red")
-
-        if df.empty:
+        if len(coll.simulations) == 0:
             return console.print(
                 f"Collection [bold]{coll.uid}[/bold] is empty.\n"
                 "[dim]If you expected something here: Use '-s' to sync the collection with the filesystem.[/dim]"
             )
 
+        try:
+            tab = _render._list_simulations(coll, nb_entries=nb_entries)
+        except ValueError as e:
+            return console.print(str(e), style="red")
+
         return console.print(
             f"[dim]> Displaying collection [bold]{coll.uid}[/bold] "
             f"([default]{coll.path}[/default]):\n",
-            df,
+            tab,
         )
 
 
