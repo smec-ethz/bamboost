@@ -2,8 +2,6 @@ from functools import reduce
 from pathlib import Path
 from typing import Any, Callable, Iterable, Optional, Union
 
-import numpy as np
-
 from bamboost._typing import _P, _T, _U, StrPath
 
 
@@ -17,13 +15,16 @@ class PathSet(set[Path]):
 
 class ComparableIterable:
     def __init__(self, ori):
+        import numpy as np
         self.ori = np.asarray(ori)
 
     def __eq__(self, other):
+        import numpy as np
         other = np.asarray(other)
         if other.shape != self.ori.shape:
             return False
         return (other == self.ori).all()
+
 
 
 # NOT USED

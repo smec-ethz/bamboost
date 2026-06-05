@@ -1,4 +1,3 @@
-from importlib.metadata import PackageNotFoundError, version
 from typing import TYPE_CHECKING
 
 import lazy_loader as _lazy
@@ -10,11 +9,6 @@ from bamboost._logger import BAMBOOST_LOGGER, add_stream_handler
 __author__: str = "florez@ethz.ch"
 __copyright__: str = ""
 __license__: str = "MIT"
-__version__: str
-try:
-    __version__ = version("bamboost")
-except PackageNotFoundError:  # not installed
-    __version__ = "unknown"
 
 
 if TYPE_CHECKING:
@@ -26,7 +20,7 @@ if TYPE_CHECKING:
 
 # We use lazy_loader to avoid upfront imports of submodules while still
 # providing a consistent API for the user.
-__getattr__, __dir__, __all__ = _lazy.attach(
+_lazy_getattr, _lazy_dir, __all__ = _lazy.attach(
     __name__,
     [],
     {
@@ -36,7 +30,23 @@ __getattr__, __dir__, __all__ = _lazy.attach(
     },
 )
 
+
+def __getattr__(name: str):
+    if name == "__version__":
+        try:
+            from importlib.metadata import version
+            return version("bamboost")
+        except Exception:
+            return "unknown"
+    return _lazy_getattr(name)
+
+
+def __dir__():
+    return _lazy_dir() + ["__version__"]
+
+
 # by default, we set the log level to INFO and add a stream handler to the BAMBOOST_LOGGER
 # this ensures that log messages are printed to the console by default
 add_stream_handler(BAMBOOST_LOGGER)
 BAMBOOST_LOGGER.setLevel(config.options.logLevel)
+
