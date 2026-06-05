@@ -293,7 +293,13 @@ def _submit(sim: SimulationWriter, script: Script) -> str:
         raise typer.Exit(1)
 
     slurm_instructions = get_slurm_config(sim.uid)
-    subprocess_command = f"sbatch --parsable --wrap='{slurm_instructions}'"
+    # check if the instructions look like valid sbatch input
+    # first line must be a shebang #!/bin/bash or similar
+    first_line = slurm_instructions.strip().splitlines()[0]
+    if not first_line.startswith("#!"):
+        # add a bash shebang if not present, since sbatch requires it
+        slurm_instructions = "#!/bin/bash\n" + slurm_instructions
+    subprocess_command = ["sbatch", "--parsable"]
 
     import os
     import subprocess
@@ -303,11 +309,11 @@ def _submit(sim: SimulationWriter, script: Script) -> str:
         with console.status("[bold green]Submitting simulation to cluster..."):
             res = subprocess.run(
                 subprocess_command,
-                shell=True,
                 check=True,
                 env=os.environ,
                 capture_output=True,
                 text=True,
+                input=slurm_instructions,
             )
             # sbatch returns the job ID on stdout when --parsable is used
             job_id = res.stdout.strip()
