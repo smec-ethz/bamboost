@@ -53,3 +53,61 @@ def _get_aliases_of_collection(ctx: typer.Context, incomplete: str):
         return []
     except Exception:
         return []
+
+
+def _get_collection_sim_completion(ctx: typer.Context, incomplete: str):
+    """Dynamically autocomplete collection_uid:simulation_name."""
+    import json
+
+    # 1. First step: Suggest the collection UID or alias (append a colon)
+    if ":" not in incomplete:
+        rows = INDEX.query(
+            "SELECT uid, path, aliases FROM collections"
+        )
+        results = []
+        for uid, path, aliases_json in rows:
+            if uid.startswith(incomplete):
+                results.append((f"{uid}:", path))
+
+            if aliases_json:
+                try:
+                    aliases = json.loads(aliases_json)
+                    for alias in aliases:
+                        if alias.startswith(incomplete):
+                            results.append((f"{alias}:", f"Alias for {uid} ({path})"))
+                except Exception:
+                    pass
+        return results
+
+    # 2. Second step: Suggest simulations within the selected collection
+    else:
+        prefix, incomplete_sim = incomplete.split(":", 1)
+
+        # Resolve prefix (which might be a collection UID or an alias) to the real UID
+        real_uid = None
+        rows = INDEX.query("SELECT uid FROM collections WHERE uid = ?", (prefix,))
+        if rows:
+            real_uid = prefix
+        else:
+            # Scan aliases to resolve the real collection UID
+            all_cols = INDEX.query("SELECT uid, aliases FROM collections")
+            for uid, aliases_json in all_cols:
+                if aliases_json:
+                    try:
+                        aliases = json.loads(aliases_json)
+                        if prefix in aliases:
+                            real_uid = uid
+                            break
+                    except Exception:
+                        pass
+
+        if not real_uid:
+            return []
+
+        # Query simulations belonging to this collection
+        names = INDEX.query(
+            "SELECT name FROM simulations WHERE collection_uid = ? AND name LIKE ?",
+            (real_uid, f"{incomplete_sim}%"),
+        )
+
+        return [(f"{prefix}:{name[0]}", f"Simulation in {prefix}") for name in names]
