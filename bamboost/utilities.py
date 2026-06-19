@@ -292,6 +292,10 @@ def dedupe_str_iter(iter: str | Iterable[str | None] | None) -> set[str]:
         return set((iter,))
     return set(filter(None, iter))
 
+if TYPE_CHECKING:
+    from bamboost._typing import Mutable, Immutable
+    from bamboost.core.hdf5.ref import Group, Dataset
+
 
 class PathSet(set[Path]):
     def __init__(self, iterable: Optional[Iterable[StrPath]] = None) -> None:
