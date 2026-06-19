@@ -1,12 +1,12 @@
 [project]
-name = "expdesign"
+name = "bamboost_expdesign"
 version = "0.1.0"
 description = "Add your description here"
 readme = "README.md"
 authors = [
     { name = "dab-work", email = "bueelerd@ethz.ch" }
 ]
-requires-python = ">=3.10"
+requires-python = ">=3.13"
 dependencies = []
 
 [build-system]
