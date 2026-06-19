@@ -24,6 +24,14 @@ dependencies = [
     "simmr",
 ]
 
+[project.optional-dependencies]
+expdesign = ["bamboost-expdesign; python_version >= '3.13'"]
+pipeline = ["bamboost-pipeline; python_version >= '3.13'"]
+
+[tool.uv.sources]
+bamboost-expdesign = { workspace = true }
+bamboost-pipeline = { workspace = true }
+
 [project.urls]
 Homepage = "https://bamboost.ch/"
 repository = "https://github.com/smec-ethz/bamboost"
@@ -76,6 +84,6 @@ members = [
 simmr = { workspace = true }
 [tool.uv.workspace]
 members = [
-    "extensions/dataclasses",
     "extensions/expdesign",
+    "extensions/pipeline",
 ]
