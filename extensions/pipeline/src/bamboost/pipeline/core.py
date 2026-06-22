@@ -178,7 +178,7 @@ class SimulationRunner[CTX: ContextProtocol]:
                     simw.metadata[f"stage_{job_name}_status"] = JobStatus.FINISHED.value
 
                 # Store the uid of the simulation.
-                record.result = simw.uid
+                record.result = result
                 return sim
 
             # Transient jobs return artifacts stored in the record for memory-based access.
