@@ -5,6 +5,7 @@ and a class for defining a experimental design for such parameter configurations
 
 import copy
 import inspect
+from pathlib import Path
 from typing import (
     TYPE_CHECKING,
     Any,
@@ -162,6 +163,20 @@ class ParamGraph[RT: ParamGraph](metaclass=_ForwardAttributes):
                 )
 
         return cls(**init_kwargs)
+
+    @classmethod
+    def from_toml(cls, path: Path, key: str | None = None) -> Self:
+        import tomllib
+        
+        with open(path, "rb") as f:
+            data = tomllib.load(f)
+        
+        if key:
+            if key not in data:
+                raise KeyError(f"Key '{key}' not found in TOML file at {path}")
+            data = data[key]
+            
+        return cls.from_dict(data)
 
 
 class dependent_param[RT](property):
