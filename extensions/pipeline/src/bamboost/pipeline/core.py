@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from enum import Enum, auto
 from dataclasses import dataclass
-from typing import TYPE_CHECKING, Callable, Any, Literal, Protocol
+from typing import TYPE_CHECKING, Callable, Any, Protocol
 
 from bamboost._logger import BAMBOOST_LOGGER
 
@@ -29,11 +29,11 @@ class FromCallable(TaskInput):
 
 
 class FromContext(TaskInput):
-    def __init__(self, variable_name: ContextKeys):
-        self.variable_name = variable_name
+    def __init__(self, attribute_name: str):
+        self.attribute_name = attribute_name
 
     def resolve(self, run_state: RunState) -> Any:
-        return getattr(run_state.context, self.variable_name)
+        return getattr(run_state.context, self.attribute_name)
 
 
 class FromJob(TaskInput):
@@ -62,17 +62,8 @@ class JobStatus(Enum):
     FAILED = auto()
 
 
-class FromDictParsable(Protocol):
-    @classmethod
-    def from_dict(cls, data: dict[str, Any]) -> FromDictParsable: ...
-
-
-ContextKeys = Literal["sim", "config"]
-
-@dataclass(frozen=True)
-class Context[CT: FromDictParsable]:
+class ContextProtocol(Protocol):
     sim: Simulation
-    config: FromDictParsable
 
 
 @dataclass
@@ -92,23 +83,21 @@ class JobRecord:
 
 
 @dataclass
-class RunState:
+class RunState[CTX: ContextProtocol]:
     runner: SimulationRunner
-    context: Context
+    context: CTX
     records: dict[str, JobRecord]
 
 
-class SimulationRunner[CT: FromDictParsable]:
+class SimulationRunner[CTX: ContextProtocol]:
     """Orchestrates the execution of a multi-job simulation.
 
     Attributes:
         name: The identifier for the simulation runner.
-        config_cls: The class used to parse and validate simulation parameters.
         jobs: A collection of registered jobs.
     """
-    def __init__(self, name: str, config_cls: type[CT]):
+    def __init__(self, name: str):
         self.name = name
-        self.config_cls = config_cls
         self.jobs: dict[str, Job] = {}
 
     def add_job(self, name: str, func: Callable, inputs: dict[str, Any], is_persistent: bool = False):
@@ -121,20 +110,17 @@ class SimulationRunner[CT: FromDictParsable]:
         """
         self.jobs[name] = Job(name, func, inputs, is_persistent)
 
-    def run(self, sim: Simulation, targets: list[str] | None = None) -> RunState:
+    def run(self, context: CTX, targets: list[str] | None = None) -> RunState:
         """Runs the simulation pipeline.
 
         Args:
-            sim: The bamboost simulation instance for the run.
+            context: The context one wants to access throughout the run.
             targets: List of jobs to run. Defaults to all jobs.
         """
 
         # Instantiate the RunState object for this specific run.
-        context = Context(
-            sim=sim, config=self.config_cls.from_dict(sim.parameters.read())
-        )
         # Initialize the records, making sure the persistent jobs states are taken from disk
-        records = {job: JobRecord.from_sim_metadata(job, sim) for job in self.jobs}
+        records = {job: JobRecord.from_sim_metadata(job, context.sim) for job in self.jobs}
         run_state = RunState(self, context, records)
 
         target_jobs = targets or list(self.jobs.keys())
