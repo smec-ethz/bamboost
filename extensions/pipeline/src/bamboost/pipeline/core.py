@@ -35,7 +35,7 @@ class FromContext(TaskInput):
     def resolve(self, run_state: RunState) -> Any:
         if self.attribute_name == "self":
             return run_state.context
-            
+
         return getattr(run_state.context, self.attribute_name)
 
 
@@ -153,7 +153,7 @@ class SimulationRunner[CTX: ContextProtocol]:
 
         # Short circuit either from cache or file
         if record.status == JobStatus.FINISHED and job._is_persistent:
-            return sim
+            return record.result
         if record.status == JobStatus.FINISHED and not job._is_persistent:
             return record.result
 
