@@ -33,6 +33,9 @@ class FromContext(TaskInput):
         self.attribute_name = attribute_name
 
     def resolve(self, run_state: RunState) -> Any:
+        if self.attribute_name == "self":
+            return run_state.context
+            
         return getattr(run_state.context, self.attribute_name)
 
 
