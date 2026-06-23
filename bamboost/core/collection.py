@@ -40,14 +40,13 @@ from bamboost._logger import BAMBOOST_LOGGER
 from bamboost._typing import StrPath
 from bamboost.core.simulation.base import Simulation, SimulationWriter
 from bamboost.core.simulation.dict import validate_parameter_key
-from bamboost.core.utilities import dedupe_str_iter, flatten_dict
-from bamboost.exceptions import DuplicateSimulationError
-from bamboost.index import (
-    CollectionUID,
-    SimulationName,
+from bamboost.core.utilities import (
     SimulationUID,
+    dedupe_str_iter,
+    flatten_dict,
 )
-from bamboost.index.filtering import Filter, Operator, Sorter, SortInstruction, _Key
+from bamboost.exceptions import DuplicateSimulationError
+from bamboost.filtering import Filter, Operator, Sorter, SortInstruction, _Key
 from bamboost.mpi import Communicator, ReuseComm
 from bamboost.mpi.utilities import comm_self, parallel_proxy
 from bamboost.utilities import ComparableIterable
@@ -109,7 +108,7 @@ class Collection:
         >>> filtered = db.filter(db.k["param"] == 42)
     """
 
-    uid: CollectionUID
+    uid: str
     """Unique identifier of the collection."""
     path: Path
     """Path to the collection directory."""
@@ -142,7 +141,7 @@ class Collection:
 
         self._core = parallel_proxy(_Collection, self._comm, 0, str(uid_or_path))
         self.uid = self._core.uid
-        self.path = self._core.path
+        self.path = Path(self._core.path)
 
     def __len__(self) -> int:
         return len(self._core.parameter_space())

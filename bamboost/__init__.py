@@ -30,7 +30,6 @@ __getattr__, __dir__, __all__ = _lazy.attach(
     {
         "core.collection": ["Collection"],
         "core.simulation": ["Simulation", "SimulationWriter", "FieldType"],
-        "index": ["Index"],
     },
 )
 

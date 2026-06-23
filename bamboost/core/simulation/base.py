@@ -46,7 +46,7 @@ from bamboost.core.hdf5.ref import Group
 from bamboost.core.simulation.dict import Links
 from bamboost.core.simulation.groups import GroupGit, GroupMesh, GroupMeshes
 from bamboost.core.simulation.series import Series
-from bamboost.index import SimulationUID
+from bamboost.core.utilities import SimulationUID
 from bamboost.mpi import MPI, ReuseComm
 from bamboost.utilities import StrPath
 
@@ -285,8 +285,6 @@ class _Simulation(H5Object[_MT], ABC):
             >>> sim = Simulation.from_uid("abc123:mysim")
         """
         uid = SimulationUID(uid)
-        index = kwargs.pop("index", None) or Index.default
-        collection_path = index.resolve_path(uid.collection_uid)
         return cls(
             uid.simulation_name, collection_path, index=index, comm=comm, **kwargs
         )
