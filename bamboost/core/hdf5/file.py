@@ -86,7 +86,6 @@ from bamboost._typing import _MT, _P, _T, Immutable, Mutable
 from bamboost.core.hdf5.filemap import FileMap
 from bamboost.core.hdf5.hdf5path import HDF5Path
 from bamboost.mpi import MPI, Communicator, ReuseComm
-from bamboost.mpi.utilities import RootProcessMeta
 from bamboost.utilities import StrPath
 
 if TYPE_CHECKING:
@@ -238,23 +237,17 @@ class H5Object(Generic[_MT]):
 _T_H5Object = TypeVar("_T_H5Object", bound=H5Object)
 
 
-class SingleProcessQueue(deque[Callable[[], None]], metaclass=RootProcessMeta):
+class SingleProcessQueue(deque[Callable[[], None]]):
     """A queue to defer execution of write operations that need to be executed on the root
     only. Only relevant for parallelized code.
 
     This class is a deque of instructions that are to be executed in order when the file is
     available for writing (i.e., not open with MPI I/O OR closed). We append instructions
     to the right and pop them from the left.
-
-    This class uses the RootProcessMeta metaclass to ensure that all methods are only
-    executed on the root process.
     """
-
-    _comm = Communicator()
 
     def __init__(self, file: HDF5File):
         self._file = file
-        self._comm = ReuseComm(file)
         super().__init__()
 
     def add_instruction(self, instruction: Callable[[], None]) -> None:
@@ -543,7 +536,8 @@ class HDF5File(h5py.File, Generic[_MT]):
         try:
             return self._single_process_queue
         except AttributeError:
-            self._single_process_queue = SingleProcessQueue(self)
+            from bamboost.mpi.utilities import parallel_proxy
+            self._single_process_queue = parallel_proxy(SingleProcessQueue, self._comm, root=0, file=self)
             return self._single_process_queue
 
     def available_for_single_process_write(self) -> bool:

@@ -8,8 +8,7 @@ import numpy as np
 from bamboost._typing import StrPath
 from bamboost.core.hdf5.file import FileMode, HDF5File, HDF5Path
 from bamboost.core.simulation.types import FieldType
-from bamboost.mpi import Communicator, ReuseComm
-from bamboost.mpi.utilities import RootProcessMeta
+from bamboost.mpi import ReuseComm
 
 if TYPE_CHECKING:
     from bamboost.core.simulation.groups import GroupMesh
@@ -32,16 +31,7 @@ numpy_to_xdmf_dtype = {
 }
 
 
-class XDMFWriter(metaclass=RootProcessMeta):
-    """Write xdmf file for a subset of the stored data in the H5 file.
-
-    Args:
-        filename (str): xdmf file path
-        h5file (str): h5 file path
-    """
-
-    _comm = Communicator()
-
+class _XDMFWriterCore:
     def __init__(self, file: HDF5File):
         self._file = file
         self._comm = ReuseComm(file)
@@ -209,3 +199,12 @@ class XDMFWriter(metaclass=RootProcessMeta):
             Precision=prec,
         )
         data_item.text = f"{self._file._path.name}:{field._path}/{step}"
+
+def XDMFWriter(file: HDF5File) -> _XDMFWriterCore:
+    """Write xdmf file for a subset of the stored data in the H5 file.
+
+    Args:
+        file (HDF5File): h5 file
+    """
+    from bamboost.mpi.utilities import parallel_proxy
+    return parallel_proxy(_XDMFWriterCore, ReuseComm(file), root=0, file=file)

@@ -7,7 +7,7 @@ import pytest
 from bamboost import Collection, Simulation, config
 from bamboost.core.hdf5.file import HDF_MPI_ACTIVE
 from bamboost.mpi import MPI
-from bamboost.mpi.utilities import RootProcessMeta, comm_self
+from bamboost.mpi.utilities import comm_self
 
 
 @pytest.fixture

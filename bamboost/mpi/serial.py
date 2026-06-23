@@ -73,7 +73,7 @@ COMM_SELF: SerialComm = SerialComm()
 """Per-process serial communicator (equivalent of MPI_COMM_SELF in serial mode).
 
 Deliberately a *separate* instance from COMM_WORLD so that code paths which
-distinguish between the two communicators (e.g. `RootProcessMeta.comm_self`)
+distinguish between the two communicators (e.g. `comm_self` context manager)
 can behave correctly in serial tests.
 """
 

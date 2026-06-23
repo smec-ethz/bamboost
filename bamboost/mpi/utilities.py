@@ -1,9 +1,7 @@
 from contextlib import contextmanager
-from functools import wraps
 from typing import (
     TYPE_CHECKING,
     Any,
-    Callable,
     Generator,
     Protocol,
     TypeVar,
@@ -15,94 +13,11 @@ from bamboost.mpi import MPI
 if TYPE_CHECKING:
     from bamboost.mpi import Comm
 
-_CT = TypeVar("_CT", bound=Callable)
 T = TypeVar("T")
 
 
 class HasComm(Protocol):
     _comm: "Comm"
-
-
-class RootProcessMeta(type):
-    """A metaclass that makes classes MPI-safe by ensuring methods are only executed on
-    the root process. The class implementing this metaclass must have a `_comm` attribute
-    that is an MPI communicator.
-
-    This metaclass modifies class methods to either use broadcast communication
-    (if decorated with @bcast) or to only execute on the root process (rank 0).
-    """
-
-    __exclude__ = {"__init__", "__new__"}
-
-    def __new__(mcs, name: str, bases: tuple, attrs: dict):
-        """Create a new class with MPI-safe methods.
-
-        Args:
-            name: The name of the class being created.
-            bases: The base classes of the class being created.
-            attrs: The attributes of the class being created.
-
-        Returns:
-            type: The new class with MPI-safe methods.
-        """
-        for attr_name, attr_value in attrs.items():
-            if attr_name in mcs.__exclude__:
-                continue
-
-            # unwrap staticmethod and classmethod
-            if isinstance(attr_value, (staticmethod, classmethod)):
-                continue
-
-            if callable(attr_value):
-                # check for @exclude decorator
-                if hasattr(attr_value, "_mpi_on_all_"):
-                    continue
-
-                # wrap the remaining methods only
-                attrs[attr_name] = mcs.bcast_result(attr_value)
-
-        return super().__new__(mcs, name, bases, attrs)
-
-    @staticmethod
-    def bcast_result(func: _CT) -> _CT:
-        """Decorator that ensures a method is only executed on the root process (rank 0).
-
-        Args:
-            func (callable): The method to be decorated.
-
-        Returns:
-            callable: The wrapped method that only executes on the root process.
-        """
-
-        @wraps(func)
-        def wrapper(self: HasComm, *args, **kwargs):
-            status = True
-            result = None
-            exc = None
-
-            if self._comm.rank == 0:
-                try:
-                    with comm_self(self):
-                        result = func(self, *args, **kwargs)
-                except Exception as e:
-                    status = False
-                    exc = e
-
-            # Synchronize status, result, and exceptions collectively
-            broadcast_data = self._comm.bcast((status, result, exc), root=0)
-
-            # If an exception occurred on Rank 0, raise it collectively on all ranks
-            if not broadcast_data[0]:
-                raise broadcast_data[2]
-
-            return broadcast_data[1]
-
-        return wrapper  # ty:ignore[invalid-return-type]
-
-    @staticmethod
-    def exclude(func):
-        func._mpi_on_all_ = True
-        return func
 
 
 @contextmanager
@@ -170,16 +85,30 @@ class ParallelProxy:
         if is_callable:
 
             def wrapper(*args: Any, **kwargs: Any) -> Any:
-                payload = (name, args, kwargs)
-                meth_name, m_args, m_kwargs = self.comm.bcast(payload, root=self.root)
+                status = True
+                result = None
+                exc = None
 
                 if self.rank == self.root:
-                    target_method = getattr(self._core, meth_name)
-                    result = target_method(*m_args, **m_kwargs)
-                else:
-                    result = None
+                    target_method = getattr(self._core, name)
+                    try:
+                        if hasattr(self._core, "_comm"):
+                            with comm_self(self._core):
+                                result = target_method(*args, **kwargs)
+                        else:
+                            result = target_method(*args, **kwargs)
+                    except Exception as e:
+                        status = False
+                        exc = e
 
-                return self.comm.bcast(result, root=self.root)
+                # Synchronize status, result, and exceptions collectively
+                broadcast_data = self.comm.bcast((status, result, exc), root=self.root)
+
+                # If an exception occurred on Root, raise it collectively on all ranks
+                if not broadcast_data[0]:
+                    raise broadcast_data[2]
+
+                return broadcast_data[1]
 
             return wrapper
 
