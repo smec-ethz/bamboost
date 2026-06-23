@@ -47,13 +47,20 @@ class FromJob(TaskInput):
 
 class Job:
     def __init__(
-        self, name: str, func: Callable, inputs: dict[str, Any], is_persistent: bool, linked_sim: str | None = None
+        self,
+        name: str,
+        func: Callable,
+        inputs: dict[str, Any],
+        is_persistent: bool,
+        linked_sim: str | None = None,
+        default: bool = False,
     ):
         self.name = name
         self.func = func
         self.input_schema = inputs
         self._is_persistent = is_persistent
         self.linked_sim = linked_sim
+        self.default = default
 
     def execute(self, resolved_inputs: dict[str, Any]) -> Any:
         return self.func(**resolved_inputs)
@@ -86,14 +93,25 @@ class JobRecord:
         return record
 
 
+class FromDictParsable(Protocol):
+    @classmethod
+    def from_dict(cls, data: dict[str, Any]) -> FromDictParsable: ...
+
+
+@dataclass(frozen=True)
+class Context[CFG: FromDictParsable]:
+    sim: Simulation
+    config: CFG
+
+
 @dataclass
-class RunState[CTX: ContextProtocol]:
-    runner: SimulationRunner[CTX]
-    context: CTX
+class RunState:
+    runner: SimulationRunner
+    context: Context
     records: dict[str, JobRecord]
 
 
-class SimulationRunner[CTX: ContextProtocol]:
+class SimulationRunner[CFG: FromDictParsable]:
     """Orchestrates the execution of a multi-job simulation.
 
     Attributes:
@@ -101,9 +119,10 @@ class SimulationRunner[CTX: ContextProtocol]:
         jobs: A collection of registered jobs.
     """
 
-    def __init__(self, name: str):
+    def __init__(self, name: str, config_cls: type[CFG]):
         self.name = name
         self.jobs: dict[str, Job] = {}
+        self.config_cls = config_cls
 
     def add_job(
         self,
@@ -112,6 +131,7 @@ class SimulationRunner[CTX: ContextProtocol]:
         inputs: dict[str, Any] | None = None,
         is_persistent: bool = False,
         linked_sim: str | None = None,
+        default: bool = False,
     ):
         """Registers a new job to the runner. Can be used as a method or a decorator.
 
@@ -124,7 +144,9 @@ class SimulationRunner[CTX: ContextProtocol]:
 
         def decorator(f: Callable) -> Callable:
             job_name = name or getattr(f, "__name__")
-            self.jobs[job_name] = Job(job_name, f, actual_inputs, is_persistent)
+            self.jobs[job_name] = Job(
+                job_name, f, actual_inputs, is_persistent, linked_sim, default
+            )
             return f
 
         if func is not None and callable(func):
@@ -132,7 +154,7 @@ class SimulationRunner[CTX: ContextProtocol]:
 
         return decorator
 
-    def run(self, context: CTX, targets: list[str] | None = None) -> RunState[CTX]:
+    def run(self, sim: Simulation, targets: list[str] | None = None) -> RunState:
         """Runs the simulation pipeline.
 
         Args:
@@ -142,18 +164,19 @@ class SimulationRunner[CTX: ContextProtocol]:
 
         # Instantiate the RunState object for this specific run.
         # Initialize the records, making sure the persistent jobs states are taken from disk
-        records = {
-            job: JobRecord.from_sim_metadata(job, context.sim) for job in self.jobs
-        }
+        records = {job: JobRecord.from_sim_metadata(job, sim) for job in self.jobs}
+        context = Context(
+            sim=sim, config=self.config_cls.from_dict(sim.parameters.read())
+        )
         run_state = RunState(self, context, records)
 
-        target_jobs = targets or list(self.jobs.keys())
+        target_jobs = targets or [key for key, job in self.jobs.items() if job.default]
         for job in target_jobs:
             self._execute_job(job, run_state)
 
         return run_state
 
-    def _execute_job(self, job_name: str, run_state: RunState[CTX]) -> Any:
+    def _execute_job(self, job_name: str, run_state: RunState) -> Any:
         """Manages the lifecycle and execution of a specific job.
 
         Args:
@@ -182,7 +205,6 @@ class SimulationRunner[CTX: ContextProtocol]:
                 return sim
         elif record.status == JobStatus.FINISHED and not job._is_persistent:
             return record.result
-
 
         try:
             resolved_inputs = {
