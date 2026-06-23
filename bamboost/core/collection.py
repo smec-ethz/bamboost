@@ -33,22 +33,19 @@ from typing import (
 
 import pandas as pd
 from bamboostrs import Collection as _Collection
-from typing_extensions import Self, deprecated
+from typing_extensions import Self
 
 from bamboost._config import config
 from bamboost._logger import BAMBOOST_LOGGER
 from bamboost._typing import StrPath
 from bamboost.core.simulation.base import Simulation, SimulationWriter
-from bamboost.core.simulation.dict import validate_parameter_key
 from bamboost.core.utilities import (
     SimulationUID,
-    dedupe_str_iter,
     flatten_dict,
 )
-from bamboost.exceptions import DuplicateSimulationError
 from bamboost.filtering import Filter, Operator, Sorter, SortInstruction, _Key
 from bamboost.mpi import Communicator, ReuseComm
-from bamboost.mpi.utilities import comm_self, parallel_proxy
+from bamboost.mpi.utilities import parallel_proxy
 from bamboost.utilities import ComparableIterable
 
 if TYPE_CHECKING:
@@ -59,25 +56,6 @@ __all__ = [
 ]
 
 log = BAMBOOST_LOGGER.getChild("Collection")
-
-
-class _FilterKeys:
-    def __init__(self, collection: Collection):
-        self.collection = collection
-
-    def __getitem__(self, key: str) -> _Key:
-        return _Key(key)
-
-    def _ipython_key_completions_(self):
-        metadata_keys = (
-            "collection_uid",
-            "name",
-            "created_at",
-            "modified_at",
-            "description",
-            "status",
-        )
-        return (*self.collection._record.get_parameter_keys()[0], *metadata_keys)
 
 
 class Collection:
@@ -172,10 +150,8 @@ class Collection:
 
     def __iter__(self) -> Generator[Simulation, None, None]:
         """Iterate over all simulations in the collection."""
-        for sim in self._record.simulations:
-            yield Simulation(
-                sim.name, self.path, ReuseComm(self), collection_uid=self.uid
-            )
+        for sim in self._core.get_simulations():
+            yield Simulation.from_core(sim)
 
     def _repr_html_(self) -> str:
         """HTML repr for ipython/notebooks, using jinja2 for templating."""
@@ -338,9 +314,9 @@ class Collection:
         Returns:
             list[str]: A list containing the names of all simulations in the collection.
         """
-        return [sim.name for sim in self._record.simulations]
+        return self._core.get_simulation_names()
 
-    def sync_cache(self, *, force_all: bool = False) -> None:
+    def sync_cache(self) -> None:
         """Synchronize the database for this collection.
 
         This method updates the collection's cache by syncing the underlying index and
@@ -353,7 +329,7 @@ class Collection:
             force_all: If True, force a full resync of all simulations in the collection.
                 If False (default), only update simulations that are out of sync.
         """
-        self._index.sync_collection(self.uid, self.path, force_all=force_all)
+        self._core.sync_cache()
 
     def add(
         self,
@@ -364,7 +340,7 @@ class Collection:
         description: Optional[str] = None,
         tags: Optional[Iterable[str]] = None,
         files: Optional[Iterable[StrPath]] = None,
-        links: Optional[dict[str, str | SimulationUID]] = None,
+        links: Optional[dict[str, str]] = None,
         override: bool = False,
     ) -> SimulationWriter:
         """Create and initialize a new simulation in the collection, returning a
@@ -429,17 +405,10 @@ class Collection:
             source_files=[str(f) for f in files] if files else None,
             description=description,
             tags=list(tags) if tags else None,
+            links=links,
             duplicate_action=duplicate_action,
         )
         return SimulationWriter.from_core(sim_core)
-
-    @deprecated(
-        "Use `add` instead. This method has been renamed in v0.10.2 and will be"
-        "removed in future versions."
-    )
-    def create_simulation(self, *args, **kwargs) -> SimulationWriter:
-        """Deprecated alias of `add`. See `bamboost.core.collection.Collection.add` method."""
-        return self.add(*args, **kwargs)
 
     def delete(self, name: str | Iterable[str]) -> None:
         """CAUTION. Deletes one or more simulations from the collection.
@@ -459,7 +428,6 @@ class Collection:
             >>> db.delete("simulation_name")
             >>> db.delete(["sim1", "sim2", "sim3"])
         """
-        import shutil
 
         if isinstance(name, str):
             names = [name]
@@ -468,27 +436,7 @@ class Collection:
         else:
             raise ArgumentError("name must be a string or an iterable of strings.")
 
-        # Check that all names exist in the collection (even if filtered)
-        unfiltered_record = self._index.collection(self.uid)
-        if unfiltered_record is None:
-            raise RuntimeError(f"Collection {self.uid} not found in index.")
-        existing_names = {sim.name for sim in unfiltered_record.simulations}
-        for n in names:
-            if n not in existing_names:
-                raise ValueError(f"Simulation {n} does not exist in the collection.")
-
-        # Only root process performs deletion
-        if self._comm.rank == 0:
-            with comm_self(self._index), self._index.sql_transaction():
-                for n in names:
-                    self._index.drop_simulation(self.uid, n)
-                    try:
-                        shutil.rmtree(self.path.joinpath(n))
-                    except PermissionError as e:
-                        log.error(f"Error deleting simulation directory for {n}: {e}")
-                        raise
-
-        self._comm.barrier()
+        self._core.drop_simulations(names)
 
     def find(self, parameter_selection: Mapping[str, Any]) -> pd.DataFrame:
         """Find simulations matching the given parameter selection.
@@ -520,7 +468,7 @@ class Collection:
                 params[key] = val
 
         df = self.df
-        matches = self._list_duplicates(params, df=df)
+        matches = self._match_parameters(params, df=df)
         matches = df[df.name.isin(matches)]
         assert isinstance(matches, pd.DataFrame)
         if len(matches) == 0:
@@ -531,7 +479,7 @@ class Collection:
 
         return matches
 
-    def _list_duplicates(
+    def _match_parameters(
         self,
         parameters: Mapping | None = None,
         *,
@@ -559,7 +507,7 @@ class Collection:
         import pandas as pd
 
         if df is None:
-            df = self._record.to_pandas(include_links=True)
+            df = self.to_pandas(include_links=True)
         params = flatten_dict(parameters or {})
         if links:
             # Prefix links to match flattened DataFrame columns
@@ -600,38 +548,11 @@ class Collection:
                 "submitted",
             }
             other_cols = [
-                c for c in df.columns if c not in s.keys() and c not in metadata_cols
+                c
+                for c in df.columns
+                if c not in s.keys() and c not in metadata_cols  # noqa: SIM118
             ]
             for col in other_cols:
                 mask &= df[col].isna()
 
         return df.loc[mask].name.tolist()
-
-    def _check_duplicate(
-        self, parameters: Mapping | None = None, *, links: Mapping | None = None
-    ) -> Literal[True]:
-        """Check whether the given parameters dictionary already exists in the collection.
-        Returns True if no duplicates are found. Raises `DuplicateSimulationError` if
-        duplicates are found.
-
-        Args:
-            parameters (dict): Parameter dictionary to check for duplicates.
-            links (dict): Links dictionary to check for duplicates.
-        """
-        # we must check for duplicates in the WHOLE collection, not just the filtered view
-        unfiltered_record = self._index.collection(self.uid)
-        if unfiltered_record is None:
-            raise RuntimeError("Collection not found in index.")
-
-        # resolve linked parameters if necessary (to match the behavior of df)
-        if self._include_links:
-            unfiltered_record = self._index.insert_linked_sim_parameters(
-                unfiltered_record, self._include_links
-            )
-
-        df = unfiltered_record.to_pandas(include_links=True)
-        duplicates = self._list_duplicates(parameters, links=links, df=df, exact=True)
-        if len(duplicates) == 0:
-            return True
-
-        raise DuplicateSimulationError(duplicates=tuple(duplicates))

@@ -51,10 +51,12 @@ from bamboost.mpi import MPI, ReuseComm
 from bamboost.utilities import StrPath
 
 if TYPE_CHECKING:
+    from bamboostrs._core import SimulationMetadata
+
     from bamboost.core.collection import Collection
     from bamboost.mpi import Comm
 
-    cached_property: TypeAlias = property
+    cached_property: TypeAlias = property  # noqa: PYI042
 
 
 log = BAMBOOST_LOGGER.getChild("simulation")
@@ -184,7 +186,9 @@ class _Simulation(H5Object[_MT], ABC):
         self._data_file: Path = self.path.joinpath(constants.HDF_DATA_FILE_NAME)
 
     @classmethod
-    def from_core(cls, core: _Simulation_rust) -> Self:
+    def from_core(
+        cls, core: _Simulation_rust, *, comm: Comm | ReuseComm | None = None
+    ) -> Self:
         """Create a Simulation instance from a core simulation object."""
         from bamboost.core.collection import Collection
 
@@ -195,7 +199,10 @@ class _Simulation(H5Object[_MT], ABC):
         instance._core = core
         instance.name = core.name
         instance.path = collection.path.joinpath(core.name)
-        instance.collection_uid = core.metadata
+        instance.collection_uid = collection.uid
+
+        if comm is not None:
+            instance._comm = comm
 
         return instance
 
@@ -258,8 +265,13 @@ class _Simulation(H5Object[_MT], ABC):
                 else get_pill_div("Not submitted", "grey")
             )
 
-        html_string = pkgutil.get_data("bamboost", "_repr/simulation.html").decode()
-        icon = pkgutil.get_data("bamboost", "_repr/icon.txt").decode()
+        html_string = pkgutil.get_data("bamboost", "_repr/simulation.html")
+        icon = pkgutil.get_data("bamboost", "_repr/icon.txt")
+        assert html_string is not None and icon is not None, (
+            "Failed to load HTML template or icon."
+        )
+        icon = icon.decode()
+        html_string = html_string.decode()
         template = Template(html_string)
         file_tree = str(self.files).replace("\n", "</br>").replace(" ", "&nbsp;")
 
@@ -283,16 +295,12 @@ class _Simulation(H5Object[_MT], ABC):
         return self.file.mutable
 
     @classmethod
-    def from_uid(
-        cls, uid: str | SimulationUID, *, comm: Comm | None = None, **kwargs
-    ) -> Self:
-        """
-        Return the `Simulation` instance corresponding to the given UID.
+    def from_uid(cls, uid: str | SimulationUID, *, comm: Comm | None = None) -> Self:
+        """Return the `Simulation` instance corresponding to the given UID.
 
         Args:
             uid: The full simulation UID in the format "<collection_uid>:<simulation_name>".
             comm: Optional MPI communicator to use for the simulation instance.
-            **kwargs: Additional keyword arguments to pass to the constructor.
 
         Returns:
             Self: An instance of the simulation class corresponding to the UID.
@@ -300,10 +308,13 @@ class _Simulation(H5Object[_MT], ABC):
         Examples:
             >>> sim = Simulation.from_uid("abc123:mysim")
         """
+        from bamboostrs._core import Collection as _Collection_rust
+
         uid = SimulationUID(uid)
-        return cls(
-            uid.simulation_name, collection_path, index=index, comm=comm, **kwargs
-        )
+        collection_uid, name = uid.collection_uid, uid.simulation_name
+        collection = _Collection_rust(collection_uid)
+        sim_core = _Simulation_rust.from_collection(collection, name)
+        return cls.from_core(sim_core, comm=comm)
 
     @property
     def uid(self) -> SimulationUID:
@@ -351,7 +362,7 @@ class _Simulation(H5Object[_MT], ABC):
         return self._core.parameters
 
     @property
-    def metadata(self) -> dict[str, Any]:
+    def metadata(self) -> SimulationMetadata:
         """
         Returns the metadata associated with this simulation.
 
@@ -569,7 +580,7 @@ class SimulationWriter(_Simulation[Mutable]):
             self._data_file, comm=ReuseComm(self), mutable=True
         )._create_file()
 
-    def __enter__(self) -> SimulationWriter:
+    def __enter__(self) -> Self:
         self.status = Status.STARTED
         return self
 
