@@ -4,10 +4,8 @@ from enum import Enum, auto
 from dataclasses import dataclass
 from typing import TYPE_CHECKING, Callable, Any, Protocol
 
+from bamboost.core.simulation import Simulation
 from bamboost._logger import BAMBOOST_LOGGER
-
-if TYPE_CHECKING:
-    from bamboost.core.simulation import Simulation
 
 
 logger = BAMBOOST_LOGGER.getChild("pipeline-extension")
@@ -48,11 +46,14 @@ class FromJob(TaskInput):
 
 
 class Job:
-    def __init__(self, name: str, func: Callable, inputs: dict[str, Any], is_persistent: bool):
+    def __init__(
+        self, name: str, func: Callable, inputs: dict[str, Any], is_persistent: bool, linked_sim: str | None = None
+    ):
         self.name = name
         self.func = func
         self.input_schema = inputs
         self._is_persistent = is_persistent
+        self.linked_sim = linked_sim
 
     def execute(self, resolved_inputs: dict[str, Any]) -> Any:
         return self.func(**resolved_inputs)
@@ -78,7 +79,7 @@ class JobRecord:
     @classmethod
     def from_sim_metadata(cls, job_name: str, sim: Simulation) -> JobRecord:
         record = cls()
-        status_key = f"stage_{job_name}_status"
+        status_key = f"job_{job_name}_status"
 
         status_str = sim.metadata.get(status_key, None)
         record.status = JobStatus(status_str) if status_str else JobStatus.PENDING
@@ -87,7 +88,7 @@ class JobRecord:
 
 @dataclass
 class RunState[CTX: ContextProtocol]:
-    runner: SimulationRunner
+    runner: SimulationRunner[CTX]
     context: CTX
     records: dict[str, JobRecord]
 
@@ -99,21 +100,39 @@ class SimulationRunner[CTX: ContextProtocol]:
         name: The identifier for the simulation runner.
         jobs: A collection of registered jobs.
     """
+
     def __init__(self, name: str):
         self.name = name
         self.jobs: dict[str, Job] = {}
 
-    def add_job(self, name: str, func: Callable, inputs: dict[str, Any], is_persistent: bool = False):
-        """Registers a new job to the runner.
+    def add_job(
+        self,
+        name: str | None = None,
+        func: Callable | None = None,
+        inputs: dict[str, Any] | None = None,
+        is_persistent: bool = False,
+        linked_sim: str | None = None,
+    ):
+        """Registers a new job to the runner. Can be used as a method or a decorator.
 
         Args:
             name: The unique identifier for the job.
             func: The function to execute for this job.
             inputs: A dictionary mapping input keys to their values or providers.
         """
-        self.jobs[name] = Job(name, func, inputs, is_persistent)
+        actual_inputs = inputs if inputs is not None else {}
 
-    def run(self, context: CTX, targets: list[str] | None = None) -> RunState:
+        def decorator(f: Callable) -> Callable:
+            job_name = name or getattr(f, "__name__")
+            self.jobs[job_name] = Job(job_name, f, actual_inputs, is_persistent)
+            return f
+
+        if func is not None and callable(func):
+            return decorator(func)
+
+        return decorator
+
+    def run(self, context: CTX, targets: list[str] | None = None) -> RunState[CTX]:
         """Runs the simulation pipeline.
 
         Args:
@@ -123,7 +142,9 @@ class SimulationRunner[CTX: ContextProtocol]:
 
         # Instantiate the RunState object for this specific run.
         # Initialize the records, making sure the persistent jobs states are taken from disk
-        records = {job: JobRecord.from_sim_metadata(job, context.sim) for job in self.jobs}
+        records = {
+            job: JobRecord.from_sim_metadata(job, context.sim) for job in self.jobs
+        }
         run_state = RunState(self, context, records)
 
         target_jobs = targets or list(self.jobs.keys())
@@ -131,8 +152,8 @@ class SimulationRunner[CTX: ContextProtocol]:
             self._execute_job(job, run_state)
 
         return run_state
-        
-    def _execute_job(self, job_name: str, run_state: RunState) -> Any:
+
+    def _execute_job(self, job_name: str, run_state: RunState[CTX]) -> Any:
         """Manages the lifecycle and execution of a specific job.
 
         Args:
@@ -149,12 +170,17 @@ class SimulationRunner[CTX: ContextProtocol]:
         sim = run_state.context.sim
         job = self.jobs[job_name]
 
-        logger.info(f"Runner '{self.name}' is starting job '{job.name}' with status '{record.status}'.")
+        logger.info(
+            f"Runner '{self.name}' is starting job '{job.name}' with status '{record.status}'."
+        )
 
         # Short circuit either from cache or file
         if record.status == JobStatus.FINISHED and job._is_persistent:
-            return record.result
-        if record.status == JobStatus.FINISHED and not job._is_persistent:
+            if job.linked_sim:
+                return sim.links[job.linked_sim]
+            else:
+                return sim
+        elif record.status == JobStatus.FINISHED and not job._is_persistent:
             return record.result
 
 
@@ -166,6 +192,7 @@ class SimulationRunner[CTX: ContextProtocol]:
 
             logger.info(f"Runner '{self.name}' is executing job '{job.name}'.")
             result = job.execute(resolved_inputs)
+            record.result = result
 
             # Mark the Job as 'FINISHED'
             record.status = JobStatus.FINISHED
@@ -175,14 +202,14 @@ class SimulationRunner[CTX: ContextProtocol]:
             if job._is_persistent:
                 simw = sim.edit()
                 with simw.open("a"):
-                    simw.metadata[f"stage_{job_name}_status"] = JobStatus.FINISHED.value
+                    simw.metadata[f"job_{job_name}_status"] = JobStatus.FINISHED.value
 
-                # Store the uid of the simulation.
-                record.result = result
-                return sim
+                if job.linked_sim:
+                    return sim.links[job.linked_sim]
+                else:
+                    return sim
 
             # Transient jobs return artifacts stored in the record for memory-based access.
-            record.result = result
             return result
 
         except Exception as e:
