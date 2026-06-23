@@ -21,7 +21,6 @@ if TYPE_CHECKING:
     from bamboost.core.simulation import FieldType as FieldType
     from bamboost.core.simulation import Simulation as Simulation
     from bamboost.core.simulation import SimulationWriter as SimulationWriter
-    from bamboost.index import Index as Index
 
 # We use lazy_loader to avoid upfront imports of submodules while still
 # providing a consistent API for the user.

@@ -367,7 +367,7 @@ def test_simulation_writer_run_simulation(tmp_simulation_writer: SimulationWrite
         patch("subprocess.run") as mock_run,
         patch.dict(os.environ, {"BAMBOOST_MPI": "1"}, clear=False),
     ):
-        tmp_simulation_writer.run_simulation(executable="bash")
+        tmp_simulation_writer.run(executable="bash")
 
         # Ensure subprocess.run is called with the correct arguments
         mock_run.assert_called_once_with(["bash", script_path.as_posix()], env=ANY)

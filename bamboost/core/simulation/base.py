@@ -17,11 +17,9 @@ Classes:
 from __future__ import annotations
 
 import os
-import subprocess
 from abc import ABC
 from contextlib import contextmanager
 from dataclasses import dataclass
-from datetime import datetime
 from enum import Enum
 from functools import cached_property
 from pathlib import Path
@@ -29,9 +27,9 @@ from typing import (
     TYPE_CHECKING,
     Any,
     Iterable,
-    Mapping,
     Optional,
     Sized,
+    TypeAlias,
     Union,
 )
 
@@ -39,21 +37,24 @@ import numpy as np
 from bamboostrs import Simulation as _Simulation_rust
 from typing_extensions import Self
 
-from bamboost import config, constants
+from bamboost import constants
 from bamboost._logger import BAMBOOST_LOGGER
 from bamboost._typing import _MT, Immutable, Mutable
 from bamboost.core import utilities
 from bamboost.core.hdf5.file import FileMode, H5Object, HDF5File
 from bamboost.core.hdf5.ref import Group
-from bamboost.core.simulation.dict import Links, Metadata, Parameters
+from bamboost.core.simulation.dict import Links
 from bamboost.core.simulation.groups import GroupGit, GroupMesh, GroupMeshes
 from bamboost.core.simulation.series import Series
-from bamboost.index import CollectionUID, SimulationUID
+from bamboost.index import SimulationUID
 from bamboost.mpi import MPI, ReuseComm
 from bamboost.utilities import StrPath
 
 if TYPE_CHECKING:
+    from bamboost.core.collection import Collection
     from bamboost.mpi import Comm
+
+    cached_property: TypeAlias = property
 
 
 log = BAMBOOST_LOGGER.getChild("simulation")
@@ -158,13 +159,15 @@ class _Simulation(H5Object[_MT], ABC):
         name: str,
         parent: StrPath,
         comm: Comm | ReuseComm | None = None,
-        mutable: bool = False,
-        **kwargs,
+        collection: Collection | None = None,
     ):
+        from bamboost.core.collection import Collection
+
         self.name: str = name
         self.path: Path = Path(parent).joinpath(name).absolute()
+        self._collection = collection or Collection(parent)
+        self.collection_uid = self._collection.uid
         self._core = _Simulation_rust.from_path(self.path.as_posix())
-        self.collection_uid = self._core.metadata["collection_uid"]
 
         if not self.path.is_dir():
             raise FileNotFoundError(
@@ -180,17 +183,20 @@ class _Simulation(H5Object[_MT], ABC):
 
         self._data_file: Path = self.path.joinpath(constants.HDF_DATA_FILE_NAME)
 
-        # the super H5Object constructor assigns comm = ReuseComm(file), which is not
-        # wanted here, that's why we set _file here directly instead of calling
-        # super().__init__()
-        try:
-            self._file = HDF5File(  # ty:ignore[invalid-assignment]
-                self._data_file, comm=ReuseComm(self), mutable=mutable
-            )
-        except FileNotFoundError:
-            pass
+    @property
+    def file(self) -> HDF5File[_MT]:
+        if hasattr(self, "_file"):
+            return self._file
+        raise AttributeError(
+            "Simulation file is not initialized. If you never used it, you "
+            "must use SimulationWriter to get a mutable simulation object."
+        )
 
-    def __eq__(self, other: _Simulation, /) -> bool:
+    @file.setter
+    def file(self, value: HDF5File[_MT]) -> None:
+        self._file = value
+
+    def __eq__(self, other: _Simulation, /) -> bool:  # ty:ignore[invalid-method-override]
         return (
             self.uid == other.uid
             and self.name == other.name
@@ -254,15 +260,11 @@ class _Simulation(H5Object[_MT], ABC):
 
     @cached_property
     def root(self) -> Group[_MT]:
-        return Group("/", self._file)
+        return Group("/", self.file)
 
     @property
     def mutable(self) -> bool:
-        return self._file.mutable
-
-    @property
-    def _orm(self) -> SimulationRecord | None:
-        return self._index.simulation(self.uid)
+        return self.file.mutable
 
     @classmethod
     def from_uid(
@@ -322,62 +324,27 @@ class _Simulation(H5Object[_MT], ABC):
             self.name,
             self.path.parent,
             ReuseComm(self),
-            self._index,
-            collection_uid=self.collection_uid,
         )
 
-    def update_database(
-        self,
-        *,
-        metadata: Optional[Mapping] = None,
-        parameters: Optional[Mapping] = None,
-        links: Optional[Mapping] = None,
-    ) -> None:
-        """Push update to sqlite database.
-
-        Args:
-            metadata: metadata dictionary to insert
-            parameters: parameter dictionary to insert
-            links: links dictionary to insert
-        """
-        if not config.index.syncTables:
-            return
-
-        if metadata:
-            self._index.update_simulation_metadata(
-                self.collection_uid, self.name, metadata
-            )
-        if parameters:
-            self._index.update_simulation_parameters(
-                self.collection_uid, self.name, parameters
-            )
-        if links:
-            self._index.update_simulation_links(
-                self.collection_uid,
-                self.name,
-                links,
-                raise_on_invalid_target=config.index.strictLinks,
-            )
-
-    @cached_property
-    def parameters(self) -> Parameters[_MT]:
+    @property
+    def parameters(self) -> dict[str, Any]:
         """
         Returns the parameters associated with this simulation.
 
         Returns:
             Parameters[_MT]: The parameters object for this simulation.
         """
-        return Parameters(self)
+        return self._core.parameters
 
-    @cached_property
-    def metadata(self) -> Metadata[_MT]:
+    @property
+    def metadata(self) -> dict[str, Any]:
         """
         Returns the metadata associated with this simulation.
 
         Returns:
             Metadata[_MT]: The metadata object for this simulation.
         """
-        return Metadata(self)
+        return self._core.metadata
 
     @property
     def status(self) -> StatusInfo:
@@ -391,31 +358,6 @@ class _Simulation(H5Object[_MT], ABC):
             return StatusInfo.parse(self.metadata.__getitem__("status"))
         except KeyError:
             return StatusInfo(Status.UNKNOWN)
-
-    @property
-    def created_at(self) -> datetime:
-        """
-        Returns the creation timestamp of the simulation.
-
-        Returns:
-            datetime: The datetime when the simulation was created.
-        """
-        return self.metadata.__getitem__("created_at")
-
-    @property
-    def description(self) -> str:
-        """
-        Returns the description of the simulation.
-
-        Returns:
-            str: The description string.
-        """
-        return self.metadata.__getitem__("description")
-
-    @property
-    def tags(self) -> set[str]:
-        """Return simulation tags."""
-        return set(self.metadata.get("tags", []))
 
     @cached_property
     def links(self) -> Links[_MT]:
@@ -447,7 +389,7 @@ class _Simulation(H5Object[_MT], ABC):
         """
         return GroupGit(self)
 
-    @cached_property
+    @property
     def data(self) -> Series[_MT]:
         """
         Returns the default data series for this simulation.
@@ -464,10 +406,6 @@ class _Simulation(H5Object[_MT], ABC):
     @cached_property
     def mesh(self) -> GroupMesh:
         return GroupMesh(self, constants.DEFAULT_MESH_NAME)
-
-    def open_in_paraview(self) -> None:
-        """Open the xdmf file in paraview."""
-        subprocess.call(["paraview", self._xdmf_file])
 
     @contextmanager
     def enter_path(self):
@@ -540,7 +478,7 @@ class _Simulation(H5Object[_MT], ABC):
         timesteps = timesteps if timesteps is not None else series.values
 
         def _create_xdmf():
-            xdmf = XDMFWriter(self._file)
+            xdmf = XDMFWriter(self.file)
             xdmf.add_mesh(self.meshes[mesh_name])
             xdmf.add_timeseries(timesteps, fields, mesh_name)
             xdmf.write_file(filename)
@@ -576,9 +514,12 @@ class Simulation(_Simulation[Immutable]):
         name: str,
         parent: StrPath,
         comm: Comm | ReuseComm | None = None,
-        **kwargs,
     ):
-        super().__init__(name, parent, comm, mutable=False, **kwargs)
+        super().__init__(name, parent, comm)
+        try:
+            self.file = HDF5File(self._data_file, comm=ReuseComm(self), mutable=False)
+        except FileNotFoundError:
+            pass
 
 
 class SimulationWriter(_Simulation[Mutable]):
@@ -608,10 +549,11 @@ class SimulationWriter(_Simulation[Mutable]):
         name: str,
         parent: StrPath,
         comm: Comm | ReuseComm | None = None,
-        index: Optional[Index] = None,
-        **kwargs,
     ):
-        super().__init__(name, parent, comm, index, mutable=True, **kwargs)
+        super().__init__(name, parent, comm)
+        self.file = HDF5File(
+            self._data_file, comm=ReuseComm(self), mutable=True
+        )._create_file()
 
     def __enter__(self) -> SimulationWriter:
         self.status = Status.STARTED
@@ -626,27 +568,28 @@ class SimulationWriter(_Simulation[Mutable]):
             return
         self.status = Status.FINISHED
 
-    def initialize(self) -> None:
-        """Initialize the simulation.
+    @_Simulation.status.setter
+    def status(self, value: Union[StatusInfo, Status]) -> None:
+        self.metadata.__setitem__("status", value.format())
 
-        This method sets up the simulation's HDF5 data file and required groups,
-        and records initial metadata such as status and creation time.
+    def require_series(self, path: str) -> Series[Mutable]:
+        # require the group in the HDF5 file
+        with self.file.open(FileMode.APPEND, driver="mpio"):
+            if path not in self.root.keys():  # noqa: SIM118
+                self._initialize_series(path)
+        return super().require_series(path)
+
+    @property
+    def data(self) -> Series[Mutable]:
+        """Returns the default data series for this simulation.
+
+        Returns:
+            Series[Mutable]: The default data series object.
         """
-        # create the data file
-        with self._file.open(FileMode.APPEND, driver="mpio") as f:
-            self.metadata.update(
-                {
-                    "status": Status.INITIALIZED.value,
-                    "created_at": datetime.now(),
-                }
-            )
-            # create groups
-            f.create_group(constants.PATH_PARAMETERS)
-            f.create_group(constants.PATH_LINKS)
-            f.create_group(constants.PATH_MESH)
-
-            # create default series ('data')
-            self._initialize_series(constants.PATH_DATA)
+        with self.file.open(FileMode.READ, driver="mpio"):
+            if constants.PATH_DATA not in self.root.keys():  # noqa: SIM118
+                self._initialize_series(constants.PATH_DATA)
+        return Series(self, path=constants.PATH_DATA)
 
     def _initialize_series(self, path: str) -> None:
         """Create the groups for a series. Does not manage file state.
@@ -655,34 +598,16 @@ class SimulationWriter(_Simulation[Mutable]):
             path: path of the series
         """
         # add series to metadata for easier retrieval
-        all_series = set(self.metadata.get(".series_paths", []))
+        root_attrs = self.root.attrs
+        all_series = set(root_attrs.get(".series_paths", []))
         all_series.add(str(path))
-        self.metadata.set(".series_paths", list(all_series))
+        root_attrs.set(".series_paths", list(all_series))
 
-        f = self._file
+        f = self.file
         grp = f.require_group(path)
         grp.attrs[".series"] = True
         grp.require_group(constants.RELATIVE_PATH_FIELD_DATA)
         grp.require_group(constants.RELATIVE_PATH_SCALAR_DATA)
-
-    @_Simulation.status.setter
-    def status(self, value: Union[StatusInfo, Status]) -> None:
-        self.metadata.__setitem__("status", value.format())
-
-    @_Simulation.description.setter
-    def description(self, value: str) -> None:
-        self.metadata.__setitem__("description", value)
-
-    @_Simulation.tags.setter
-    def tags(self, value: Iterable[str]) -> None:
-        self.metadata.__setitem__("tags", utilities.dedupe_str_iter(value))
-
-    def require_series(self, path: str) -> Series[Mutable]:
-        # require the group in the HDF5 file
-        with self._file.open(FileMode.APPEND, driver="mpio"):
-            if path not in self.root.keys():
-                self._initialize_series(path)
-        return super().require_series(path)
 
     def copy_files(self, files: Iterable[StrPath]) -> None:
         """Copy files to the simulation folder.
@@ -699,107 +624,11 @@ class SimulationWriter(_Simulation[Mutable]):
             elif path.is_dir():
                 shutil.copytree(path, self.path)
 
-    def create_run_script(
-        self,
-        commands: list[str],
-        euler: bool = False,
-        sbatch_kwargs: Optional[dict[str, Any]] = None,
-    ) -> None:
-        """Create a batch job and put it into the folder.
-
-        Args:
-            commands: A list of strings being the user defined commands to run
-            euler: If false, a local bash script will be written
-            sbatch_kwargs: Additional sbatch arguments.
-                This parameter allows you to provide additional arguments to the `sbatch` command
-                when submitting jobs to a Slurm workload manager. The arguments should be provided
-                in the format of a dict of sbatch option name and values.
-
-                Use this parameter to specify various job submission options such as the number of
-                tasks, CPU cores, memory requirements, email notifications, and other sbatch options
-                that are not covered by default settings.
-                By default, the following sbatch options are set:
-                - `--output`: The output file is set to `<uid>.out`.
-                - `--job-name`: The job name is set to `<full_uid>`.
-
-                The following arguments should bring you far:
-                - `--ntasks`: The number of tasks to run. This is the number of MPI processes to start.
-                - `--mem-per-cpu`: The memory required per CPU core.
-                - `--time`: The maximum time the job is allowed to run.
-                - `--tmp`: Temporary scratch space to use for the job.
-        """
-        script = "#!/bin/bash\n\n"
-
-        # Add sbatch options
-        if euler:
-            if sbatch_kwargs is None:
-                sbatch_kwargs = {}
-
-            sbatch_kwargs.setdefault(
-                "--output", f"{self.path.joinpath(self.name + '.out')}"
-            )
-            sbatch_kwargs.setdefault("--job-name", self.uid)
-
-            for key, value in sbatch_kwargs.items():
-                script += f"#SBATCH {key}={value}\n"
-
-        # Add environment variables
-        script += "\n"
-        script += (
-            f"export SIMULATION_DIR={self.path.as_posix()}\n"
-            f"export SIMULATION_ID={self.uid}\n\n"
-        )
-        script += "\n".join(commands)
-
-        with self._bash_file.open("w") as file:
-            file.write(script)
-
-        self.metadata["submitted"] = False
-
-    def run_simulation(self, executable: str = "bash") -> None:
-        """
-        Run the simulation using the specified executable and the default run file in
-        the simulation directory.
-
-        This method executes the simulation's run script using the provided executable.
-        By default, it uses "bash" to run the script locally. If "sbatch" is specified,
-        the script will be submitted to a Slurm workload manager.
-
-        Args:
-            executable (str): The executable to use for running the simulation script.
-                Defaults to "bash". Use "sbatch" to submit to a Slurm scheduler.
-
-        Raises:
-            AssertionError: If called during MPI execution.
-            FileNotFoundError: If the run script does not exist.
-
-        Examples:
-            >>> sim_writer.run_simulation()  # Runs locally with bash
-            >>> sim_writer.run_simulation(executable="sbatch")  # Submits to Slurm
-        """
+    def run(self, stage: str) -> None:
         assert not MPI.enabled and self._comm.size <= 1, (
             "This method is not available during MPI execution."
         )
+        self._core.run(stage)
 
-        if not self._bash_file.exists():
-            raise FileNotFoundError(
-                f"Run script {self._bash_file} does not exist. Create one with `create_run_script`."
-            )
-
-        env = os.environ.copy()
-        _ = env.pop("BAMBOOST_MPI", None)  # remove bamboost MPI environment variable
-        subprocess.run([executable, self._bash_file.as_posix()], env=env)
-        log.info(f'Simulation "{self.name}" submitted.')
-        self.metadata["submitted"] = True
-
-    def submit_simulation(self) -> None:
-        """
-        Submit the simulation to a job scheduler.
-
-        This method submits the simulation's run script to a job scheduler using "sbatch".
-        It is a convenience wrapper around `run_simulation(executable="sbatch")`.
-
-        Examples:
-            >>> sim_writer.submit_simulation()
-        """
-        self.run_simulation(executable="sbatch")
+    def submit(self, stage: str) -> None:
+        self._core.submit(stage)
