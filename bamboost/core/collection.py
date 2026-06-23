@@ -420,97 +420,18 @@ class Collection:
             - Be cautious when using `duplicate_action="replace"` as it will delete
               existing simulations with matching parameters, without asking again.
         """
-        import shutil
-
         assert duplicate_action in ("ignore", "replace", "skip", "raise"), (
             "Invalid duplicate_action. Must be one of: 'ignore', 'replace', 'skip', 'raise'."
         )
-
-        name = SimulationName(
-            name, comm=self._comm
-        )  # Generates a unique id as name if not provided
-        directory = self.path.joinpath(name)
-
-        # Validate parameters keys (top-level only)
-        if parameters:
-            for key in parameters:
-                validate_parameter_key(key)
-
-        # Check if name is already in use, otherwise create a new directory
-        if self._comm.rank == 0:
-            exists = directory.exists()
-            must_fail = exists and not override
-            fail_msg = (
-                f"Simulation {name} already exists in {self.path}" if must_fail else ""
-            )
-        else:
-            exists = must_fail = None
-            fail_msg = ""
-
-        # Broadcast the decision to everyone
-        must_fail = self._comm.bcast(must_fail, root=0)
-        fail_msg = self._comm.bcast(fail_msg, root=0)
-
-        if must_fail:
-            raise FileExistsError(fail_msg)
-
-        # Check for duplicate parameters/links if provided
-        if (parameters or links) and duplicate_action != "ignore" and not override:
-            try:
-                self._check_duplicate(parameters, links=links)
-            except DuplicateSimulationError as e:
-                if duplicate_action == "raise":
-                    raise
-                elif duplicate_action == "skip":
-                    log.info(
-                        f"Simulation with parameters {parameters} already exists as"
-                        f"{e.duplicates}. Skipping creation and returning first duplicate."
-                    )
-                    return self[e.duplicates[0]].edit()
-                elif duplicate_action == "replace":
-                    log.info(
-                        f"Removing (all) existing simulations with the given parameters: {e.duplicates}."
-                    )
-                    self.delete(e.duplicates)
-
-        # Root process creates the directory if it does not exist
-        if self._comm.rank == 0:
-            if exists and override:
-                with comm_self(self._index):
-                    self._index.drop_simulation(self.uid, name)
-                shutil.rmtree(directory)  # remove the old directory
-
-            # finally create the new directory
-            directory.mkdir(exist_ok=False)
-
-        self._comm.barrier()
-
-        try:
-            # Create the simulation instance
-            sim = SimulationWriter(
-                name, self.path, ReuseComm(self), self._index, collection_uid=self.uid
-            )
-            with sim._file.open("w", driver="mpio"), self._index.sql_transaction():
-                sim.initialize()  # create groups, set metadata and status
-                sim.metadata.update(
-                    {"description": description or "", "tags": dedupe_str_iter(tags)}
-                )
-                sim.parameters.update(parameters or {})
-                sim.links.update(links or {})
-                sim.copy_files(files or [])
-
-            # Invalidate the file_map such that it is reloaded
-            sim._file.file_map.invalidate()
-
-            log.info(f"Created simulation {name} in {self.path}")
-            return sim
-        except (ValueError, PermissionError):
-            log.error(
-                f"Error occurred while creating simulation {name} at path {self.path}"
-            )
-            self._index.drop_simulation(self.uid, name)
-            shutil.rmtree(directory)
-            raise
+        sim_core = self._core.add_simulation(
+            name,
+            dict(parameters) if parameters else None,
+            source_files=[str(f) for f in files] if files else None,
+            description=description,
+            tags=list(tags) if tags else None,
+            duplicate_action=duplicate_action,
+        )
+        return SimulationWriter.from_core(sim_core)
 
     @deprecated(
         "Use `add` instead. This method has been renamed in v0.10.2 and will be"

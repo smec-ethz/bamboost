@@ -183,6 +183,22 @@ class _Simulation(H5Object[_MT], ABC):
 
         self._data_file: Path = self.path.joinpath(constants.HDF_DATA_FILE_NAME)
 
+    @classmethod
+    def from_core(cls, core: _Simulation_rust) -> Self:
+        """Create a Simulation instance from a core simulation object."""
+        from bamboost.core.collection import Collection
+
+        collection = Collection(core.metadata["collection_uid"])
+
+        instance = cls.__new__(cls)
+        instance._collection = collection
+        instance._core = core
+        instance.name = core.name
+        instance.path = collection.path.joinpath(core.name)
+        instance.collection_uid = core.metadata
+
+        return instance
+
     @property
     def file(self) -> HDF5File[_MT]:
         if hasattr(self, "_file"):
