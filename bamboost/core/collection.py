@@ -141,6 +141,8 @@ class Collection:
             self._comm = comm
 
         self._core = parallel_proxy(_Collection, self._comm, 0, str(uid_or_path))
+        self.uid = self._core.uid
+        self.path = self._core.path
 
     def __len__(self) -> int:
         return len(self._core.parameter_space())
@@ -167,7 +169,7 @@ class Collection:
             name = self.df.iloc[name_or_index]["name"]
         else:
             name = name_or_index
-        return Simulation(name, self.path, ReuseComm(self), collection_uid=self.uid)
+        return Simulation(name, self.path, ReuseComm(self))
 
     def __iter__(self) -> Generator[Simulation, None, None]:
         """Iterate over all simulations in the collection."""

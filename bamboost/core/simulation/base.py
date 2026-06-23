@@ -32,11 +32,11 @@ from typing import (
     Mapping,
     Optional,
     Sized,
-    TypeAlias,
     Union,
 )
 
 import numpy as np
+from bamboostrs import Simulation as _Simulation_rust
 from typing_extensions import Self
 
 from bamboost import config, constants
@@ -54,8 +54,6 @@ from bamboost.utilities import StrPath
 
 if TYPE_CHECKING:
     from bamboost.mpi import Comm
-
-    cached_property: TypeAlias = property
 
 
 log = BAMBOOST_LOGGER.getChild("simulation")
@@ -147,30 +145,32 @@ class _Simulation(H5Object[_MT], ABC):
         name (str): Name of the simulation.
         parent (StrPath): Path to the parent or collection directory.
         comm (Optional[Comm]): MPI communicator. Defaults to MPI.COMM_WORLD.
-        index (Optional[Index]): Index object. Defaults to the global index file.
 
     Raises:
         FileNotFoundError: If the simulation does not exist at the specified path.
         InvalidCollectionError: If the parent path is no collection or does not exist.
     """
 
+    collection_uid: str
+
     def __init__(
         self,
         name: str,
         parent: StrPath,
         comm: Comm | ReuseComm | None = None,
-        index: Optional[Index] = None,
         mutable: bool = False,
         **kwargs,
     ):
         self.name: str = name
         self.path: Path = Path(parent).joinpath(name).absolute()
+        self._core = _Simulation_rust.from_path(self.path.as_posix())
+        self.collection_uid = self._core.metadata["collection_uid"]
+
         if not self.path.is_dir():
             raise FileNotFoundError(
                 f"Simulation {self.name} does not exist in {self.path}."
             )
 
-        # MPI information
         if comm is not None:
             self._comm = comm
 
@@ -178,22 +178,17 @@ class _Simulation(H5Object[_MT], ABC):
         self._prank: int = self._comm.rank
         self._ranks = np.array([i for i in range(self._psize)])
 
-        # Reference to the database
-        self._index: Index = index or Index.default
-
-        # Shortcut to collection uid if available, otherwise resolve it
-        self.collection_uid: CollectionUID = kwargs.pop(
-            "collection_uid", None
-        ) or self._index.resolve_uid(self.path.parent)
-
         self._data_file: Path = self.path.joinpath(constants.HDF_DATA_FILE_NAME)
-        self._xdmf_file: Path = self.path.joinpath(constants.XDMF_FILE_NAME)
-        self._bash_file: Path = self.path.joinpath(constants.RUN_FILE_NAME)
 
         # the super H5Object constructor assigns comm = ReuseComm(file), which is not
         # wanted here, that's why we set _file here directly instead of calling
         # super().__init__()
-        self._file = HDF5File(self._data_file, comm=ReuseComm(self), mutable=mutable)  # ty:ignore[invalid-assignment]
+        try:
+            self._file = HDF5File(  # ty:ignore[invalid-assignment]
+                self._data_file, comm=ReuseComm(self), mutable=mutable
+            )
+        except FileNotFoundError:
+            pass
 
     def __eq__(self, other: _Simulation, /) -> bool:
         return (
@@ -581,10 +576,9 @@ class Simulation(_Simulation[Immutable]):
         name: str,
         parent: StrPath,
         comm: Comm | ReuseComm | None = None,
-        index: Optional[Index] = None,
         **kwargs,
     ):
-        super().__init__(name, parent, comm, index, mutable=False, **kwargs)
+        super().__init__(name, parent, comm, mutable=False, **kwargs)
 
 
 class SimulationWriter(_Simulation[Mutable]):

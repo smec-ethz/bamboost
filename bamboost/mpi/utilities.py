@@ -2,6 +2,7 @@ from contextlib import contextmanager
 from functools import wraps
 from typing import (
     TYPE_CHECKING,
+    Any,
     Callable,
     Generator,
     Protocol,
@@ -152,26 +153,45 @@ class ParallelProxy:
         self.root = root
         self._core = serial_instance  # Valid object on root, None on others
 
-    def __getattr__(self, name: str):
-        def wrapper(*args, **kwargs):
-            # Step A: Broadcast the method name and arguments to all ranks.
-            # In an SPMD workflow, all ranks must hit this line collectively.
-            payload = (name, args, kwargs)
-            meth_name, m_args, m_kwargs = self.comm.bcast(payload, root=self.root)
+    def __getattr__(self, name: str) -> Any:
+        # Step 1: Check on the root process what type of attribute this actually is.
+        # Workers don't have the object, so they default to assuming it's a method
+        # unless told otherwise via a collective broadcast.
+        is_callable = False
+        if self.rank == self.root:
+            if self._core is None:
+                raise RuntimeError("Serial core instance missing on root process.")
+            attr = getattr(self._core, name)
+            is_callable = callable(attr)
 
-            # Step B: Execute the method ONLY on the root process.
+        # Share whether it's a method or a property/attribute with all ranks
+        is_callable = self.comm.bcast(is_callable, root=self.root)
+
+        if is_callable:
+
+            def wrapper(*args: Any, **kwargs: Any) -> Any:
+                payload = (name, args, kwargs)
+                meth_name, m_args, m_kwargs = self.comm.bcast(payload, root=self.root)
+
+                if self.rank == self.root:
+                    target_method = getattr(self._core, meth_name)
+                    result = target_method(*m_args, **m_kwargs)
+                else:
+                    result = None
+
+                return self.comm.bcast(result, root=self.root)
+
+            return wrapper
+
+        # It's a property or attribute
+        # We must evaluate and sync its value immediately right here.
+        else:
             if self.rank == self.root:
-                if self._core is False or self._core is None:
-                    raise RuntimeError("Serial core instance missing on root process.")
-                attr = getattr(self._core, meth_name)
-                result = attr(*m_args, **m_kwargs)
+                result = getattr(self._core, name)
             else:
                 result = None
 
-            # Step C: Broadcast the result back to all worker ranks.
             return self.comm.bcast(result, root=self.root)
-
-        return wrapper
 
 
 def parallel_proxy(serial_class: type[T], comm, root: int = 0, *args, **kwargs) -> T:
