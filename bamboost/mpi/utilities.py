@@ -6,6 +6,7 @@ from typing import (
     Generator,
     Protocol,
     TypeVar,
+    cast,
 )
 
 from bamboost.mpi import MPI
@@ -14,6 +15,7 @@ if TYPE_CHECKING:
     from bamboost.mpi import Comm
 
 _CT = TypeVar("_CT", bound=Callable)
+T = TypeVar("T")
 
 
 class HasComm(Protocol):
@@ -139,3 +141,52 @@ def comm_self(instance: HasComm) -> Generator[None, None, None]:
         yield
     finally:
         instance._comm = prev_comm
+
+
+class ParallelProxy:
+    """Handles the actual MPI communication routing at runtime."""
+
+    def __init__(self, serial_instance, comm, root: int = 0):
+        self.comm = comm
+        self.rank = self.comm.rank
+        self.root = root
+        self._core = serial_instance  # Valid object on root, None on others
+
+    def __getattr__(self, name: str):
+        def wrapper(*args, **kwargs):
+            # Step A: Broadcast the method name and arguments to all ranks.
+            # In an SPMD workflow, all ranks must hit this line collectively.
+            payload = (name, args, kwargs)
+            meth_name, m_args, m_kwargs = self.comm.bcast(payload, root=self.root)
+
+            # Step B: Execute the method ONLY on the root process.
+            if self.rank == self.root:
+                if self._core is False or self._core is None:
+                    raise RuntimeError("Serial core instance missing on root process.")
+                attr = getattr(self._core, meth_name)
+                result = attr(*m_args, **m_kwargs)
+            else:
+                result = None
+
+            # Step C: Broadcast the result back to all worker ranks.
+            return self.comm.bcast(result, root=self.root)
+
+        return wrapper
+
+
+def parallel_proxy(serial_class: type[T], comm, root: int = 0, *args, **kwargs) -> T:
+    """
+    Instantiates the serial class on the root process and wraps it in a proxy.
+    Tells type checkers that the returned object is an instance of `T` (not Proxy).
+    """
+    rank = comm.rank
+
+    # Instantiate the backend only on the designated root rank
+    if rank == root:
+        instance = serial_class(*args, **kwargs)
+    else:
+        instance = None
+
+    proxy = ParallelProxy(instance, root=root, comm=comm)
+
+    return cast(T, proxy)

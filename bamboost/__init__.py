@@ -3,7 +3,6 @@ from typing import TYPE_CHECKING
 
 import lazy_loader as _lazy
 
-from bamboost import plugins as plugins
 from bamboost._config import config as config
 from bamboost._logger import BAMBOOST_LOGGER, add_stream_handler
 

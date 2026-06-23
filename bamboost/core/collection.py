@@ -19,9 +19,6 @@ from __future__ import annotations
 
 import pkgutil
 from ctypes import ArgumentError
-from dataclasses import dataclass, field
-from datetime import datetime
-from functools import cache, cached_property
 from pathlib import Path
 from typing import (
     TYPE_CHECKING,
@@ -35,7 +32,7 @@ from typing import (
 )
 
 import pandas as pd
-import yaml
+from bamboostrs import Collection as _Collection
 from typing_extensions import Self, deprecated
 
 from bamboost._config import config
@@ -44,21 +41,15 @@ from bamboost._typing import StrPath
 from bamboost.core.simulation.base import Simulation, SimulationWriter
 from bamboost.core.simulation.dict import validate_parameter_key
 from bamboost.core.utilities import dedupe_str_iter, flatten_dict
-from bamboost.exceptions import DuplicateSimulationError, InvalidCollectionError
+from bamboost.exceptions import DuplicateSimulationError
 from bamboost.index import (
     CollectionUID,
-    Index,
     SimulationName,
     SimulationUID,
-    create_identifier_file,
-    get_identifier_filename,
 )
 from bamboost.index.filtering import Filter, Operator, Sorter, SortInstruction, _Key
-from bamboost.index.scanner import load_collection_metadata
-from bamboost.index.store import CollectionMetadata, CollectionRecord
 from bamboost.mpi import Communicator, ReuseComm
-from bamboost.mpi.utilities import RootProcessMeta, comm_self
-from bamboost.plugins import ElligibleForPlugin
+from bamboost.mpi.utilities import comm_self, parallel_proxy
 from bamboost.utilities import ComparableIterable
 
 if TYPE_CHECKING:
@@ -69,15 +60,6 @@ __all__ = [
 ]
 
 log = BAMBOOST_LOGGER.getChild("Collection")
-
-
-class _CollectionPicker:
-    def __getitem__(self, key: str, /) -> Collection:
-        key = key.split(" - ", 1)[0]
-        return Collection(uid=key)
-
-    def _ipython_key_completions_(self):
-        return (f"{i.uid} - {i.path[-30:]}" for i in Index.default.all_collections)
 
 
 class _FilterKeys:
@@ -99,72 +81,7 @@ class _FilterKeys:
         return (*self.collection._record.get_parameter_keys()[0], *metadata_keys)
 
 
-@dataclass(frozen=False)
-class CollectionMetadataStore(CollectionMetadata, metaclass=RootProcessMeta):
-    _collection: Collection = field(repr=False, compare=False, init=False)
-    _comm: Communicator = field(
-        default_factory=Communicator, repr=False, compare=False, init=False
-    )
-
-    @classmethod
-    def from_dict(cls, data: dict[str, Any], *, _collection: Collection) -> Self:
-        obj = super().from_dict(data)
-        obj._collection = _collection
-        obj._comm = _collection._comm
-        # attempting to preserve the order of keys as in the yaml file
-        obj._keys_ordered = tuple(data.keys())  # type: ignore
-        return obj
-
-    def to_dict(self) -> dict[str, Any]:
-        d = super().to_dict()
-
-        # preserve the order of keys as in the yaml file
-        if hasattr(self, "_keys_ordered"):
-            order = self._keys_ordered  # type: ignore
-            d = {k: d[k] for k in order if k in d} | {
-                k: v for k, v in d.items() if k not in order
-            }
-        return d
-
-    def __getitem__(self, key: str) -> Any:
-        if key in self._extras:
-            return self._extras[key]
-        return getattr(self, key)
-
-    def _ipython_key_completions_(self):
-        return tuple(self._fields) + tuple(self._extras.keys())
-
-    def save(self) -> None:
-        file_path = self._collection.path.joinpath(
-            get_identifier_filename(self._collection.uid)
-        )
-        if not file_path:
-            raise RuntimeError("No path associated with this metadata.")
-
-        # update the metadata in the database
-        self._collection._index.upsert_collection(
-            self.uid, self._collection.path, self.to_dict()
-        )
-
-        # update the yaml file
-        with file_path.open("w") as f:
-            yaml.safe_dump(self.to_dict(), f, sort_keys=False, indent=2)
-
-    def update(self, data: dict[str, Any]) -> None:
-        """Update the instance with values from a dictionary, storing unknown fields in
-        the extras dictionary.
-
-        Args:
-            data: The input dictionary.
-        """
-        for k, v in data.items():
-            if k in self._fields:
-                setattr(self, k, v)
-            else:
-                self._extras[k] = v
-
-
-class Collection(ElligibleForPlugin):
+class Collection:
     """Represents a collection of simulations in the bamboost framework.
 
     The Collection class provides an interface for managing, querying, and manipulating
@@ -196,10 +113,8 @@ class Collection(ElligibleForPlugin):
     """Unique identifier of the collection."""
     path: Path
     """Path to the collection directory."""
-    fromUID: _CollectionPicker = _CollectionPicker()
     """Helper for selecting collections by UID."""
     _comm = Communicator()
-    _index: Index
     _filter: Filter | None = None
     """Internal variable to keep track of the filter applied to the collection. If None,
     no filter is applied."""
@@ -210,80 +125,25 @@ class Collection(ElligibleForPlugin):
     """Internal variable to keep track of which links to include in the collection view.
     If True, includes all links."""
 
+    _core: _Collection
+
     def __init__(
         self,
-        path: Optional[StrPath] = None,
+        uid_or_path: Optional[StrPath],
         *,
-        uid: Optional[str] = None,
         create_if_not_exist: bool = True,
         comm: Optional[Comm] = None,
-        index_instance: Optional[Index] = None,
-        sync_collection: bool = True,
         filter: Optional[Filter] = None,
         sorter: Optional[Sorter] = None,
         include_links: Iterable[str] | Literal[True] | None = None,
     ):
-        assert not (path and uid), "Only one of path or uid must be provided."
-
         if comm is not None:
             self._comm = comm
-            # ensure the index instance uses the same communicator
-            index_instance = index_instance or Index(comm=ReuseComm(self))
 
-        self._index = index_instance or Index.default
-        self._filter = filter
-        self._sorter = sorter
-        self._include_links = include_links
-
-        # A key store with completion of all the parameters and metadata keys
-        self.k = _FilterKeys(self)
-
-        if uid is not None:
-            # Resolve the path (this updates the index if necessary)
-            # we return the resolved UID in case the provided UID was an alias
-            # index.resolve_path raises InvalidCollectionError if the collection with the
-            # given UID is not found
-            self.path, resolved_uid = self._index.resolve_path(
-                uid.upper(), return_uid=True
-            )
-        elif path is not None:
-            self.path = Path(path).absolute()
-            resolved_uid = None
-        else:
-            raise ValueError("Either path or uid must be provided.")
-
-        # Create the diretory for the collection if necessary
-        if not self.path.is_dir():
-            if not create_if_not_exist:
-                raise NotADirectoryError("Specified path does not exist.")
-
-            if self._comm.rank == 0:
-                self.path.mkdir(parents=True, exist_ok=False)  # create the directory
-                log.info(f"Initialized directory for collection at {path}")
-
-        try:
-            # Either take the resolved UID or resolve the UID from the path
-            self.uid = CollectionUID(resolved_uid or self._index.resolve_uid(self.path))
-        except InvalidCollectionError:
-            # If the collection does not exist, create it in the index
-            # and generate a new UID
-            self.uid = CollectionUID(comm=self._comm)
-            self._index.upsert_collection(self.uid, self.path)
-
-        # Check if identifier file exists (and create it if necessary)
-        if not self.path.joinpath(get_identifier_filename(uid=self.uid)).exists():
-            create_identifier_file(self.path, self.uid)
-
-        if sync_collection:
-            # Sync the SQL table with the filesystem
-            # Making sure the collection is up to date in the index
-            self._index.sync_collection(self.uid, self.path)
-
-            # Wait for root process to finish syncing
-            self._comm.barrier()
+        self._core = parallel_proxy(_Collection, self._comm, 0, str(uid_or_path))
 
     def __len__(self) -> int:
-        return len(self._record.simulations)
+        return len(self._core.parameter_space())
 
     def __getitem__(self, name_or_index: str | int) -> Simulation:
         """Retrieve a Simulation from the collection by name or index.
@@ -316,10 +176,6 @@ class Collection(ElligibleForPlugin):
                 sim.name, self.path, ReuseComm(self), collection_uid=self.uid
             )
 
-    @cache
-    def _ipython_key_completions_(self):
-        return tuple(s.name for s in self._record.simulations)
-
     def _repr_html_(self) -> str:
         """HTML repr for ipython/notebooks, using jinja2 for templating."""
         from jinja2 import Template
@@ -343,51 +199,6 @@ class Collection(ElligibleForPlugin):
         new.__dict__.update(self.__dict__)
         new.__dict__.update(changes)
         return new
-
-    @property
-    def _record(self) -> CollectionRecord:
-        """Returns the in-memory representation of the collection.
-
-        If a filter is applied to the collection, returns a FilteredCollection
-        object that represents the filtered view. Otherwise, returns the base
-        CollectionRecord object for the collection.
-
-        Returns:
-            CollectionRecord or FilteredCollection: The object representing the collection,
-            possibly filtered.
-        """
-        collection_record = self._index.collection(self.uid)
-        if collection_record is None:
-            raise RuntimeError("Collection not found in index. This should not happen.")
-
-        if self._include_links:
-            collection_record = self._index.insert_linked_sim_parameters(
-                collection_record, self._include_links
-            )
-        return collection_record.filtered(self._filter, self._sorter)
-
-    @cached_property
-    def metadata(self) -> CollectionMetadataStore:
-        """Returns the metadata of the collection.
-
-        The metadata can include information such as the collection's UID,
-        creation date, tags, and aliases.
-
-        Returns:
-            CollectionMetadata: An object containing the collection's metadata.
-        """
-        data: dict[str, Any]
-
-        if self._comm.rank == 0:
-            data = load_collection_metadata(self.path, self.uid) or {}
-            data.setdefault("uid", str(self.uid))
-            data.setdefault("created_at", datetime.now())
-        else:
-            data = {}
-
-        data = self._comm.bcast(data, 0)
-
-        return CollectionMetadataStore.from_dict(data, _collection=self)
 
     def include_links(self, *keys: str) -> Self:
         """Returns a new Collection that includes parameters of simulations linked with
@@ -430,7 +241,7 @@ class Collection(ElligibleForPlugin):
         Returns:
             DataFrame of the collection's simulations and parameters.
         """
-        df = self._record.to_pandas(flatten=flatten, include_links=include_links)
+        df = pd.DataFrame(self._core.parameter_space())
 
         # apply filtering if necessary
         if self._filter is not None:

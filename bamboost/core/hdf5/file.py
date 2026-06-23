@@ -87,7 +87,6 @@ from bamboost.core.hdf5.filemap import FileMap
 from bamboost.core.hdf5.hdf5path import HDF5Path
 from bamboost.mpi import MPI, Communicator, ReuseComm
 from bamboost.mpi.utilities import RootProcessMeta
-from bamboost.plugins import ElligibleForPlugin
 from bamboost.utilities import StrPath
 
 if TYPE_CHECKING:
@@ -184,7 +183,7 @@ def add_to_file_queue(
     return inner
 
 
-class H5Object(ElligibleForPlugin, Generic[_MT]):
+class H5Object(Generic[_MT]):
     _file: HDF5File[_MT]
     _comm = Communicator()
 

@@ -32,10 +32,6 @@ Homepage = "https://bamboost.ch/"
 repository = "https://github.com/smec-ethz/bamboost"
 changelog = "https://github.com/smec-ethz/bamboost/blob/main/CHANGELOG.md"
 
-[project.scripts]
-bamboost = "bamboost.cli:app"
-bamboost-cli = "bamboost.cli:app"
-
 [dependency-groups]
 dev = [
     "ipykernel>=6.29.5",
