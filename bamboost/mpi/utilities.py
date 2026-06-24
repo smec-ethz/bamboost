@@ -2,6 +2,7 @@ from contextlib import contextmanager
 from typing import (
     TYPE_CHECKING,
     Any,
+    Callable,
     Generator,
     Protocol,
     TypeVar,
@@ -123,7 +124,9 @@ class ParallelProxy:
             return self.comm.bcast(result, root=self.root)
 
 
-def parallel_proxy(serial_class: type[T], comm, root: int = 0, *args, **kwargs) -> T:
+def parallel_proxy(
+    serial_class: type[T] | Callable[..., T], comm, root: int = 0, *args, **kwargs
+) -> T:
     """
     Instantiates the serial class on the root process and wraps it in a proxy.
     Tells type checkers that the returned object is an instance of `T` (not Proxy).

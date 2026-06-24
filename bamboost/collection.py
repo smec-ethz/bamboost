@@ -17,6 +17,7 @@ Functions:
 
 from __future__ import annotations
 
+import json
 import pkgutil
 from ctypes import ArgumentError
 from pathlib import Path
@@ -39,7 +40,7 @@ from typing_extensions import Self
 from bamboost._config import config
 from bamboost._logger import BAMBOOST_LOGGER
 from bamboost._typing import StrPath
-from bamboost.filtering import Filter, Operator, Sorter, SortInstruction, _Key
+from bamboost.filtering import Filter, Key, Operator, Sorter, SortInstruction
 from bamboost.mpi import Communicator, ReuseComm
 from bamboost.mpi.utilities import parallel_proxy
 from bamboost.simulation.base import Simulation, SimulationWriter
@@ -53,6 +54,17 @@ __all__ = [
 ]
 
 log = BAMBOOST_LOGGER.getChild("Collection")
+
+
+class _FilterKeys:
+    def __init__(self, collection: Collection):
+        self.collection = collection
+
+    def __getitem__(self, key: str) -> Key:
+        return Key(key)
+
+    def _ipython_key_completions_(self):
+        return self.collection._core.get_column_keys()
 
 
 class Collection:
@@ -85,16 +97,20 @@ class Collection:
 
     uid: str
     """Unique identifier of the collection."""
+
     path: Path
     """Path to the collection directory."""
-    """Helper for selecting collections by UID."""
+
     _comm = Communicator()
+
     _filter: Filter | None = None
     """Internal variable to keep track of the filter applied to the collection. If None,
     no filter is applied."""
+
     _sorter: Sorter | None = None
     """Internal variable to keep track of the sort instructions applied to the collection.
     If None, no sorting is applied."""
+
     _include_links: Iterable[str] | Literal[True] | None = None
     """Internal variable to keep track of which links to include in the collection view.
     If True, includes all links."""
@@ -108,8 +124,6 @@ class Collection:
         *,
         create_if_not_exist: bool = True,
         comm: Optional[Comm] = None,
-        filter: Optional[Filter] = None,
-        sorter: Optional[Sorter] = None,
         include_links: Iterable[str] | Literal[True] | None = None,
     ):
         if comm is not None:
@@ -122,6 +136,15 @@ class Collection:
 
         self.uid = self._core.uid
         self.path = Path(self._core.path)
+        self.k = _FilterKeys(self)
+
+    @classmethod
+    def _with_filter(cls, collection: Collection, filter: Filter) -> Self:
+        """Create a new Collection instance with the same core as the given collection,
+        but with a filter applied."""
+        new = cls(collection.path, create_if_not_exist=False, comm=collection._comm)
+        new._filter = filter
+        return new
 
     def __len__(self) -> int:
         return len(self._core.parameter_space())
@@ -172,13 +195,6 @@ class Collection:
             _sort=self._sorter,
         )
 
-    def _replace(self, **changes) -> Self:
-        """Return a shallow copy of this Collection with some attrs replaced."""
-        new = self.__class__.__new__(self.__class__)
-        new.__dict__.update(self.__dict__)
-        new.__dict__.update(changes)
-        return new
-
     def include_links(self, *keys: str) -> Self:
         """Returns a new Collection that includes parameters of simulations linked with
         the specified keys.
@@ -220,11 +236,11 @@ class Collection:
         Returns:
             DataFrame of the collection's simulations and parameters.
         """
-        df = pd.DataFrame(self._core.parameter_space())
-
-        # apply filtering if necessary
-        if self._filter is not None:
-            df = cast(pd.DataFrame, self._filter.apply(df))
+        df = pd.DataFrame(
+            self._core.parameter_space(
+                json.dumps(self._filter.to_dict()) if self._filter else None
+            )
+        )
 
         # Try to sort the dataframe with the user specified key
         try:
@@ -278,9 +294,11 @@ class Collection:
             >>> filtered = collection.filter(collection.k["param"] == 42)
         """
         tags = (tags,) if isinstance(tags, str) else tags  # handle single string case
-        return self._replace(_filter=Filter(*operators, tags=tags) & self._filter)
+        return self._with_filter(
+            self, filter=Filter(*operators, tags=tags) & self._filter
+        )
 
-    def sort(self, key: _Key | str, ascending: bool = True) -> Self:
+    def sort(self, key: Key | str, ascending: bool = True) -> Self:
         """Returns a new Collection sorted by the given instructions.
 
         This method applies the specified sort instructions to the collection and returns
@@ -300,7 +318,7 @@ class Collection:
         Examples:
             >>> sorted_collection = collection.sort(SortInstruction("param", ascending=False))
         """
-        if isinstance(key, _Key):
+        if isinstance(key, Key):
             key = key._value
 
         if self._sorter is None:

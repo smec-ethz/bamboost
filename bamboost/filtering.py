@@ -6,12 +6,9 @@ from typing import TYPE_CHECKING, Any, Callable, Iterable, Sequence, Union, over
 
 from bamboost.utilities import ComparableIterable
 
-if TYPE_CHECKING:
-    from pandas import DataFrame, Series
-
 # Type for operands in expressions. These are dtypes compatible with pandas DataFrame
 # columns. (see https://pandas.pydata.org/docs/reference/api/pandas.DataFrame.dtypes.html)
-Operand = Union["_Key", "Operator", str, float, int, datetime, timedelta]
+Operand = Union["Key", "Operator", str, float, int, datetime, timedelta]
 Numeric = float | int
 
 
@@ -31,8 +28,14 @@ class _SupportsOperators:
         def __floordiv__(self, other: Operand) -> "Operator": ...
         def __mod__(self, other: Operand) -> "Operator": ...
         def __pow__(self, other: Operand) -> "Operator": ...
-        def __or__(self, other: Operand) -> "Operator": ...
-        def __and__(self, other: Operand) -> "Operator": ...
+        def __or__(self, other: Operand) -> "Or": ...
+        def __and__(self, other: Operand) -> "And": ...
+
+    def isin(self, values: Iterable[Any]) -> "Operator":
+        return Operator("in", self, ComparableIterable(values))
+
+    def contains(self, substring: str) -> "Operator":
+        return Operator("contains", self, substring)
 
 
 def add_operators(cls):
@@ -50,8 +53,6 @@ def add_operators(cls):
         "__floordiv__": operator.floordiv,
         "__mod__": operator.mod,
         "__pow__": operator.pow,
-        "__or__": operator.or_,
-        "__and__": operator.and_,
     }
 
     def make_op(op_func):
@@ -63,6 +64,15 @@ def add_operators(cls):
     for name, func in ops.items():
         setattr(cls, name, make_op(func))
 
+    def make_and(self, other):
+        return And(self, other)
+
+    def make_or(self, other):
+        return Or(self, other)
+
+    setattr(cls, "__and__", make_and)
+    setattr(cls, "__or__", make_or)
+
     return cls
 
 
@@ -71,13 +81,13 @@ class Operator(_SupportsOperators):
     @overload
     def __init__(
         self,
-        op: Callable[[Any, Any], bool],
-        a: Numeric | str | _Key | Operator,
-        b: Numeric | str | _Key | Operator,
+        op: Callable[[Any, Any], bool] | str,
+        a: Numeric | str | Key | _SupportsOperators,
+        b: Numeric | str | Key | _SupportsOperators | ComparableIterable,
     ) -> None: ...
     @overload
     def __init__(
-        self, op: Callable[[Any], bool], a: Numeric | str | _Key | Operator
+        self, op: Callable[[Any], bool] | str, a: Numeric | str | Key | Operator
     ) -> None: ...
     def __init__(self, op, a, b=None):
         self._op = op
@@ -86,25 +96,100 @@ class Operator(_SupportsOperators):
 
     def evaluate(self, item: Any) -> Any:
         def resolve(val):
-            if isinstance(val, _Key):
+            if isinstance(val, Key):
                 return item[val._value]
-            elif isinstance(val, Operator):
+            elif isinstance(val, (Operator, And, Or)):
                 return val.evaluate(item)
-            elif isinstance(val, Iterable) and not isinstance(val, str):
-                return ComparableIterable(val)
             return val
+
+        if self._op == "in":
+            return resolve(self._a).isin(self._b)
+        if self._op == "contains":
+            return resolve(self._a).str.contains(self._b)
 
         if self._b is None:
             return self._op(resolve(self._a))
 
         return self._op(resolve(self._a), resolve(self._b))
 
+    def to_dict(self) -> dict[str, Any]:
+        op_map = {
+            operator.lt: "Lt",
+            operator.le: "Lte",
+            operator.eq: "Eq",
+            operator.ne: "Ne",
+            operator.gt: "Gt",
+            operator.ge: "Gte",
+        }
+
+        def resolve(val):
+            if isinstance(val, Key):
+                return {"type": "Key", "name": val._value}
+            elif isinstance(val, (Operator, And, Or)):
+                return val.to_dict()
+            return {"type": "Value", "value": val}
+
+        if self._op == "in":
+            return {
+                "type": "In",
+                "left": resolve(self._a),
+                "right": resolve(
+                    self._b.values
+                    if isinstance(self._b, ComparableIterable)
+                    else self._b
+                ),
+            }
+        if self._op == "contains":
+            return {"type": "Contains", "left": resolve(self._a), "substring": self._b}
+
+        return {
+            "type": "Compare",
+            "op": op_map.get(self._op, str(self._op)),
+            "left": resolve(self._a),
+            "right": resolve(self._b),
+        }
+
     def __repr__(self) -> str:
-        return f"Operation({self._a} {self._op.__name__} {self._b})"
+        op_name = self._op if isinstance(self._op, str) else self._op.__name__
+        return f"Operation({self._a} {op_name} {self._b})"
 
 
 @add_operators
-class _Key(_SupportsOperators):
+class And(_SupportsOperators):
+    def __init__(self, left, right):
+        self.left = left
+        self.right = right
+
+    def evaluate(self, item):
+        return self.left.evaluate(item) & self.right.evaluate(item)
+
+    def to_dict(self):
+        return {
+            "type": "And",
+            "left": self.left.to_dict(),
+            "right": self.right.to_dict(),
+        }
+
+
+@add_operators
+class Or(_SupportsOperators):
+    def __init__(self, left, right):
+        self.left = left
+        self.right = right
+
+    def evaluate(self, item):
+        return self.left.evaluate(item) | self.right.evaluate(item)
+
+    def to_dict(self):
+        return {
+            "type": "Or",
+            "left": self.left.to_dict(),
+            "right": self.right.to_dict(),
+        }
+
+
+@add_operators
+class Key(_SupportsOperators):
     def __init__(self, key: str) -> None:
         self._value = key
 
@@ -115,9 +200,24 @@ class _Key(_SupportsOperators):
 class Filter:
     """Filter applied to a collection."""
 
-    def __init__(self, *operators: Operator, tags: Iterable[str] | None = None) -> None:
-        self._ops: Sequence[Operator] = operators
+    def __init__(
+        self, *operators: Operator | And | Or, tags: Iterable[str] | None = None
+    ) -> None:
+        self._ops = operators
         self._tags: set[str] = set(tags) if tags else set()
+
+    def to_dict(self) -> dict[str, Any] | None:
+        # first: add tags to the filter if they exist
+        if self._tags:
+            tag_filter = Operator("in", Key("tags"), ComparableIterable(self._tags))
+            self._ops = (tag_filter, *self._ops)
+
+        if not self._ops:
+            return None
+        combined = self._ops[0]
+        for op in self._ops[1:]:
+            combined = combined & op
+        return combined.to_dict()
 
     def __and__(self, other: Filter | None) -> Filter:
         return (
@@ -125,24 +225,6 @@ class Filter:
             if other
             else self
         )
-
-    def apply(self, df: DataFrame) -> DataFrame | Series:
-        import pandas as pd
-
-        if df.empty:
-            return df
-
-        # filter by operators
-        mask = pd.Series(True, index=df.index)
-        for op in self._ops:
-            mask &= op.evaluate(df)
-
-        # filter by tags if specified
-        if self._tags:
-            tag_mask = df["tags"].map(lambda x: self._tags.issubset(x))
-            mask &= tag_mask
-
-        return df[mask]
 
     def __repr__(self) -> str:
         return "Filter({})".format(" & ".join(str(op) for op in self._ops))
@@ -166,13 +248,6 @@ class Sorter:
 
     def __and__(self, other: Sorter | None) -> Sorter:
         return Sorter(*self._instructions, *other._instructions) if other else self
-
-    def apply(self, df: DataFrame) -> DataFrame:
-        if not self._instructions:
-            return df
-        by = [instr.key for instr in self._instructions]
-        ascending = [instr.ascending for instr in self._instructions]
-        return df.sort_values(by=by, ascending=ascending)
 
     def __repr__(self) -> str:
         return "Sorter({})".format(
