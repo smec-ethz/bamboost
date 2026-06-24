@@ -33,19 +33,17 @@ from typing import (
 
 import pandas as pd
 from bamboostrs import Collection as _Collection
+from bamboostrs import get_collection
 from typing_extensions import Self
 
 from bamboost._config import config
 from bamboost._logger import BAMBOOST_LOGGER
 from bamboost._typing import StrPath
-from bamboost.core.simulation.base import Simulation, SimulationWriter
-from bamboost.core.utilities import (
-    SimulationUID,
-    flatten_dict,
-)
+from bamboost.core.utilities import flatten_dict
 from bamboost.filtering import Filter, Operator, Sorter, SortInstruction, _Key
 from bamboost.mpi import Communicator, ReuseComm
 from bamboost.mpi.utilities import parallel_proxy
+from bamboost.simulation.base import Simulation, SimulationWriter
 from bamboost.utilities import ComparableIterable
 
 if TYPE_CHECKING:
@@ -103,10 +101,11 @@ class Collection:
     If True, includes all links."""
 
     _core: _Collection
+    """Internal variable to hold the underlying core babo Collection."""
 
     def __init__(
         self,
-        uid_or_path: Optional[StrPath],
+        uid_or_path: StrPath,
         *,
         create_if_not_exist: bool = True,
         comm: Optional[Comm] = None,
@@ -117,7 +116,11 @@ class Collection:
         if comm is not None:
             self._comm = comm
 
-        self._core = parallel_proxy(_Collection, self._comm, 0, str(uid_or_path))
+        if create_if_not_exist:
+            self._core = parallel_proxy(get_collection, self._comm, 0, str(uid_or_path))
+        else:
+            self._core = parallel_proxy(_Collection, self._comm, 0, str(uid_or_path))
+
         self.uid = self._core.uid
         self.path = Path(self._core.path)
 
