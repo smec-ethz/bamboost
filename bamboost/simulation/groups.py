@@ -8,12 +8,12 @@ import numpy as np
 from bamboost._logger import BAMBOOST_LOGGER
 from bamboost._typing import _MT, Mutable, StrPath
 from bamboost.constants import DEFAULT_MESH_NAME, PATH_MESH
-from bamboost.core.hdf5.file import FileMode
-from bamboost.core.hdf5.ref import Group
-from bamboost.core.simulation.types import CellType
+from bamboost.hdf5.file import FileMode
+from bamboost.hdf5.ref import Group
+from bamboost.simulation.types import CellType
 
 if TYPE_CHECKING:
-    from bamboost.core.simulation.base import _Simulation
+    from bamboost.simulation.base import _Simulation
 
 log = BAMBOOST_LOGGER.getChild(__name__)
 

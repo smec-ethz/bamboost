@@ -39,21 +39,21 @@ from bamboost.constants import (
     RELATIVE_PATH_FIELD_DATA,
     RELATIVE_PATH_SCALAR_DATA,
 )
-from bamboost.core.hdf5.file import (
+from bamboost.hdf5.file import (
     FileMode,
     H5Object,
     WriteInstruction,
     mutable_only,
     with_file_open,
 )
-from bamboost.core.hdf5.hdf5path import HDF5Path
-from bamboost.core.hdf5.ref import Dataset, Group, H5Reference, InvalidReferenceError
-from bamboost.core.simulation.types import FieldType
+from bamboost.hdf5.hdf5path import HDF5Path
+from bamboost.hdf5.ref import Dataset, Group, H5Reference, InvalidReferenceError
+from bamboost.simulation.types import FieldType
 
 if TYPE_CHECKING:
     import pandas as pd
 
-    from bamboost.core.simulation.base import _Simulation
+    from bamboost.simulation.base import _Simulation
 
 log = BAMBOOST_LOGGER.getChild(__name__)
 

@@ -48,16 +48,16 @@ from typing_extensions import Self, deprecated
 import bamboost
 from bamboost._logger import BAMBOOST_LOGGER
 from bamboost._typing import _MT, ArrayLike, Mutable
-from bamboost.core.hdf5.attrsdict import AttrsDict
-from bamboost.core.hdf5.file import (
+from bamboost.hdf5.attrsdict import AttrsDict
+from bamboost.hdf5.file import (
     FileMode,
     H5Object,
     HDF5File,
     mutable_only,
     with_file_open,
 )
-from bamboost.core.hdf5.filemap import FilteredFileMap
-from bamboost.core.hdf5.hdf5path import HDF5Path
+from bamboost.hdf5.filemap import FilteredFileMap
+from bamboost.hdf5.hdf5path import HDF5Path
 from bamboost.mpi import MPI
 
 if TYPE_CHECKING:

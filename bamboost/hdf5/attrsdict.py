@@ -22,14 +22,14 @@ import h5py
 import numpy as np
 
 from bamboost._typing import _MT, Mutable
-from bamboost.core.hdf5.file import (
+from bamboost.hdf5.file import (
     FileMode,
     H5Object,
     HDF5File,
     mutable_only,
     with_file_open,
 )
-from bamboost.core.hdf5.hdf5path import HDF5Path
+from bamboost.hdf5.hdf5path import HDF5Path
 
 
 class _AttrsEncoder:

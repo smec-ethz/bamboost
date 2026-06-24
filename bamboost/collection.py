@@ -39,12 +39,11 @@ from typing_extensions import Self
 from bamboost._config import config
 from bamboost._logger import BAMBOOST_LOGGER
 from bamboost._typing import StrPath
-from bamboost.core.utilities import flatten_dict
 from bamboost.filtering import Filter, Operator, Sorter, SortInstruction, _Key
 from bamboost.mpi import Communicator, ReuseComm
 from bamboost.mpi.utilities import parallel_proxy
 from bamboost.simulation.base import Simulation, SimulationWriter
-from bamboost.utilities import ComparableIterable
+from bamboost.utilities import ComparableIterable, flatten_dict
 
 if TYPE_CHECKING:
     from bamboost.mpi import Comm

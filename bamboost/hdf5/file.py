@@ -83,14 +83,14 @@ from typing_extensions import Concatenate, Self
 from bamboost._config import config
 from bamboost._logger import BAMBOOST_LOGGER
 from bamboost._typing import _MT, _P, _T, Immutable, Mutable
-from bamboost.core.hdf5.filemap import FileMap
-from bamboost.core.hdf5.hdf5path import HDF5Path
+from bamboost.hdf5.filemap import FileMap
+from bamboost.hdf5.hdf5path import HDF5Path
 from bamboost.mpi import MPI, Communicator, ReuseComm
 from bamboost.utilities import StrPath
 
 if TYPE_CHECKING:
-    from bamboost.core.hdf5.attrsdict import AttrsDict
-    from bamboost.core.hdf5.ref import Group
+    from bamboost.hdf5.attrsdict import AttrsDict
+    from bamboost.hdf5.ref import Group
     from bamboost.mpi import Comm
 
     class HasFile(Protocol[_MT]):

@@ -37,23 +37,21 @@ import numpy as np
 from bamboostrs import Simulation as _Simulation_rust
 from typing_extensions import Self
 
-from bamboost import constants
+from bamboost import constants, utilities
 from bamboost._logger import BAMBOOST_LOGGER
 from bamboost._typing import _MT, Immutable, Mutable
-from bamboost.core import utilities
-from bamboost.core.hdf5.file import FileMode, H5Object, HDF5File
-from bamboost.core.hdf5.ref import Group
-from bamboost.core.simulation.dict import Links
-from bamboost.core.simulation.groups import GroupGit, GroupMesh, GroupMeshes
-from bamboost.core.simulation.series import Series
-from bamboost.core.utilities import SimulationUID
+from bamboost.hdf5.file import FileMode, H5Object, HDF5File
+from bamboost.hdf5.ref import Group
 from bamboost.mpi import MPI, ReuseComm
-from bamboost.utilities import StrPath
+from bamboost.simulation.dict import Links
+from bamboost.simulation.groups import GroupGit, GroupMesh, GroupMeshes
+from bamboost.simulation.series import Series
+from bamboost.utilities import SimulationUID, StrPath
 
 if TYPE_CHECKING:
     from bamboostrs._core import SimulationMetadata
 
-    from bamboost.core.collection import Collection
+    from bamboost.collection import Collection
     from bamboost.mpi import Comm
 
     cached_property: TypeAlias = property  # noqa: PYI042
@@ -163,7 +161,7 @@ class _Simulation(H5Object[_MT], ABC):
         comm: Comm | ReuseComm | None = None,
         collection: Collection | None = None,
     ):
-        from bamboost.core.collection import Collection
+        from bamboost.collection import Collection
 
         self.name: str = name
         self.path: Path = Path(parent).joinpath(name).absolute()
@@ -190,7 +188,7 @@ class _Simulation(H5Object[_MT], ABC):
         cls, core: _Simulation_rust, *, comm: Comm | ReuseComm | None = None
     ) -> Self:
         """Create a Simulation instance from a core simulation object."""
-        from bamboost.core.collection import Collection
+        from bamboost.collection import Collection
 
         collection = Collection(core.metadata["collection_uid"])
 
@@ -495,7 +493,7 @@ class _Simulation(H5Object[_MT], ABC):
             >>> sim.create_xdmf(field_names=["velocity", "pressure"])
             >>> sim.create_xdmf(timesteps=[0.0, 0.1, 0.2], filename="custom.xdmf")
         """
-        from bamboost.core.simulation.xdmf import XDMFWriter
+        from bamboost.simulation.xdmf import XDMFWriter
 
         series = series or self.data
         fields = series.get_fields(*field_names if field_names else [])

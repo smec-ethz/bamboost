@@ -3,13 +3,13 @@ from __future__ import annotations
 from typing import TYPE_CHECKING, MutableMapping
 
 from bamboost import constants
-from bamboost.core.hdf5.attrsdict import AttrsDict, mutable_only
-from bamboost.core.hdf5.file import _MT, Mutable
-from bamboost.core.utilities import SimulationUID
 from bamboost.exceptions import ForbiddenParameterKeyError
+from bamboost.hdf5.attrsdict import AttrsDict, mutable_only
+from bamboost.hdf5.file import _MT, Mutable
+from bamboost.utilities import SimulationUID
 
 if TYPE_CHECKING:
-    from bamboost.core.simulation.base import _Simulation
+    from bamboost.simulation.base import _Simulation
 
 
 RESERVED_KEYS = {
@@ -60,7 +60,7 @@ class Links(AttrsDict[_MT]):
         return {key: SimulationUID(value) for key, value in super().read().items()}
 
     def __getitem__(self, key: str) -> "_Simulation":
-        from bamboost.core.simulation import Simulation
+        from bamboost.simulation import Simulation
 
         return Simulation.from_uid(super().__getitem__(key))
 

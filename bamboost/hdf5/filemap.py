@@ -5,10 +5,10 @@ from typing import TYPE_CHECKING, Iterator, Type
 
 import h5py
 
-from bamboost.core.hdf5.hdf5path import HDF5Path
+from bamboost.hdf5.hdf5path import HDF5Path
 
 if TYPE_CHECKING:
-    from bamboost.core.hdf5.file import HDF5File
+    from bamboost.hdf5.file import HDF5File
 
 _VT_filemap = Type[h5py.Group | h5py.Dataset]
 

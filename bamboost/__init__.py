@@ -17,10 +17,10 @@ except PackageNotFoundError:  # not installed
 
 
 if TYPE_CHECKING:
-    from bamboost.core.collection import Collection as Collection
-    from bamboost.core.simulation import FieldType as FieldType
-    from bamboost.core.simulation import Simulation as Simulation
-    from bamboost.core.simulation import SimulationWriter as SimulationWriter
+    from bamboost.collection import Collection as Collection
+    from bamboost.simulation import FieldType as FieldType
+    from bamboost.simulation import Simulation as Simulation
+    from bamboost.simulation import SimulationWriter as SimulationWriter
 
 # We use lazy_loader to avoid upfront imports of submodules while still
 # providing a consistent API for the user.
@@ -28,8 +28,8 @@ __getattr__, __dir__, __all__ = _lazy.attach(
     __name__,
     [],
     {
-        "core.collection": ["Collection"],
-        "core.simulation": ["Simulation", "SimulationWriter", "FieldType"],
+        "collection": ["Collection"],
+        "simulation": ["Simulation", "SimulationWriter", "FieldType"],
     },
 )
 

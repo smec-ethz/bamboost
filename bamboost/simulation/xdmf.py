@@ -6,13 +6,13 @@ import h5py
 import numpy as np
 
 from bamboost._typing import StrPath
-from bamboost.core.hdf5.file import FileMode, HDF5File, HDF5Path
-from bamboost.core.simulation.types import FieldType
+from bamboost.hdf5.file import FileMode, HDF5File, HDF5Path
 from bamboost.mpi import ReuseComm
+from bamboost.simulation.types import FieldType
 
 if TYPE_CHECKING:
-    from bamboost.core.simulation.groups import GroupMesh
-    from bamboost.core.simulation.series import FieldData
+    from bamboost.simulation.groups import GroupMesh
+    from bamboost.simulation.series import FieldData
 
 __all__ = ["XDMFWriter"]
 
@@ -200,6 +200,7 @@ class _XDMFWriterCore:
         )
         data_item.text = f"{self._file._path.name}:{field._path}/{step}"
 
+
 def XDMFWriter(file: HDF5File) -> _XDMFWriterCore:
     """Write xdmf file for a subset of the stored data in the H5 file.
 
@@ -207,4 +208,5 @@ def XDMFWriter(file: HDF5File) -> _XDMFWriterCore:
         file (HDF5File): h5 file
     """
     from bamboost.mpi.utilities import parallel_proxy
+
     return parallel_proxy(_XDMFWriterCore, ReuseComm(file), root=0, file=file)
