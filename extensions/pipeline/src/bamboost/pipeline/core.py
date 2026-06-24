@@ -2,8 +2,8 @@ from __future__ import annotations
 
 import time
 from enum import Enum, auto
-from dataclasses import dataclass
-from typing import TYPE_CHECKING, Callable, Any, Protocol
+from dataclasses import dataclass, field
+from typing import Callable, Any, Protocol
 
 from bamboost.core.simulation import Simulation
 from bamboost._logger import BAMBOOST_LOGGER
@@ -90,7 +90,7 @@ class JobRecord:
     status: JobStatus = JobStatus.PENDING
     result: Any = None
     exception: Exception | None = None
-    stats: ProfilingStats
+    stats: ProfilingStats = field(default_factory=ProfilingStats)
 
     @classmethod
     def from_sim_metadata(cls, job_name: str, sim: Simulation) -> JobRecord:
