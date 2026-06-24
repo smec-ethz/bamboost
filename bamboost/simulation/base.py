@@ -27,10 +27,12 @@ from typing import (
     TYPE_CHECKING,
     Any,
     Iterable,
+    Mapping,
     Optional,
     Sized,
     TypeAlias,
     Union,
+    overload,
 )
 
 import numpy as np
@@ -42,11 +44,10 @@ from bamboost._logger import BAMBOOST_LOGGER
 from bamboost._typing import _MT, Immutable, Mutable
 from bamboost.hdf5.file import FileMode, H5Object, HDF5File
 from bamboost.hdf5.ref import Group
-from bamboost.mpi import MPI, ReuseComm
-from bamboost.simulation.dict import Links
+from bamboost.mpi import ReuseComm
 from bamboost.simulation.groups import GroupGit, GroupMesh, GroupMeshes
 from bamboost.simulation.series import Series
-from bamboost.utilities import SimulationUID, StrPath
+from bamboost.utilities import StrPath
 
 if TYPE_CHECKING:
     from bamboostrs._core import SimulationMetadata
@@ -135,6 +136,138 @@ class StatusInfo:
             return NotImplemented
 
 
+@dataclass(frozen=True, init=False)  # init=False because we handle it in __new__
+class SimulationUID:
+    """UID of a simulation, consisting of the collection UID and the simulation name.
+
+    Use `str(SimulationUID(...))` to get the string representation of the UID, which is in
+    the format `<collection_uid>:<simulation_name>`. The constructor can be called with
+    either the string representation or the collection UID and simulation name as separate
+    arguments.
+    """
+
+    collection_uid: str
+    simulation_name: str
+
+    @overload
+    def __new__(cls, uid: str | SimulationUID, /) -> Self: ...
+
+    @overload
+    def __new__(cls, collection_uid: str, simulation_name: str, /) -> Self: ...
+
+    def __new__(cls, *args):
+        if len(args) == 1 and isinstance(args[0], SimulationUID):
+            return args[0]
+
+        instance = super().__new__(cls)
+
+        if len(args) == 1 and isinstance(args[0], str):
+            try:
+                c_uid, s_name = args[0].split(constants.UID_SEPARATOR, 1)
+            except ValueError as exc:
+                raise ValueError(
+                    f"Invalid SimulationUID string: {args[0]!r}. expected format "
+                    f"'<collection_uid>{constants.UID_SEPARATOR}<simulation_name>'"
+                ) from exc
+            object.__setattr__(instance, "collection_uid", str(c_uid))
+            object.__setattr__(instance, "simulation_name", str(s_name))
+
+        elif len(args) == 2:
+            object.__setattr__(instance, "collection_uid", str(args[0]))
+            object.__setattr__(instance, "simulation_name", str(args[1]))
+
+        else:
+            raise ValueError("Invalid arguments for SimulationUID")
+
+        return instance
+
+    @classmethod
+    def from_uri(cls, uri: str) -> Self:
+        """Create a SimulationUID from a babo URI.
+
+        Args:
+            uri: The URI to parse. Expected format is
+            `sim://<collection_uid>/<simulation_name>`.
+        """
+        if not uri.startswith("sim://"):
+            raise ValueError(
+                f"Invalid URI: {uri}. Expected format is sim://<collection_uid>/<simulation_name>"
+            )
+        _, rest = uri.split("://", 1)
+        uid, name = rest.split("/", 1)
+        return cls(uid, name)
+
+    def to_uri(self) -> str:
+        """Return the babo URI representation of the SimulationUID.
+
+        Returns:
+            str: The URI in the format `sim://<collection_uid>/<simulation_name>`.
+        """
+        return f"sim://{self.collection_uid}/{self.simulation_name}"
+
+    def __eq__(self, other):
+        if isinstance(other, SimulationUID):
+            return (
+                self.collection_uid == other.collection_uid
+                and self.simulation_name == other.simulation_name
+            )
+        if isinstance(other, str):
+            return str(self) == other
+        return NotImplemented
+
+    def __str__(self):
+        return f"{self.collection_uid}{constants.UID_SEPARATOR}{self.simulation_name}"
+
+    def __getnewargs__(self):
+        # This method is used by pickle to serialize the object.
+        # It's needed to communicate the object across MPI ranks with bcast.
+        return (str(self),)
+
+
+class Links(Mapping[str, "Simulation"]):
+    """Links associated with a simulation.
+
+    This class provides a mapping interface to access links between simulations.
+    Each link is represented by a key-value pair, where the key is a string and
+    the value is a `SimulationUID` object.
+
+    Args:
+        simulation (_Simulation): The simulation object to which the links belong.
+    """
+
+    def __init__(self, simulation: _Simulation[_MT]) -> None:
+        self._simulation = simulation
+        self._dict: dict[str, SimulationUID] = {
+            key: SimulationUID.from_uri(value)
+            for key, value in simulation.metadata.get("links", {}).items()
+        }
+
+    def __str__(self) -> str:
+        return self._dict.__str__()
+
+    __repr__ = __str__
+
+    def __getitem__(self, key: str) -> Simulation:
+        uid = self._dict[key]
+        return Simulation.from_uid(uid)
+
+    def __iter__(self):
+        return iter(self._dict)
+
+    def __len__(self) -> int:
+        return len(self._dict)
+
+    def update(self, new_links: dict[str, SimulationUID]) -> None:
+        """Update the links in the simulation metadata.
+
+        Args:
+            new_links (dict[str, str]): A dictionary of new links to add or update.
+        """
+        merged = {**self._dict, **new_links}
+        as_uri = {k: v.to_uri() for k, v in merged.items()}
+        self._simulation._core.update_links(as_uri)
+
+
 class _Simulation(H5Object[_MT], ABC):
     """
     Abstract base class for simulation objects.
@@ -209,8 +342,8 @@ class _Simulation(H5Object[_MT], ABC):
         if hasattr(self, "_file"):
             return self._file
         raise AttributeError(
-            "Simulation file is not initialized. If you never used it, you "
-            "must use SimulationWriter to get a mutable simulation object."
+            "Simulation HDF file is not initialized. If you never used it, you "
+            "must use SimulationWriter to get a mutable object."
         )
 
     @file.setter
@@ -382,8 +515,8 @@ class _Simulation(H5Object[_MT], ABC):
         except KeyError:
             return StatusInfo(Status.UNKNOWN)
 
-    @cached_property
-    def links(self) -> Links[_MT]:
+    @property
+    def links(self) -> Links:
         """
         Returns the links associated with this simulation.
 
@@ -648,9 +781,6 @@ class SimulationWriter(_Simulation[Mutable]):
                 shutil.copytree(path, self.path)
 
     def run(self, stage: str) -> None:
-        assert not MPI.enabled and self._comm.size <= 1, (
-            "This method is not available during MPI execution."
-        )
         self._core.run(stage)
 
     def submit(self, stage: str) -> None:

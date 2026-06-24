@@ -109,7 +109,7 @@ class Collection:
     """Internal variable to keep track of the sort instructions applied to the collection.
     If None, no sorting is applied."""
 
-    _include_links: Iterable[str] | Literal[True] | None = None
+    _include_links: bool = False
     """Internal variable to keep track of which links to include in the collection view.
     If True, includes all links."""
 
@@ -122,7 +122,6 @@ class Collection:
         *,
         create_if_not_exist: bool = True,
         comm: Optional[Comm] = None,
-        include_links: Iterable[str] | Literal[True] | None = None,
     ):
         if comm is not None:
             self._comm = comm
@@ -194,29 +193,36 @@ class Collection:
             _sort=self._sorter,
         )
 
-    def include_links(self, *keys: str) -> Self:
-        """Returns a new Collection that includes parameters of simulations linked with
-        the specified keys.
+    def space(self, include_links: bool | None = None) -> dict[str, list[Any]]:
+        """Returns the parameter space of the collection as a dictionary.
+
+        The keys of the dictionary are parameter names, and the values are lists of
+        unique values for each parameter across all simulations in the collection.
 
         Args:
-            *keys: One or more keys representing the links to include. If no keys are
-                provided, all linked simulations will be included.
+            include_links: If True, includes parameters of linked simulations in the
+                parameter space. If False, only parameters of the main simulations
+                are included. If None (default), uses the collection's current setting for
+                including links.
 
         Returns:
-            Collection: A new Collection instance that includes the linked simulations.
+            dict[str, list[Any]]: A dictionary representing the parameter space of the
+            collection.
 
         Examples:
-            >>> linked_collection = collection.include_links("key1", "key2")
-            >>> all_linked = collection.include_links()  # include all linked simulations
+            >>> param_space = collection.space()
+            >>> print(param_space)
+            {'param1': [1, 2, 3], 'param2': ['a', 'b', 'c']}
         """
-        if not keys:
-            return self._replace(_include_links=True)
+        return self._core.parameter_space(
+            self._filter.to_string() if self._filter else None,
+            self._sorter.to_string() if self._sorter else None,
+            resolve_links=include_links
+            if include_links is not None
+            else self._include_links,
+        )
 
-        return self._replace(_include_links=keys)
-
-    def to_pandas(
-        self, flatten: bool = True, include_links: bool = True
-    ) -> pd.DataFrame:
+    def to_pandas(self, include_links: bool | None = None) -> pd.DataFrame:
         """Returns a pandas DataFrame representing the collection and its parameter space.
 
         The DataFrame contains all simulations in the collection, including their
@@ -227,21 +233,15 @@ class Collection:
         `coll.include_links(...).df` to include specific links)
 
         Args:
-            flatten: If True (default), flatten nested parameter dictionaries into a single
-                level using dot notation. If False, keep nested dictionaries as they are.
-            include_links: If True (default), the link (name and target) are included as
-                columns.
+            include_links: If True, includes parameters of linked simulations in the
+                parameter space. If False, only parameters of the main simulations
+                are included. If None (default), uses the collection's current setting for
+                including links.
 
         Returns:
             DataFrame of the collection's simulations and parameters.
         """
-        df = pd.DataFrame(
-            self._core.parameter_space(
-                self._filter.to_string() if self._filter else None,
-                self._sorter.to_string() if self._sorter else None,
-            )
-        )
-        return df
+        return pd.DataFrame(self.space(include_links=include_links))
 
     @property
     def df(self) -> pd.DataFrame:
@@ -313,15 +313,31 @@ class Collection:
 
         return self._replace(_sorter=new_sorter)
 
+    def include_links(self) -> Self:
+        """Returns a new Collection that includes parameters of simulations linked with
+        the specified keys.
+
+        Returns:
+            Collection: A new Collection instance that includes the linked simulations.
+
+        Examples:
+            >>> linked_collection = collection.include_links("key1", "key2")
+            >>> all_linked = collection.include_links()  # include all linked simulations
+        """
+        return self._replace(_include_links=True)
+
     def all_simulation_names(self) -> list[str]:
         """Returns a list of all simulation names in the collection.
 
         Returns:
             list[str]: A list containing the names of all simulations in the collection.
         """
-        return self._core.get_simulation_names()
+        return self._core.parameter_space(
+            self._filter.to_string() if self._filter else None,
+            self._sorter.to_string() if self._sorter else None,
+        ).get("name", [])
 
-    def sync_cache(self) -> None:
+    def _sync_cache(self) -> None:
         """Synchronize the database for this collection.
 
         This method updates the collection's cache by syncing the underlying index and
@@ -484,12 +500,12 @@ class Collection:
 
         return matches
 
+    @staticmethod
     def _match_parameters(
-        self,
         parameters: Mapping | None = None,
         *,
+        df: pd.DataFrame,
         links: Mapping | None = None,
-        df: pd.DataFrame | None = None,
         exact: bool = False,
     ) -> list[str]:
         """List the names (IDs) of simulations in the collection that have duplicate
@@ -511,8 +527,6 @@ class Collection:
         """
         import pandas as pd
 
-        if df is None:
-            df = self.to_pandas(include_links=True)
         params = flatten_dict(parameters or {})
         if links:
             # Prefix links to match flattened DataFrame columns
