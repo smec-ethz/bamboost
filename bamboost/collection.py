@@ -17,7 +17,6 @@ Functions:
 
 from __future__ import annotations
 
-import json
 import pkgutil
 from ctypes import ArgumentError
 from pathlib import Path
@@ -37,7 +36,6 @@ from bamboostrs import Collection as _Collection
 from bamboostrs import get_collection
 from typing_extensions import Self
 
-from bamboost._config import config
 from bamboost._logger import BAMBOOST_LOGGER
 from bamboost._typing import StrPath
 from bamboost.filtering import Filter, Key, Operator, Sorter, SortInstruction
@@ -138,12 +136,13 @@ class Collection:
         self.path = Path(self._core.path)
         self.k = _FilterKeys(self)
 
-    @classmethod
-    def _with_filter(cls, collection: Collection, filter: Filter) -> Self:
-        """Create a new Collection instance with the same core as the given collection,
-        but with a filter applied."""
-        new = cls(collection.path, create_if_not_exist=False, comm=collection._comm)
-        new._filter = filter
+    def _replace(self, **changes) -> Self:
+        """Create a new Collection instance with the same core as the current one,
+        but with specified changes applied."""
+        new = self.__class__(self.path, create_if_not_exist=False, comm=self._comm)
+        new._filter = changes.get("_filter", self._filter)
+        new._sorter = changes.get("_sorter", self._sorter)
+        new._include_links = changes.get("_include_links", self._include_links)
         return new
 
     def __len__(self) -> int:
@@ -238,22 +237,10 @@ class Collection:
         """
         df = pd.DataFrame(
             self._core.parameter_space(
-                json.dumps(self._filter.to_dict()) if self._filter else None
+                self._filter.to_string() if self._filter else None,
+                self._sorter.to_string() if self._sorter else None,
             )
         )
-
-        # Try to sort the dataframe with the user specified key
-        try:
-            if self._sorter is None:
-                df.sort_values(
-                    config.options.sortTableKey,
-                    inplace=True,
-                    ascending=config.options.sortTableOrder == "asc",
-                    ignore_index=True,
-                )
-        except KeyError:
-            pass
-
         return df
 
     @property
@@ -294,9 +281,7 @@ class Collection:
             >>> filtered = collection.filter(collection.k["param"] == 42)
         """
         tags = (tags,) if isinstance(tags, str) else tags  # handle single string case
-        return self._with_filter(
-            self, filter=Filter(*operators, tags=tags) & self._filter
-        )
+        return self._replace(_filter=Filter(*operators, tags=tags) & self._filter)
 
     def sort(self, key: Key | str, ascending: bool = True) -> Self:
         """Returns a new Collection sorted by the given instructions.

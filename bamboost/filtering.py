@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 import operator
 from datetime import datetime, timedelta
 from typing import TYPE_CHECKING, Any, Callable, Iterable, Sequence, Union, overload
@@ -219,6 +220,9 @@ class Filter:
             combined = combined & op
         return combined.to_dict()
 
+    def to_string(self) -> str:
+        return json.dumps(self.to_dict())
+
     def __and__(self, other: Filter | None) -> Filter:
         return (
             Filter(*self._ops, *other._ops, tags=self._tags.union(other._tags))
@@ -235,6 +239,9 @@ class SortInstruction:
         self.key = key
         self.ascending = ascending
 
+    def to_dict(self) -> dict[str, Any]:
+        return {"key": self.key, "ascending": self.ascending}
+
     def __repr__(self) -> str:
         order = "ASC" if self.ascending else "DESC"
         return f"SortInstruction({self.key} {order})"
@@ -245,6 +252,12 @@ class Sorter:
 
     def __init__(self, *instructions: SortInstruction) -> None:
         self._instructions: Sequence[SortInstruction] = instructions
+
+    def to_list(self) -> list[dict[str, Any]]:
+        return [instr.to_dict() for instr in self._instructions]
+
+    def to_string(self) -> str:
+        return json.dumps(self.to_list())
 
     def __and__(self, other: Sorter | None) -> Sorter:
         return Sorter(*self._instructions, *other._instructions) if other else self
