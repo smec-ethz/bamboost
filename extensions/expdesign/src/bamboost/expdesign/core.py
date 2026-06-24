@@ -3,6 +3,7 @@ This module provides utilities to define parameter objects with nested classes,
 and a class for defining a experimental design for such parameter configurations.
 """
 
+import math
 import copy
 import inspect
 from pathlib import Path
@@ -251,3 +252,6 @@ class ExperimentalDesign[TParams: ParamGraph]:
     def map[TOut](self, func: Callable[[TParams], TOut]) -> Iterable[TOut]:
         """Returns a lazy iterable yielding transformed parameter sets."""
         return (func(item) for item in self)
+
+    def __len__(self) -> int:
+        return math.prod(len(values) for _, values in self.variations)
