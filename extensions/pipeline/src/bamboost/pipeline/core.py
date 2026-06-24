@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import time
 from enum import Enum, auto
 from dataclasses import dataclass
 from typing import TYPE_CHECKING, Callable, Any, Protocol
@@ -76,12 +77,20 @@ class JobStatus(Enum):
 class ContextProtocol(Protocol):
     sim: Simulation
 
+@dataclass
+class ProfilingStats:
+    start_time: float | None = None
+    end_time: float | None = None
+    execution_duration: float = 0.0
+    io_duration: float = 0.0
+    was_cached: bool = False
 
 @dataclass
 class JobRecord:
     status: JobStatus = JobStatus.PENDING
     result: Any = None
     exception: Exception | None = None
+    stats: ProfilingStats
 
     @classmethod
     def from_sim_metadata(cls, job_name: str, sim: Simulation) -> JobRecord:
@@ -199,12 +208,16 @@ class SimulationRunner[CFG: FromDictParsable]:
 
         # Short circuit either from cache or file
         if record.status == JobStatus.FINISHED and job._is_persistent:
+            record.stats.was_cached = True
             if job.linked_sim:
                 return sim.links[job.linked_sim]
             else:
                 return sim
         elif record.status == JobStatus.FINISHED and not job._is_persistent:
+            record.stats.was_cached = True
             return record.result
+
+        record.stats.start_time = time.perf_counter()
 
         try:
             resolved_inputs = {
@@ -213,8 +226,10 @@ class SimulationRunner[CFG: FromDictParsable]:
             }
 
             logger.info(f"Runner '{self.name}' is executing job '{job.name}'.")
+            exec_start = time.perf_counter()
             result = job.execute(resolved_inputs)
             record.result = result
+            record.stats.execution_duration = time.perf_counter() - exec_start
 
             # Mark the Job as 'FINISHED'
             record.status = JobStatus.FINISHED
@@ -231,6 +246,7 @@ class SimulationRunner[CFG: FromDictParsable]:
                 else:
                     return sim
 
+            record.stats.end_time = time.perf_counter()
             # Transient jobs return artifacts stored in the record for memory-based access.
             return result
 
