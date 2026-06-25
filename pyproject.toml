@@ -20,11 +20,7 @@ dependencies = [
     "numpy",
     "pandas",
     "typing-extensions>=4.12.2",
-    "sqlalchemy>=2.0.36",
     "jinja2>=3.1.5",
-    "lazy-loader>=0.4",
-    "typer>=0.15.2",
-    "pyyaml>=6.0.3",
 ]
 
 [project.urls]
@@ -67,10 +63,5 @@ exclude = [
 [tool.ty.rules]
 invalid-method-override = "warn"
 
-
 [tool.coverage.run]
 source = ["bamboost"]
-omit = [
-    "bamboost/cli/*",
-    "bamboost/plugins_dev/*",
-]

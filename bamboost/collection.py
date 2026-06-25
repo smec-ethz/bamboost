@@ -31,9 +31,8 @@ from typing import (
     cast,
 )
 
-import pandas as pd
-from bamboostrs import Collection as _Collection
-from bamboostrs import get_collection
+from simmr import Collection as _Collection_simmr
+from simmr import get_collection
 from typing_extensions import Self
 
 from bamboost._logger import BAMBOOST_LOGGER
@@ -45,6 +44,8 @@ from bamboost.simulation.base import Simulation, SimulationWriter
 from bamboost.utilities import ComparableIterable, flatten_dict
 
 if TYPE_CHECKING:
+    from pandas import DataFrame
+
     from bamboost.mpi import Comm
 
 __all__ = [
@@ -113,7 +114,7 @@ class Collection:
     """Internal variable to keep track of which links to include in the collection view.
     If True, includes all links."""
 
-    _core: _Collection
+    _core: _Collection_simmr
     """Internal variable to hold the underlying core babo Collection."""
 
     def __init__(
@@ -129,7 +130,9 @@ class Collection:
         if create_if_not_exist:
             self._core = parallel_proxy(get_collection, self._comm, 0, str(uid_or_path))
         else:
-            self._core = parallel_proxy(_Collection, self._comm, 0, str(uid_or_path))
+            self._core = parallel_proxy(
+                _Collection_simmr, self._comm, 0, str(uid_or_path)
+            )
 
         self.uid = self._core.uid
         self.path = Path(self._core.path)
@@ -222,7 +225,7 @@ class Collection:
             else self._include_links,
         )
 
-    def to_pandas(self, include_links: bool | None = None) -> pd.DataFrame:
+    def to_pandas(self, include_links: bool | None = None) -> DataFrame:
         """Returns a pandas DataFrame representing the collection and its parameter space.
 
         The DataFrame contains all simulations in the collection, including their
@@ -241,10 +244,12 @@ class Collection:
         Returns:
             DataFrame of the collection's simulations and parameters.
         """
-        return pd.DataFrame(self.space(include_links=include_links))
+        from pandas import DataFrame
+
+        return DataFrame(self.space(include_links=include_links))
 
     @property
-    def df(self) -> pd.DataFrame:
+    def df(self) -> DataFrame:
         """Returns a pandas DataFrame representing the collection and its parameter space.
 
         The DataFrame contains all simulations in the collection, including their
@@ -362,7 +367,7 @@ class Collection:
         tags: Optional[Iterable[str]] = None,
         files: Optional[Iterable[StrPath]] = None,
         links: Optional[dict[str, str]] = None,
-        override: bool = False,
+        # override: bool = False,
     ) -> SimulationWriter:
         """Create and initialize a new simulation in the collection, returning a
         SimulationWriter object.
@@ -459,7 +464,7 @@ class Collection:
 
         self._core.drop_simulations(names)
 
-    def find(self, parameter_selection: Mapping[str, Any]) -> pd.DataFrame:
+    def find(self, parameter_selection: Mapping[str, Any]) -> DataFrame:
         """Find simulations matching the given parameter selection.
 
         The parameter_selection dictionary can specify exact values for parameters, or use
@@ -479,6 +484,8 @@ class Collection:
             >>> db.find({"a": 1, "b": lambda x: x > 2})
             >>> db.find({"a": 1, "b": 2})
         """
+        from pandas import DataFrame
+
         parameter_selection = flatten_dict(parameter_selection)
         params = {}
         filters = {}
@@ -491,12 +498,12 @@ class Collection:
         df = self.df
         matches = self._match_parameters(params, df=df)
         matches = df[df.name.isin(matches)]
-        assert isinstance(matches, pd.DataFrame)
+        assert isinstance(matches, DataFrame)
         if len(matches) == 0:
             return matches
 
         for key, func in filters.items():
-            matches = cast(pd.DataFrame, matches[matches[key].apply(func)])
+            matches = cast(DataFrame, matches[matches[key].apply(func)])
 
         return matches
 
@@ -504,7 +511,7 @@ class Collection:
     def _match_parameters(
         parameters: Mapping | None = None,
         *,
-        df: pd.DataFrame,
+        df: DataFrame,
         links: Mapping | None = None,
         exact: bool = False,
     ) -> list[str]:

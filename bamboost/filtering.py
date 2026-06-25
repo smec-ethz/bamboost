@@ -1,3 +1,4 @@
+# ty: ignore[invalid-method-override]
 from __future__ import annotations
 
 import json
@@ -71,8 +72,8 @@ def add_operators(cls):
     def make_or(self, other):
         return Or(self, other)
 
-    setattr(cls, "__and__", make_and)
-    setattr(cls, "__or__", make_or)
+    cls.__and__ = make_and
+    cls.__or__ = make_or
 
     return cls
 

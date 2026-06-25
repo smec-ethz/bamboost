@@ -34,8 +34,8 @@ from typing import (
 )
 
 import numpy as np
-from bamboostrs import Simulation as _Simulation_rust
-from bamboostrs import Status as _Status_rust
+from simmr import Simulation as _Simulation_simmr
+from simmr import Status as _Status_simmr
 from typing_extensions import Self
 
 from bamboost import constants, utilities
@@ -49,7 +49,7 @@ from bamboost.simulation.series import Series
 from bamboost.utilities import StrPath
 
 if TYPE_CHECKING:
-    from bamboostrs._core import SimulationMetadata
+    from simmr._core import SimulationMetadata
 
     from bamboost.collection import Collection
     from bamboost.mpi import Comm
@@ -65,18 +65,18 @@ class Status:
     """Enum representing the status of a simulation. Includes the optional message for
     more details."""
 
-    state: _Status_rust
+    state: _Status_simmr
     msg: str | None = None
 
     @classmethod
-    def with_msg(cls, status: _Status_rust, msg: str | None = None) -> Self:
+    def with_msg(cls, status: _Status_simmr, msg: str | None = None) -> Self:
         """Create a Status with an optional message."""
         return cls(status, msg)
 
     def __eq__(self, other: object) -> bool:
         if isinstance(other, Status):
             return self.state == other.state and self.msg == other.msg
-        if isinstance(other, _Status_rust):
+        if isinstance(other, _Status_simmr):
             return self.state == other
         return NotImplemented
 
@@ -245,7 +245,7 @@ class _Simulation(H5Object[_MT], ABC):
         self.path: Path = Path(parent).joinpath(name).absolute()
         self._collection = collection or Collection(parent)
         self.collection_uid = self._collection.uid
-        self._core = _Simulation_rust.from_path(self.path.as_posix())
+        self._core = _Simulation_simmr.from_path(self.path.as_posix())
 
         if not self.path.is_dir():
             raise FileNotFoundError(
@@ -263,7 +263,7 @@ class _Simulation(H5Object[_MT], ABC):
 
     @classmethod
     def from_core(
-        cls, core: _Simulation_rust, *, comm: Comm | ReuseComm | None = None
+        cls, core: _Simulation_simmr, *, comm: Comm | ReuseComm | None = None
     ) -> Self:
         """Create a Simulation instance from a core simulation object."""
         from bamboost.collection import Collection
@@ -298,12 +298,12 @@ class _Simulation(H5Object[_MT], ABC):
         Examples:
             >>> sim = Simulation.from_uid("abc123:mysim")
         """
-        from bamboostrs._core import Collection as _Collection_rust
+        from simmr._core import Collection as _Collection_rust
 
         uid = SimulationUID(uid)
         collection_uid, name = uid.collection_uid, uid.simulation_name
         collection = _Collection_rust(collection_uid)
-        sim_core = _Simulation_rust.from_collection(collection, name)
+        sim_core = _Simulation_simmr.from_collection(collection, name)
         return cls.from_core(sim_core, comm=comm)
 
     @classmethod
@@ -319,7 +319,7 @@ class _Simulation(H5Object[_MT], ABC):
         Examples:
             >>> sim = Simulation.from_cwd()
         """
-        sim_core = _Simulation_rust.from_cwd()
+        sim_core = _Simulation_simmr.from_cwd()
         return cls.from_core(sim_core, comm=comm)
 
     @property
@@ -363,13 +363,13 @@ class _Simulation(H5Object[_MT], ABC):
             )
 
         def get_status_pill(status: Status) -> str:
-            if status == _Status_rust.Failed:
+            if status == _Status_simmr.Failed:
                 return get_pill_div(str(status.state), "red")
-            elif status == _Status_rust.Completed:
+            elif status == _Status_simmr.Completed:
                 return get_pill_div(str(status.state), "green")
-            elif status in (_Status_rust.Unknown, _Status_rust.Initialized):
+            elif status in (_Status_simmr.Unknown, _Status_simmr.Initialized):
                 return get_pill_div(str(status.state), "grey")
-            elif status == _Status_rust.Running:
+            elif status == _Status_simmr.Running:
                 return get_pill_div(str(status.state), "orange")
             else:
                 return get_pill_div(str(status.state), "grey")
@@ -700,19 +700,19 @@ class SimulationWriter(_Simulation[Mutable]):
 
     # TODO: decide whether this is desirable
     def __enter__(self) -> Self:
-        self.update_status(Status(_Status_rust.Running))
+        self.update_status(Status(_Status_simmr.Running))
         return self
 
     # TODO: decide whether this is desirable
     def __exit__(self, exc_type, exc_val, exc_tb):
         if exc_type:
-            self._core.update_status(_Status_rust.Failed, str(exc_val))
+            self._core.update_status(_Status_simmr.Failed, str(exc_val))
             log.error(
                 f"Simulation failed with {exc_type.__name__}: {exc_val}\nTraceback: {exc_tb}"
             )
             return
 
-        self.update_status(Status(_Status_rust.Completed))
+        self.update_status(Status(_Status_simmr.Completed))
 
     def require_series(self, path: str) -> Series[Mutable]:
         # require the group in the HDF5 file

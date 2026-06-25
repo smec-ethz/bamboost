@@ -71,6 +71,7 @@ from typing import (
     Generic,
     Literal,
     Optional,
+    ParamSpec,
     Protocol,
     TypeVar,
     Union,
@@ -82,7 +83,7 @@ from typing_extensions import Concatenate, Self
 
 from bamboost._config import config
 from bamboost._logger import BAMBOOST_LOGGER
-from bamboost._typing import _MT, _P, _T, Immutable, Mutable
+from bamboost._typing import _MT, Immutable, Mutable
 from bamboost.hdf5.filemap import FileMap
 from bamboost.hdf5.hdf5path import HDF5Path
 from bamboost.mpi import MPI, Communicator, ReuseComm
@@ -98,6 +99,8 @@ if TYPE_CHECKING:
 
     _T_HasFile = TypeVar("_T_HasFile", bound=HasFile)
 
+T = TypeVar("T")
+P = ParamSpec("P")
 
 log = BAMBOOST_LOGGER.getChild("hdf5")
 """Logger instance for this module."""
@@ -125,12 +128,12 @@ class FileMode(Enum):
 
 
 def mutable_only(
-    method: Callable[Concatenate[_T_HasFile, _P], _T],
-) -> Callable[Concatenate[_T_HasFile, _P], _T]:
+    method: Callable[Concatenate[_T_HasFile, P], T],
+) -> Callable[Concatenate[_T_HasFile, P], T]:
     """Decorator to raise an error if the file is not mutable."""
 
     @wraps(method)
-    def inner(self: _T_HasFile, *args: _P.args, **kwargs: _P.kwargs) -> _T:
+    def inner(self: _T_HasFile, *args: P.args, **kwargs: P.kwargs) -> T:
         if not self._file.mutable:
             raise PermissionError("Simulation file is read-only.")
         return method(self, *args, **kwargs)
@@ -143,8 +146,8 @@ def with_file_open(
     mode: FileMode = FileMode.READ,
     driver: Optional[Literal["mpio"]] = None,
 ) -> Callable[
-    [Callable[Concatenate[_T_HasFile, _P], _T]],
-    Callable[Concatenate[_T_HasFile, _P], _T],
+    [Callable[Concatenate[_T_HasFile, P], T]],
+    Callable[Concatenate[_T_HasFile, P], T],
 ]:
     """Decorator for context manager to open and close the file for a method of a class
     with a file attribute (self._file).
@@ -156,10 +159,10 @@ def with_file_open(
     """
 
     def decorator(
-        method: Callable[Concatenate[_T_HasFile, _P], _T],
-    ) -> Callable[Concatenate[_T_HasFile, _P], _T]:
+        method: Callable[Concatenate[_T_HasFile, P], T],
+    ) -> Callable[Concatenate[_T_HasFile, P], T]:
         @wraps(method)
-        def inner(self: _T_HasFile, *args: _P.args, **kwargs: _P.kwargs) -> _T:
+        def inner(self: _T_HasFile, *args: P.args, **kwargs: P.kwargs) -> T:
             with self._file.open(mode, driver):
                 return method(self, *args, **kwargs)
 
@@ -169,14 +172,14 @@ def with_file_open(
 
 
 def add_to_file_queue(
-    method: Callable[Concatenate[_T_H5Object, _P], None],
-) -> Callable[Concatenate[_T_H5Object, _P], None]:
+    method: Callable[Concatenate[_T_H5Object, P], None],
+) -> Callable[Concatenate[_T_H5Object, P], None]:
     """Decorator to add a method call to the single process queue of the file object
     instead of executing it immediately.
     """
 
     @wraps(method)
-    def inner(self: _T_H5Object, *args: _P.args, **kwargs: _P.kwargs) -> None:
+    def inner(self: _T_H5Object, *args: P.args, **kwargs: P.kwargs) -> None:
         self.post_write_instruction(lambda: method(self, *args, **kwargs))
 
     return inner
@@ -226,11 +229,11 @@ class H5Object(Generic[_MT]):
         """Context manager to suspend immediate write operations. Patches
         self._file.available_for_single_process_write to return False."""
         original_method = self._file.available_for_single_process_write
-        self._file.available_for_single_process_write: Callable = lambda: False
+        self._file.available_for_single_process_write = lambda: False  # ty:ignore[invalid-assignment]
         try:
             yield
         finally:
-            self._file.available_for_single_process_write: Callable = original_method
+            self._file.available_for_single_process_write = original_method  # ty:ignore[invalid-assignment]
             self._file.single_process_queue.apply()
 
 
@@ -537,7 +540,10 @@ class HDF5File(h5py.File, Generic[_MT]):
             return self._single_process_queue
         except AttributeError:
             from bamboost.mpi.utilities import parallel_proxy
-            self._single_process_queue = parallel_proxy(SingleProcessQueue, self._comm, root=0, file=self)
+
+            self._single_process_queue = parallel_proxy(
+                SingleProcessQueue, self._comm, root=0, file=self
+            )
             return self._single_process_queue
 
     def available_for_single_process_write(self) -> bool:

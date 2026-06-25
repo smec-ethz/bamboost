@@ -13,7 +13,6 @@ from __future__ import annotations
 
 from argparse import ArgumentParser
 from collections.abc import MutableMapping
-from dataclasses import dataclass
 from itertools import islice
 from pathlib import Path
 from typing import (
@@ -23,20 +22,16 @@ from typing import (
     NamedTuple,
     Optional,
     Union,
-    overload,
 )
 
 import numpy as np
-from typing_extensions import Self
 
-from bamboost import constants
 from bamboost._typing import StrPath
 
 if TYPE_CHECKING:
     from pandas import DataFrame
 
 __all__ = [
-    "SimulationUID",
     "flatten_dict",
     "h5_tree",
     "show_differences",

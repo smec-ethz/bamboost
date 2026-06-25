@@ -1,16 +1,9 @@
 from pathlib import Path
 from typing import Any, Protocol, TypeVar, Union
 
-from typing_extensions import ParamSpec, TypeAlias
+from typing_extensions import TypeAlias
 
 StrPath: TypeAlias = Union[str, Path]
-_T = TypeVar("_T")
-_U = TypeVar("_U")
-_P = ParamSpec("_P")
-
-# Key, value types
-_KT = TypeVar("_KT")
-_VT = TypeVar("_VT")
 
 
 class _MutabilitySentinel(type):

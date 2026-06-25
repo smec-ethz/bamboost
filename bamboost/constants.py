@@ -7,20 +7,11 @@ RUN_FILE_NAME = "run.sh"
 PATH_DATA = "data"
 RELATIVE_PATH_FIELD_DATA = "fields"
 RELATIVE_PATH_SCALAR_DATA = "globals"
-PATH_PARAMETERS = ".parameters"
 PATH_MESH = ".mesh"
-PATH_LINKS = ".links"
-PATH_USERDATA = ".userdata"
 
 DS_NAME_TIMESTEPS = ".map"
 
 DEFAULT_MESH_NAME = "default"
-
-# SQLModel constants
-TABLENAME_COLLECTIONS = "collections"
-TABLENAME_SIMULATIONS = "simulations"
-TABLENAME_PARAMETERS = "parameters"
-TABLENAME_SIMULATION_LINKS = "simulation_links"
 
 # Config constants
 DEFAULT_CONFIG_FILE_NAME = "config.toml"
