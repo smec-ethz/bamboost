@@ -20,7 +20,6 @@ import os
 from abc import ABC
 from contextlib import contextmanager
 from dataclasses import dataclass
-from enum import Enum
 from functools import cached_property
 from pathlib import Path
 from typing import (
@@ -31,12 +30,12 @@ from typing import (
     Optional,
     Sized,
     TypeAlias,
-    Union,
     overload,
 )
 
 import numpy as np
 from bamboostrs import Simulation as _Simulation_rust
+from bamboostrs import Status as _Status_rust
 from typing_extensions import Self
 
 from bamboost import constants, utilities
@@ -61,79 +60,25 @@ if TYPE_CHECKING:
 log = BAMBOOST_LOGGER.getChild("simulation")
 
 
-class Status(Enum):
-    """Enum representing the status of a simulation.
-
-    Attributes:
-        INITIALIZED: The simulation has been initialized but not yet started.
-        STARTED: The simulation is currently running.
-        FINISHED: The simulation has completed successfully.
-        FAILED: The simulation has failed.
-        UNKNOWN: The status of the simulation is unknown.
-    """
-
-    INITIALIZED = "initialized"
-    STARTED = "started"
-    FINISHED = "finished"
-    FAILED = "failed"
-    UNKNOWN = "unknown"
-
-    def format(self) -> str:
-        """Return the string representation of the status."""
-        return self.value
-
-    def __eq__(self, other: Any, /) -> bool:
-        if isinstance(other, Status):
-            return self.value == other.value
-        elif isinstance(other, str):
-            return self.value == other.lower()
-        else:
-            return NotImplemented
-
-
 @dataclass
-class StatusInfo:
-    """Detailed status information for a simulation.
+class Status:
+    """Enum representing the status of a simulation. Includes the optional message for
+    more details."""
 
-    Attributes:
-        status (Status): The current status of the simulation.
-        message (Optional[str]): An optional message providing additional details about the status.
-    """
-
-    status: Status
-    message: Optional[str] = None
+    state: _Status_rust
+    msg: str | None = None
 
     @classmethod
-    def parse(cls, status: str) -> StatusInfo:
-        import re
+    def with_msg(cls, status: _Status_rust, msg: str | None = None) -> Self:
+        """Create a Status with an optional message."""
+        return cls(status, msg)
 
-        pattern = r"^(?P<status>\w+)(?:\s*\[(?P<message>.+)\])?$"
-        match = re.match(pattern, status.strip())
-
-        if match:
-            status_str = match.group("status").lower()
-            message = match.group("message")
-            try:
-                return cls(Status(status_str), message)
-            except ValueError:
-                return cls(Status.UNKNOWN, status)
-        else:
-            return cls(Status.UNKNOWN, status)
-
-    def format(self) -> str:
-        return (
-            f"{self.status.value} [{self.message}]"
-            if self.message
-            else self.status.value
-        )
-
-    def __eq__(self, other: Any, /) -> bool:
-        if isinstance(other, StatusInfo):
-            return self.status == other.status and self.message == other.message
-        elif isinstance(other, Status):
-            return self.status == other
-        else:
-            return NotImplemented
+    def __eq__(self, other: object) -> bool:
+        if isinstance(other, Status):
+            return self.state == other.state and self.msg == other.msg
+        if isinstance(other, _Status_rust):
+            return self.state == other
+        return NotImplemented
 
 
 @dataclass(frozen=True, init=False)  # init=False because we handle it in __new__
@@ -337,6 +282,46 @@ class _Simulation(H5Object[_MT], ABC):
 
         return instance
 
+    @classmethod
+    def from_uid(
+        cls, uid: str | SimulationUID, *, comm: Comm | ReuseComm | None = None
+    ) -> Self:
+        """Return the `Simulation` instance corresponding to the given UID.
+
+        Args:
+            uid: The full simulation UID in the format "<collection_uid>:<simulation_name>".
+            comm: Optional MPI communicator to use for the simulation instance.
+
+        Returns:
+            Self: An instance of the simulation class corresponding to the UID.
+
+        Examples:
+            >>> sim = Simulation.from_uid("abc123:mysim")
+        """
+        from bamboostrs._core import Collection as _Collection_rust
+
+        uid = SimulationUID(uid)
+        collection_uid, name = uid.collection_uid, uid.simulation_name
+        collection = _Collection_rust(collection_uid)
+        sim_core = _Simulation_rust.from_collection(collection, name)
+        return cls.from_core(sim_core, comm=comm)
+
+    @classmethod
+    def from_cwd(cls, *, comm: Comm | ReuseComm | None = None) -> Self:
+        """Return the `Simulation` instance located in the current working directory.
+
+        Args:
+            comm: Optional MPI communicator to use for the simulation instance.
+
+        Raises:
+            FileNotFoundError: If the current working directory is not a valid simulation path.
+
+        Examples:
+            >>> sim = Simulation.from_cwd()
+        """
+        sim_core = _Simulation_rust.from_cwd()
+        return cls.from_core(sim_core, comm=comm)
+
     @property
     def file(self) -> HDF5File[_MT]:
         if hasattr(self, "_file"):
@@ -377,17 +362,17 @@ class _Simulation(H5Object[_MT], ABC):
                 f'var(--bb-{color});">{text}</div>'
             )
 
-        def get_status_pill(status: StatusInfo) -> str:
-            if status.status == Status.FAILED:
-                return get_pill_div(status.format(), "red")
-            elif status.status == Status.FINISHED:
-                return get_pill_div(status.format(), "green")
-            elif status.status in (Status.INITIALIZED, Status.UNKNOWN):
-                return get_pill_div(status.format(), "grey")
-            elif status.status == Status.STARTED:
-                return get_pill_div(status.format(), "orange")
+        def get_status_pill(status: Status) -> str:
+            if status == _Status_rust.Failed:
+                return get_pill_div(str(status.state), "red")
+            elif status == _Status_rust.Completed:
+                return get_pill_div(str(status.state), "green")
+            elif status in (_Status_rust.Unknown, _Status_rust.Initialized):
+                return get_pill_div(str(status.state), "grey")
+            elif status == _Status_rust.Running:
+                return get_pill_div(str(status.state), "orange")
             else:
-                return get_pill_div(status.format(), "grey")
+                return get_pill_div(str(status.state), "grey")
 
         def get_submitted_pill(submitted: bool) -> str:
             return (
@@ -424,28 +409,6 @@ class _Simulation(H5Object[_MT], ABC):
     @property
     def mutable(self) -> bool:
         return self.file.mutable
-
-    @classmethod
-    def from_uid(cls, uid: str | SimulationUID, *, comm: Comm | None = None) -> Self:
-        """Return the `Simulation` instance corresponding to the given UID.
-
-        Args:
-            uid: The full simulation UID in the format "<collection_uid>:<simulation_name>".
-            comm: Optional MPI communicator to use for the simulation instance.
-
-        Returns:
-            Self: An instance of the simulation class corresponding to the UID.
-
-        Examples:
-            >>> sim = Simulation.from_uid("abc123:mysim")
-        """
-        from bamboostrs._core import Collection as _Collection_rust
-
-        uid = SimulationUID(uid)
-        collection_uid, name = uid.collection_uid, uid.simulation_name
-        collection = _Collection_rust(collection_uid)
-        sim_core = _Simulation_rust.from_collection(collection, name)
-        return cls.from_core(sim_core, comm=comm)
 
     @property
     def uid(self) -> SimulationUID:
@@ -503,17 +466,27 @@ class _Simulation(H5Object[_MT], ABC):
         return self._core.metadata
 
     @property
-    def status(self) -> StatusInfo:
+    def status(self) -> Status:
         """
         Returns the current status of the simulation.
 
         Returns:
             StatusInfo: The status information for this simulation.
         """
-        try:
-            return StatusInfo.parse(self.metadata.__getitem__("status"))
-        except KeyError:
-            return StatusInfo(Status.UNKNOWN)
+        metadata = self._core.metadata
+        status = metadata.get("status")
+        msg = metadata.get("status_message")
+        return Status.with_msg(status, msg)
+
+    @property
+    def status_message(self) -> str | None:
+        """
+        Returns a human-readable message describing the current status of the simulation.
+
+        Returns:
+            str: A message describing the simulation's status.
+        """
+        return self._core.metadata.get("status_message")
 
     @property
     def links(self) -> Links:
@@ -562,6 +535,20 @@ class _Simulation(H5Object[_MT], ABC):
     @cached_property
     def mesh(self) -> GroupMesh:
         return GroupMesh(self, constants.DEFAULT_MESH_NAME)
+
+    def update_status(self, status: Status) -> None:
+        """Update the status of the simulation.
+
+        Args:
+            status: The new status to set for the simulation.
+        """
+        self._core.update_status(status.state, status.msg)
+
+    def run(self, stage: str) -> None:
+        return self._core.run(stage)
+
+    def submit(self, stage: str) -> str | None:
+        return self._core.submit(stage)
 
     @contextmanager
     def enter_path(self):
@@ -711,22 +698,21 @@ class SimulationWriter(_Simulation[Mutable]):
             self._data_file, comm=ReuseComm(self), mutable=True
         )._create_file()
 
+    # TODO: decide whether this is desirable
     def __enter__(self) -> Self:
-        self.status = Status.STARTED
+        self.update_status(Status(_Status_rust.Running))
         return self
 
+    # TODO: decide whether this is desirable
     def __exit__(self, exc_type, exc_val, exc_tb):
         if exc_type:
-            self.status = StatusInfo(Status.FAILED, str(exc_val))
+            self._core.update_status(_Status_rust.Failed, str(exc_val))
             log.error(
                 f"Simulation failed with {exc_type.__name__}: {exc_val}\nTraceback: {exc_tb}"
             )
             return
-        self.status = Status.FINISHED
 
-    @_Simulation.status.setter
-    def status(self, value: Union[StatusInfo, Status]) -> None:
-        self.metadata.__setitem__("status", value.format())
+        self.update_status(Status(_Status_rust.Completed))
 
     def require_series(self, path: str) -> Series[Mutable]:
         # require the group in the HDF5 file
@@ -779,9 +765,3 @@ class SimulationWriter(_Simulation[Mutable]):
                 shutil.copy(path, self.path)
             elif path.is_dir():
                 shutil.copytree(path, self.path)
-
-    def run(self, stage: str) -> None:
-        self._core.run(stage)
-
-    def submit(self, stage: str) -> None:
-        self._core.submit(stage)
