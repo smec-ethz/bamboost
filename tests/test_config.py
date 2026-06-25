@@ -1,83 +1,6 @@
 """Tests for bamboost._config module."""
 
-from pathlib import Path
-
 from bamboost import _config
-from bamboost.constants import DEFAULT_DATABASE_FILE_NAME
-
-
-class TestIndexOptions:
-    """Tests for _IndexOptions configuration."""
-
-    def test_local_dir_created_for_database(self, tmp_path, monkeypatch):
-        """Test that local directory is created when loading index config."""
-        local_dir = tmp_path / "local-dir"
-        monkeypatch.setattr(_config, "LOCAL_DIR", local_dir)
-
-        assert not local_dir.exists()
-
-        index_config = _config._IndexOptions.from_dict({})
-
-        assert local_dir.exists()
-        assert index_config.databaseFile == local_dir / DEFAULT_DATABASE_FILE_NAME
-
-    def test_index_options_default_values(self, tmp_path, monkeypatch):
-        """Test _IndexOptions default values."""
-        local_dir = tmp_path / "local-dir"
-        monkeypatch.setattr(_config, "LOCAL_DIR", local_dir)
-
-        index_config = _config._IndexOptions.from_dict({})
-
-        assert isinstance(index_config.databaseFile, Path)
-        assert index_config.databaseFile.name == DEFAULT_DATABASE_FILE_NAME
-
-
-class TestPathsOptions:
-    """Tests for _Paths configuration."""
-
-    def test_paths_options_default(self):
-        """Test _Paths default initialization."""
-        paths = _config._Paths()
-
-        assert isinstance(paths.localDir, Path)
-        assert isinstance(paths.cacheDir, Path)
-
-    def test_paths_options_from_dict(self, tmp_path):
-        """Test _Paths.from_dict with custom values."""
-        custom_local = tmp_path / "custom_local"
-        custom_cache = tmp_path / "custom_cache"
-
-        config_dict = {
-            "localDir": str(custom_local),
-            "cacheDir": str(custom_cache),
-        }
-
-        paths = _config._Paths.from_dict(config_dict)
-
-        assert paths.localDir == custom_local
-        assert paths.cacheDir == custom_cache
-
-
-class TestGeneralOptions:
-    """Tests for _Options configuration."""
-
-    def test_general_options_default(self):
-        """Test _Options default values."""
-        options = _config._Options()
-
-        assert options.mpi is False
-
-    def test_general_options_from_dict(self):
-        """Test _Options.from_dict."""
-        options = _config._Options.from_dict({"mpi": True})
-
-        assert options.mpi is True
-
-    def test_general_options_from_dict_empty(self):
-        """Test _Options.from_dict with empty dict."""
-        options = _config._Options.from_dict({})
-
-        assert options.mpi is False
 
 
 class TestConfigClass:
@@ -87,18 +10,15 @@ class TestConfigClass:
         """Test _Config initialization with defaults."""
         cfg = _config._Config()
 
-        assert isinstance(cfg.paths, _config._Paths)
-        assert isinstance(cfg.options, _config._Options)
-        assert isinstance(cfg.index, _config._IndexOptions)
+        assert cfg.mpi is False
+        assert cfg.log_file_lock_severity == "WARNING"
+        assert cfg.sort_table_key == "created_at"
 
-    def test_config_nested_update(self):
-        """Test that nested dictionary updates work correctly."""
-        dict1 = {"a": {"b": 1, "c": 2}}
-        dict2 = {"a": {"c": 3, "d": 4}}
-
-        _config._nested_dict_update(dict1, dict2)
-
-        assert dict1 == {"a": {"b": 1, "c": 3, "d": 4}}
+    def test_config_flat_update(self):
+        """Test that dictionary updates work correctly by flattening 'options'."""
+        cfg = _config._Config()
+        cfg.mpi = True
+        assert cfg.mpi is True
 
 
 class TestConfigUtilities:
@@ -141,34 +61,6 @@ class TestConfigUtilities:
 
         assert result == tmp_path
 
-    def test_nested_dict_update_simple(self):
-        """Test _nested_dict_update with simple dictionaries."""
-        target = {"a": 1, "b": 2}
-        source = {"b": 3, "c": 4}
-
-        _config._nested_dict_update(target, source)
-
-        assert target == {"a": 1, "b": 3, "c": 4}
-
-    def test_nested_dict_update_deep(self):
-        """Test _nested_dict_update with deeply nested dictionaries."""
-        target = {"a": {"b": {"c": 1}}}
-        source = {"a": {"b": {"d": 2}, "e": 3}}
-
-        _config._nested_dict_update(target, source)
-
-        assert target == {"a": {"b": {"c": 1, "d": 2}, "e": 3}}
-
-    def test_nested_dict_update_mixed_types(self):
-        """Test _nested_dict_update with mixed value types."""
-        target = {"a": {"b": 1}, "c": [1, 2]}
-        source = {"a": {"d": 2}, "c": [3, 4]}
-
-        _config._nested_dict_update(target, source)
-
-        # Non-dict values should be replaced
-        assert target == {"a": {"b": 1, "d": 2}, "c": [3, 4]}
-
 
 class TestGlobalConfig:
     """Tests for global config instance."""
@@ -177,18 +69,3 @@ class TestGlobalConfig:
         """Test that global config instance exists."""
         assert _config.config is not None
         assert isinstance(_config.config, _config._Config)
-
-    def test_global_config_has_paths(self):
-        """Test that global config has paths configuration."""
-        assert hasattr(_config.config, "paths")
-        assert isinstance(_config.config.paths, _config._Paths)
-
-    def test_global_config_has_options(self):
-        """Test that global config has options configuration."""
-        assert hasattr(_config.config, "options")
-        assert isinstance(_config.config.options, _config._Options)
-
-    def test_global_config_has_index(self):
-        """Test that global config has index configuration."""
-        assert hasattr(_config.config, "index")
-        assert isinstance(_config.config.index, _config._IndexOptions)

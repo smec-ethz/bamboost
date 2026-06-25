@@ -19,7 +19,7 @@ except PackageNotFoundError:  # not installed
 # by default, we set the log level to INFO and add a stream handler to the BAMBOOST_LOGGER
 # this ensures that log messages are printed to the console by default
 add_stream_handler(BAMBOOST_LOGGER)
-BAMBOOST_LOGGER.setLevel(config.options.logLevel)
+BAMBOOST_LOGGER.setLevel(config.logLevel)
 
 __all__ = [
     "BAMBOOST_LOGGER",

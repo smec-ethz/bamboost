@@ -1,11 +1,9 @@
-import os
-import shutil
 import tempfile
 from pathlib import Path
 
 import pytest
 
-from bamboost import Collection, Index, config
+from bamboost import Collection, config
 from bamboost.mpi import Communicator
 
 
@@ -14,21 +12,12 @@ def pytest_sessionstart(session):
     # Use tempdir for testing
     tempdir = tempfile.mkdtemp()
     tempdir = Path(tempdir)
-    config.paths.localDir = tempdir
-    config.paths.cacheDir = tempdir.joinpath("cache")
     # Disable MPI for testing
-    config.options.mpi = False
-    # Use in-memory database for testing
-    config.index.databaseFile = ":memory:"
-    config.index.searchPaths = {}
-
-    # Create config files if they don't exist
-    os.makedirs(config.paths.localDir, exist_ok=True)
+    config.mpi = False
 
 
 def pytest_sessionfinish(session, exitstatus):
     """Remove tmp config directory again."""
-    shutil.rmtree(config.paths.localDir)
 
 
 @pytest.fixture(scope="module")

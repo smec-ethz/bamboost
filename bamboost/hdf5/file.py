@@ -438,7 +438,7 @@ class HDF5File(h5py.File, Generic[_MT]):
             kwargs.update({"driver": driver} if driver not in (None, "mpio") else {})
 
         if timeout is None:
-            timeout = config.options.file_lock_timeout
+            timeout = config.file_lock_timeout
 
         waiting_logged = False
         start_time = time.monotonic()
@@ -478,7 +478,7 @@ class HDF5File(h5py.File, Generic[_MT]):
 
                 # If the file is locked, we wait and try again
                 if not waiting_logged:
-                    level = logging._nameToLevel[config.options.log_file_lock_severity]
+                    level = logging._nameToLevel[config.log_file_lock_severity]
                     log.log(level, f"[{self._filename}] file locked --> waiting")
                     waiting_logged = True
                     last_logged = now
