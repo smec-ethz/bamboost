@@ -45,6 +45,9 @@ class GroupMeshes(Group[_MT]):
                 file. For possible types, consult the XDMF/paraview manual.
         """
         with self._file.open(FileMode.APPEND, driver="mpio"):
+            # we must make sure that the parent mesh group exists before we can add a new mesh to it
+            self.require_self()
+            # now, require the new mesh group and write the data to it
             new_grp = self.require_group(name)
             new_grp.write_distributed_contiguous_array("coordinates", vector=nodes)
             new_grp.write_distributed_contiguous_array(

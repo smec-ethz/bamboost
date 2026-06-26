@@ -87,6 +87,7 @@ from bamboost._typing import _MT, Immutable, Mutable
 from bamboost.hdf5.filemap import FileMap
 from bamboost.hdf5.hdf5path import HDF5Path
 from bamboost.mpi import MPI, Communicator, ReuseComm
+from bamboost.mpi.utilities import comm_self, parallel_proxy
 from bamboost.utilities import StrPath
 
 if TYPE_CHECKING:
@@ -240,6 +241,19 @@ class H5Object(Generic[_MT]):
 _T_H5Object = TypeVar("_T_H5Object", bound=H5Object)
 
 
+def _root_only(method: Callable):
+    """Decorator to ensure that a method is only executed on the root process."""
+
+    @wraps(method)
+    def inner(self: H5Object, *args, **kwargs):
+        if self._comm.rank == 0:
+            with comm_self(self):
+                method(self, *args, **kwargs)
+        self._comm.barrier()  # Ensure all ranks wait for the root to finish
+
+    return inner
+
+
 class SingleProcessQueue(deque[Callable[[], None]]):
     """A queue to defer execution of write operations that need to be executed on the root
     only. Only relevant for parallelized code.
@@ -249,19 +263,28 @@ class SingleProcessQueue(deque[Callable[[], None]]):
     to the right and pop them from the left.
     """
 
-    def __init__(self, file: HDF5File):
+    _comm = Communicator()
+
+    def __init__(self, file: HDF5File, *, comm: Comm | ReuseComm | None = None):
         self._file = file
+
+        if comm is not None:
+            self._comm = comm
+
         super().__init__()
 
+    @_root_only
     def add_instruction(self, instruction: Callable[[], None]) -> None:
         self.append(instruction)
         log.debug(f"Added {type(instruction).__name__} to process queue")
 
-    @with_file_open(FileMode.APPEND)
+    @_root_only
     def apply_instruction(self, instruction: Callable[[], None]) -> None:
         log.debug(f"Applying {type(instruction).__name__}")
-        instruction()
+        with self._file.open(FileMode.APPEND):
+            instruction()
 
+    @_root_only
     def apply(self) -> None:
         """Applies all write instructions in the queue."""
         if not self:
@@ -334,6 +357,8 @@ class HDF5File(h5py.File, Generic[_MT]):
         if not mutable and not self._path.exists():
             raise FileNotFoundError(f"File {self._filename} does not exist.")
 
+        self.single_process_queue = SingleProcessQueue(self, comm=ReuseComm(self))
+
     def __repr__(self) -> str:
         mode_info = self.mode if self.is_open else "proxy"
         status = "open" if self.is_open else "closed"
@@ -344,7 +369,7 @@ class HDF5File(h5py.File, Generic[_MT]):
 
     def _create_file(self: HDF5File[Mutable]) -> HDF5File[Mutable]:
         """Opens and closes the file to create it while doing nothing to it."""
-        with self.open("a"):
+        with self.open("a", driver="mpio"):
             pass
         return self
 
@@ -530,21 +555,6 @@ class HDF5File(h5py.File, Generic[_MT]):
     @property
     def is_open(self) -> bool:
         return bool(hasattr(self, "id") and self.id.valid)
-
-    @property
-    def single_process_queue(self) -> SingleProcessQueue:
-        """The single process queue of this file object. See `SingleProcessQueue` for
-        details.
-        """
-        try:
-            return self._single_process_queue
-        except AttributeError:
-            from bamboost.mpi.utilities import parallel_proxy
-
-            self._single_process_queue = parallel_proxy(
-                SingleProcessQueue, self._comm, root=0, file=self
-            )
-            return self._single_process_queue
 
     def available_for_single_process_write(self) -> bool:
         """Whether single process write instructions can be executed immediately."""

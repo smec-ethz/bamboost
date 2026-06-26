@@ -269,18 +269,7 @@ class _Simulation(H5Object[_MT], ABC):
         from bamboost.collection import Collection
 
         collection = Collection(core.metadata["collection_uid"])
-
-        instance = cls.__new__(cls)
-        instance._collection = collection
-        instance._core = core
-        instance.name = core.name
-        instance.path = collection.path.joinpath(core.name)
-        instance.collection_uid = collection.uid
-
-        if comm is not None:
-            instance._comm = comm
-
-        return instance
+        return cls(core.name, collection.path, comm=comm, collection=collection)
 
     @classmethod
     def from_uid(
@@ -327,10 +316,6 @@ class _Simulation(H5Object[_MT], ABC):
             "Simulation HDF file is not initialized. If you never used it, you "
             "must use SimulationWriter to get a mutable object."
         )
-
-    @file.setter
-    def file(self, value: HDF5File[_MT]) -> None:
-        self._file = value
 
     def __eq__(self, other: _Simulation, /) -> bool:  # ty:ignore[invalid-method-override]
         return (
@@ -654,10 +639,11 @@ class Simulation(_Simulation[Immutable]):
         name: str,
         parent: StrPath,
         comm: Comm | ReuseComm | None = None,
+        collection: Collection | None = None,
     ):
-        super().__init__(name, parent, comm)
+        super().__init__(name, parent, comm, collection=collection)
         try:
-            self.file = HDF5File(self._data_file, comm=ReuseComm(self), mutable=False)
+            self._file = HDF5File(self._data_file, comm=ReuseComm(self), mutable=False)
         except FileNotFoundError:
             pass
 
@@ -689,9 +675,10 @@ class SimulationWriter(_Simulation[Mutable]):
         name: str,
         parent: StrPath,
         comm: Comm | ReuseComm | None = None,
+        collection: Collection | None = None,
     ):
-        super().__init__(name, parent, comm)
-        self.file = HDF5File(
+        super().__init__(name, parent, comm, collection=collection)
+        self._file = HDF5File(
             self._data_file, comm=ReuseComm(self), mutable=True
         )._create_file()
 
@@ -725,7 +712,9 @@ class SimulationWriter(_Simulation[Mutable]):
         Returns:
             Series[Mutable]: The default data series object.
         """
-        with self.file.open(FileMode.READ, driver="mpio"):
+        # TODO: this should not be done here
+        # maybe require a user to explicitly call require_series for the default series
+        with self.file.open(FileMode.APPEND, driver="mpio"):
             if constants.PATH_DATA not in self.root.keys():  # noqa: SIM118
                 self._initialize_series(constants.PATH_DATA)
         return Series(self, path=constants.PATH_DATA)

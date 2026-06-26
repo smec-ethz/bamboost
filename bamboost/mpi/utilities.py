@@ -9,7 +9,7 @@ from typing import (
     cast,
 )
 
-from bamboost.mpi import MPI
+from bamboost.mpi import MPI, Communicator, ReuseComm
 
 if TYPE_CHECKING:
     from bamboost.mpi import Comm
@@ -63,10 +63,14 @@ def comm_self(instance: HasComm) -> Generator[None, None, None]:
 class ParallelProxy:
     """Handles the actual MPI communication routing at runtime."""
 
-    def __init__(self, serial_instance, comm, root: int = 0):
+    comm = Communicator()
+
+    def __init__(self, comm: Comm | ReuseComm, root: int = 0):
         self.comm = comm
         self.rank = self.comm.rank
         self.root = root
+
+    def set_instance(self, serial_instance: Any) -> None:
         self._core = serial_instance  # Valid object on root, None on others
 
     def __getattr__(self, name: str) -> Any:
@@ -131,7 +135,8 @@ def parallel_proxy(
     Instantiates the serial class on the root process and wraps it in a proxy.
     Tells type checkers that the returned object is an instance of `T` (not Proxy).
     """
-    rank = comm.rank
+    proxy = ParallelProxy(root=root, comm=comm)
+    rank = proxy.comm.rank
 
     # Instantiate the backend only on the designated root rank
     if rank == root:
@@ -139,6 +144,6 @@ def parallel_proxy(
     else:
         instance = None
 
-    proxy = ParallelProxy(instance, root=root, comm=comm)
+    proxy.set_instance(instance)
 
     return cast(T, proxy)

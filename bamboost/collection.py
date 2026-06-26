@@ -129,10 +129,12 @@ class Collection:
             self._comm = comm
 
         if create_if_not_exist:
-            self._core = parallel_proxy(get_collection, self._comm, 0, str(uid_or_path))
+            self._core = parallel_proxy(
+                get_collection, ReuseComm(self), 0, str(uid_or_path)
+            )
         else:
             self._core = parallel_proxy(
-                _Collection_simmr, self._comm, 0, str(uid_or_path)
+                _Collection_simmr, ReuseComm(self), 0, str(uid_or_path)
             )
 
         self.uid = self._core.uid
@@ -435,7 +437,7 @@ class Collection:
             links=links,
             duplicate_action=duplicate_action,
         )
-        return SimulationWriter.from_core(sim_core)
+        return SimulationWriter.from_core(sim_core, comm=ReuseComm(self))
 
     def delete(self, name: str | Iterable[str]) -> None:
         """CAUTION. Deletes one or more simulations from the collection.

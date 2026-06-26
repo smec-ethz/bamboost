@@ -14,6 +14,14 @@ Operand = Union["Key", "Operator", str, float, int, datetime, timedelta]
 Numeric = float | int
 
 
+def _json_encoder(obj: Any) -> Any:
+    if isinstance(obj, (datetime, timedelta)):
+        return obj.isoformat()
+    if isinstance(obj, set):
+        return list(obj)
+    raise TypeError(f"Object of type {type(obj).__name__} is not JSON serializable")
+
+
 class _SupportsOperators:
     if TYPE_CHECKING:
 
@@ -34,7 +42,7 @@ class _SupportsOperators:
         def __and__(self, other: Operand) -> "And": ...
 
     def isin(self, values: Iterable[Any]) -> "Operator":
-        return Operator("in", self, ComparableIterable(values))
+        return Operator("in", self, values)
 
     def contains(self, substring: str) -> "Operator":
         return Operator("contains", self, substring)
@@ -85,7 +93,7 @@ class Operator(_SupportsOperators):
         self,
         op: Callable[[Any, Any], bool] | str,
         a: Numeric | str | Key | _SupportsOperators,
-        b: Numeric | str | Key | _SupportsOperators | ComparableIterable,
+        b: Numeric | str | Key | _SupportsOperators | Iterable,
     ) -> None: ...
     @overload
     def __init__(
@@ -136,9 +144,7 @@ class Operator(_SupportsOperators):
                 "type": "In",
                 "left": resolve(self._a),
                 "right": resolve(
-                    self._b.values
-                    if isinstance(self._b, ComparableIterable)
-                    else self._b
+                    self._b.ori if isinstance(self._b, ComparableIterable) else self._b
                 ),
             }
         if self._op == "contains":
@@ -211,7 +217,7 @@ class Filter:
     def to_dict(self) -> dict[str, Any] | None:
         # first: add tags to the filter if they exist
         if self._tags:
-            tag_filter = Operator("in", Key("tags"), ComparableIterable(self._tags))
+            tag_filter = Operator("in", Key("tags"), self._tags)
             self._ops = (tag_filter, *self._ops)
 
         if not self._ops:
@@ -222,7 +228,7 @@ class Filter:
         return combined.to_dict()
 
     def to_string(self) -> str:
-        return json.dumps(self.to_dict())
+        return json.dumps(self.to_dict(), default=_json_encoder)
 
     def __and__(self, other: Filter | None) -> Filter:
         return (
@@ -258,7 +264,7 @@ class Sorter:
         return [instr.to_dict() for instr in self._instructions]
 
     def to_string(self) -> str:
-        return json.dumps(self.to_list())
+        return json.dumps(self.to_list(), default=_json_encoder)
 
     def __and__(self, other: Sorter | None) -> Sorter:
         return Sorter(*self._instructions, *other._instructions) if other else self

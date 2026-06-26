@@ -25,6 +25,7 @@ from typing import (
 )
 
 import numpy as np
+from numpy.typing import NDArray
 
 from bamboost._typing import StrPath
 
@@ -302,7 +303,7 @@ class PathSet(set[Path]):
 
 class ComparableIterable:
     def __init__(self, ori):
-        self.ori = np.asarray(ori)
+        self.ori: NDArray = np.asarray(ori)
 
     def __eq__(self, other):
         other = np.asarray(other)
