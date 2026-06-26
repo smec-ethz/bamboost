@@ -298,12 +298,9 @@ class _Simulation(H5Object[_MT], ABC):
         Examples:
             >>> sim = Simulation.from_uid("abc123:mysim")
         """
-        from simmr._core import Collection as _Collection_rust
-
         uid = SimulationUID(uid)
-        collection_uid, name = uid.collection_uid, uid.simulation_name
-        collection = _Collection_rust(collection_uid)
-        sim_core = _Simulation_simmr.from_collection(collection, name)
+        uri = uid.to_uri()
+        sim_core = _Simulation_simmr.from_uri(uri)
         return cls.from_core(sim_core, comm=comm)
 
     @classmethod

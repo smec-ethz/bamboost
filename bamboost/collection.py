@@ -17,6 +17,7 @@ Functions:
 
 from __future__ import annotations
 
+import json
 import pkgutil
 from ctypes import ArgumentError
 from pathlib import Path
@@ -463,6 +464,27 @@ class Collection:
             raise ArgumentError("name must be a string or an iterable of strings.")
 
         self._core.drop_simulations(names)
+
+    def find_one(self, parameters: Mapping[str, Any]) -> Simulation:
+        """Find a single simulation matching the given parameters.
+
+        If ambiguous (multiple matches), raises an error. If no match is found, raises an error.
+        """
+        sim_core = self._core.find_match(json.dumps(parameters))
+        return Simulation.from_core(sim_core)
+
+    def find_all(self, parameters: Mapping[str, Any]) -> list[Simulation]:
+        """Find all simulations matching the given parameters.
+
+        Returns a list of Simulation objects that match the specified parameters. If no
+        matches are found, returns an empty list.
+
+        Args:
+            parameters: Dictionary of parameter names and values to match against existing
+                simulations.
+        """
+        sim_cores = self._core.find_all_matches(json.dumps(parameters))
+        return [Simulation.from_core(sim_core) for sim_core in sim_cores]
 
     def find(self, parameter_selection: Mapping[str, Any]) -> DataFrame:
         """Find simulations matching the given parameter selection.
