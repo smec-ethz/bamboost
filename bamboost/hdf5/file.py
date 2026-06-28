@@ -120,13 +120,13 @@ class FileMode(Enum):
     WRITE_FAIL = "w-"
     WRITE_CREATE = "x"
 
-    __hirarchy__: ClassVar = {"r": 0, "r+": 1, "a": 1, "w": 1, "w-": 1, "x": 1}
+    __hierarchy__: ClassVar = {"r": 0, "r+": 1, "a": 1, "w": 1, "w-": 1, "x": 1}
 
     def __lt__(self, other) -> bool:
-        return self.__hirarchy__[self.value] < self.__hirarchy__[other.value]
+        return self.__hierarchy__[self.value] < self.__hierarchy__[other.value]
 
     def __eq__(self, other) -> bool:
-        return self.__hirarchy__[self.value] == self.__hirarchy__[other.value]
+        return self.__hierarchy__[self.value] == self.__hierarchy__[other.value]
 
 
 def mutable_only(
