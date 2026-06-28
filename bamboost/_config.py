@@ -28,7 +28,6 @@ from typing import (
 
 from bamboost._logger import BAMBOOST_LOGGER as log
 from bamboost._typing import StrPath
-from bamboost.constants import DEFAULT_CONFIG_FILE_NAME
 
 if sys.version_info >= (3, 11):
     import tomllib as tomli
@@ -40,8 +39,7 @@ __all__ = [
     "config",
 ]
 
-CONFIG_DIR = Path("~/.config/bamboost").expanduser()
-CONFIG_FILE = CONFIG_DIR.joinpath(DEFAULT_CONFIG_FILE_NAME)
+CONFIG_FILE = Path("~/.config/bamboost/config.toml").expanduser()
 
 
 def _find_root_dir() -> Optional[Path]:

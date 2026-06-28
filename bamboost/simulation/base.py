@@ -735,7 +735,7 @@ class SimulationWriter(_Simulation[Mutable]):
         grp = f.require_group(path)
         grp.attrs[".series"] = True
         grp.require_group(constants.RELATIVE_PATH_FIELD_DATA)
-        grp.require_group(constants.RELATIVE_PATH_SCALAR_DATA)
+        grp.require_group(constants.RELATIVE_PATH_GLOBAL_DATA)
 
     def copy_files(self, files: Iterable[StrPath]) -> None:
         """Copy files to the simulation folder.

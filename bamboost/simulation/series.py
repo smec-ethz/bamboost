@@ -37,7 +37,7 @@ from bamboost.constants import (
     DEFAULT_MESH_NAME,
     PATH_DATA,
     RELATIVE_PATH_FIELD_DATA,
-    RELATIVE_PATH_SCALAR_DATA,
+    RELATIVE_PATH_GLOBAL_DATA,
 )
 from bamboost.hdf5.file import (
     FileMode,
@@ -424,7 +424,7 @@ class FieldData(Group[MT]):
 
 class GlobalData(Group[MT]):
     def __init__(self, series: Series[MT]):
-        super().__init__(series._path.joinpath(RELATIVE_PATH_SCALAR_DATA), series._file)
+        super().__init__(series._path.joinpath(RELATIVE_PATH_GLOBAL_DATA), series._file)
         self._series = series
 
     def __getitem__(self, key: str) -> Dataset[MT]:
