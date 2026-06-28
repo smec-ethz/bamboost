@@ -32,7 +32,7 @@ from numpy.typing import NDArray
 import bamboost
 from bamboost import constants
 from bamboost._logger import BAMBOOST_LOGGER
-from bamboost._typing import _MT, ArrayLike, Mutable
+from bamboost._typing import MT, ArrayLike, Mutable
 from bamboost.constants import (
     DEFAULT_MESH_NAME,
     PATH_DATA,
@@ -63,16 +63,16 @@ class NotASeriesError(ValueError):
         super().__init__(f"Path {path} exists, but is not a Series.")
 
 
-class Series(H5Reference[_MT]):
+class Series(H5Reference[MT]):
     _obj: h5py.Group
 
-    def __init__(self, simulation: _Simulation[_MT], path: str = PATH_DATA):
+    def __init__(self, simulation: _Simulation[MT], path: str = PATH_DATA):
         super().__init__(path, simulation._file)
 
         # if this is not tagged a series, we raise an error
         if not self.attrs.get(".series"):
             raise NotASeriesError(path)
-        self._field_instances: dict[str, FieldData[_MT]] = {}
+        self._field_instances: dict[str, FieldData[MT]] = {}
 
     def __len__(self) -> int:
         try:
@@ -81,13 +81,13 @@ class Series(H5Reference[_MT]):
             return 0
 
     @overload
-    def __getitem__(self, key: tuple[()]) -> list[FieldData[_MT]]: ...
+    def __getitem__(self, key: tuple[()]) -> list[FieldData[MT]]: ...
     @overload
     def __getitem__(
         self, key: Union[list[str], tuple[str], set[str]]
-    ) -> list[FieldData[_MT]]: ...
+    ) -> list[FieldData[MT]]: ...
     @overload
-    def __getitem__(self, key: str) -> FieldData[_MT]: ...
+    def __getitem__(self, key: str) -> FieldData[MT]: ...
     def __getitem__(self, key):
         if isinstance(key, str):
             return self.get_field(key)
@@ -142,7 +142,7 @@ class Series(H5Reference[_MT]):
             )
         return list(self.__fields_group._group_map.children())
 
-    def get_field(self, name: str) -> FieldData[_MT]:
+    def get_field(self, name: str) -> FieldData[MT]:
         """Get a field by name.
 
         Args:
@@ -152,7 +152,7 @@ class Series(H5Reference[_MT]):
             self._field_instances[name] = FieldData(self, name)
         return self._field_instances[name]
 
-    def get_fields(self, *glob: str) -> list[FieldData[_MT]]:
+    def get_fields(self, *glob: str) -> list[FieldData[MT]]:
         """Get multiple fields by name or glob pattern. If no arguments are given, all
         fields are returned.
 
@@ -170,7 +170,7 @@ class Series(H5Reference[_MT]):
         return [self.get_field(name) for name in matching_fields]
 
     @cached_property
-    def globals(self) -> GlobalData[_MT]:
+    def globals(self) -> GlobalData[MT]:
         return GlobalData(self)
 
     @property
@@ -183,7 +183,7 @@ class Series(H5Reference[_MT]):
         except InvalidReferenceError:
             return np.array([])
 
-    def _values(self) -> Dataset[_MT]:
+    def _values(self) -> Dataset[MT]:
         return super().__getitem__((constants.DS_NAME_TIMESTEPS, Dataset))
 
     @mutable_only
@@ -350,11 +350,11 @@ class StepWriter(H5Object[Mutable]):
         self._file.single_process_queue.apply()
 
 
-class FieldData(Group[_MT]):
-    _parent: Series[_MT]
+class FieldData(Group[MT]):
+    _parent: Series[MT]
     name: str
 
-    def __init__(self, series: Series[_MT], name: str):
+    def __init__(self, series: Series[MT], name: str):
         super().__init__(
             series._path.joinpath(RELATIVE_PATH_FIELD_DATA, name), series._file
         )
@@ -394,7 +394,7 @@ class FieldData(Group[_MT]):
                         dtype=object,
                     )
 
-    def at(self, step: int) -> Dataset[_MT]:
+    def at(self, step: int) -> Dataset[MT]:
         """Get the dataset for a specific step without reading the data itself.
 
         Args:
@@ -422,13 +422,13 @@ class FieldData(Group[_MT]):
         return indices
 
 
-class GlobalData(Group[_MT]):
-    def __init__(self, series: Series[_MT]):
+class GlobalData(Group[MT]):
+    def __init__(self, series: Series[MT]):
         super().__init__(series._path.joinpath(RELATIVE_PATH_SCALAR_DATA), series._file)
         self._series = series
 
-    def __getitem__(self, key: str) -> Dataset[_MT]:
-        return super().__getitem__((key, Dataset[_MT]))
+    def __getitem__(self, key: str) -> Dataset[MT]:
+        return super().__getitem__((key, Dataset[MT]))
 
     @property
     def df(self) -> pd.DataFrame:

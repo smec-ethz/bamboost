@@ -21,7 +21,7 @@ from typing import Any, Callable, Dict, Mapping, Sequence, Type, Union, cast
 import h5py
 import numpy as np
 
-from bamboost._typing import _MT, Mutable
+from bamboost._typing import MT, Mutable
 from bamboost.hdf5.file import (
     FileMode,
     H5Object,
@@ -109,7 +109,7 @@ AttrsEncoder.register_encoder(type(None), lambda _: "None")
 AttrsEncoder.register_decoder(type(None), lambda _: None)
 
 
-class AttrsDict(H5Object[_MT], Mapping):
+class AttrsDict(H5Object[MT], Mapping):
     """A dictionary-like object for the attributes of a group in the HDF5
     file.
 
@@ -141,7 +141,7 @@ class AttrsDict(H5Object[_MT], Mapping):
             instances[path] = super().__new__(cls)
         return instances[path]
 
-    def __init__(self, file: HDF5File[_MT], path: str):
+    def __init__(self, file: HDF5File[MT], path: str):
         super().__init__(file)
         self._path = path
         self._dict = self.read()

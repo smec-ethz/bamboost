@@ -6,7 +6,7 @@ from typing import TYPE_CHECKING, Any, Mapping, TypedDict, cast
 import numpy as np
 
 from bamboost._logger import BAMBOOST_LOGGER
-from bamboost._typing import _MT, Mutable, StrPath
+from bamboost._typing import MT, Mutable, StrPath
 from bamboost.constants import DEFAULT_MESH_NAME, PATH_MESH
 from bamboost.hdf5.file import FileMode
 from bamboost.hdf5.ref import Group
@@ -18,12 +18,12 @@ if TYPE_CHECKING:
 log = BAMBOOST_LOGGER.getChild(__name__)
 
 
-class GroupMeshes(Group[_MT]):
+class GroupMeshes(Group[MT]):
     def __init__(self, simulation: "_Simulation"):
         super().__init__(PATH_MESH, simulation._file)
         self._simulation = simulation
 
-    def __getitem__(self, key: str) -> GroupMesh[_MT]:
+    def __getitem__(self, key: str) -> GroupMesh[MT]:
         return GroupMesh(self._simulation, key)
 
     def add(
@@ -55,7 +55,7 @@ class GroupMeshes(Group[_MT]):
             )
 
 
-class GroupMesh(Group[_MT]):
+class GroupMesh(Group[MT]):
     NODES = "coordinates"
     CELLS = "topology"
 
@@ -105,8 +105,8 @@ def get_git_status(repo_path) -> _GitStatus:
     }
 
 
-class GroupGit(Group[_MT]):
-    def __init__(self, simulation: "_Simulation[_MT]"):
+class GroupGit(Group[MT]):
+    def __init__(self, simulation: "_Simulation[MT]"):
         super().__init__(".git", simulation._file)
 
     def add(self: GroupGit[Mutable], repo_name: str, repo_path: StrPath) -> None:
@@ -129,7 +129,7 @@ class GroupGit(Group[_MT]):
         self.post_write_instruction(_write)
 
     def __getitem__(self, key: str) -> GitItem:
-        grp = super().__getitem__((key, Group[_MT]))
+        grp = super().__getitem__((key, Group[MT]))
         return GitItem(key, grp.attrs._dict, grp["patch"][()])
 
 

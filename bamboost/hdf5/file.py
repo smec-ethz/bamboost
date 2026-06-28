@@ -67,6 +67,7 @@ from typing import (
     TYPE_CHECKING,
     Any,
     Callable,
+    ClassVar,
     Generator,
     Generic,
     Literal,
@@ -83,11 +84,11 @@ from typing_extensions import Concatenate, Self
 
 from bamboost._config import config
 from bamboost._logger import BAMBOOST_LOGGER
-from bamboost._typing import _MT, Immutable, Mutable
+from bamboost._typing import MT, Immutable, Mutable
 from bamboost.hdf5.filemap import FileMap
 from bamboost.hdf5.hdf5path import HDF5Path
 from bamboost.mpi import MPI, Communicator, ReuseComm
-from bamboost.mpi.utilities import comm_self, parallel_proxy
+from bamboost.mpi.utilities import comm_self
 from bamboost.utilities import StrPath
 
 if TYPE_CHECKING:
@@ -95,8 +96,8 @@ if TYPE_CHECKING:
     from bamboost.hdf5.ref import Group
     from bamboost.mpi import Comm
 
-    class HasFile(Protocol[_MT]):
-        _file: HDF5File[_MT]
+    class HasFile(Protocol[MT]):
+        _file: HDF5File[MT]
 
     _T_HasFile = TypeVar("_T_HasFile", bound=HasFile)
 
@@ -119,7 +120,7 @@ class FileMode(Enum):
     WRITE_FAIL = "w-"
     WRITE_CREATE = "x"
 
-    __hirarchy__ = {"r": 0, "r+": 1, "a": 1, "w": 1, "w-": 1, "x": 1}
+    __hirarchy__: ClassVar = {"r": 0, "r+": 1, "a": 1, "w": 1, "w-": 1, "x": 1}
 
     def __lt__(self, other) -> bool:
         return self.__hirarchy__[self.value] < self.__hirarchy__[other.value]
@@ -186,11 +187,11 @@ def add_to_file_queue(
     return inner
 
 
-class H5Object(Generic[_MT]):
-    _file: HDF5File[_MT]
+class H5Object(Generic[MT]):
+    _file: HDF5File[MT]
     _comm = Communicator()
 
-    def __init__(self, file: HDF5File[_MT]) -> None:
+    def __init__(self, file: HDF5File[MT]) -> None:
         self._file = file
         self._comm = ReuseComm(file)
 
@@ -206,7 +207,7 @@ class H5Object(Generic[_MT]):
         self,
         mode: FileMode | str = "r",
         driver: Optional[Literal["mpio"]] = None,
-    ) -> HDF5File[_MT]:
+    ) -> HDF5File[MT]:
         """Use this as a context manager in a `with` statement.
         Purpose: keeping the file open to directly access/edit something in the
         HDF5 file of this simulation.
@@ -307,7 +308,7 @@ class WriteInstruction(ABC):
     def __call__(self) -> None: ...
 
 
-class HDF5File(h5py.File, Generic[_MT]):
+class HDF5File(h5py.File, Generic[MT]):
     """Lazy `h5py.File` wrapper with deferred process execution and file map caching.
 
     Args:
@@ -345,7 +346,7 @@ class HDF5File(h5py.File, Generic[_MT]):
     ):
         self._filename = file.as_posix() if isinstance(file, Path) else file
         self._path = Path(self._filename).absolute()
-        self._attrs_dict_instances: dict[str, AttrsDict[_MT]] = {}
+        self._attrs_dict_instances: dict[str, AttrsDict[MT]] = {}
         self.file_map = FileMap(self)
         self.mutable = mutable
 
@@ -362,7 +363,7 @@ class HDF5File(h5py.File, Generic[_MT]):
     def __repr__(self) -> str:
         mode_info = self.mode if self.is_open else "proxy"
         status = "open" if self.is_open else "closed"
-        mutability = Mutable if self.mutable else Immutable
+        mutability = "Mutable" if self.mutable else "Immutable"
         return (
             f'<{mutability} HDF5 file "{self._filename}" (mode {mode_info}, {status})>'
         )
@@ -561,7 +562,7 @@ class HDF5File(h5py.File, Generic[_MT]):
         return (not self.is_open) or (self.driver != "mpio")
 
     @property
-    def root(self) -> Group[_MT]:
+    def root(self) -> Group[MT]:
         """Returns the root group of the file. Same as `Group("/", file)`"""
         from .ref import Group
 

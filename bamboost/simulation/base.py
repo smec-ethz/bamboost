@@ -40,7 +40,7 @@ from typing_extensions import Self
 
 from bamboost import constants, utilities
 from bamboost._logger import BAMBOOST_LOGGER
-from bamboost._typing import _MT, Immutable, Mutable
+from bamboost._typing import MT, Immutable, Mutable
 from bamboost.hdf5.file import FileMode, H5Object, HDF5File
 from bamboost.hdf5.ref import Group
 from bamboost.mpi import ReuseComm
@@ -180,7 +180,7 @@ class Links(Mapping[str, "Simulation"]):
         simulation (_Simulation): The simulation object to which the links belong.
     """
 
-    def __init__(self, simulation: _Simulation[_MT]) -> None:
+    def __init__(self, simulation: _Simulation[MT]) -> None:
         self._simulation = simulation
         self._dict: dict[str, SimulationUID] = {
             key: SimulationUID.from_uri(value)
@@ -213,7 +213,7 @@ class Links(Mapping[str, "Simulation"]):
         self._simulation._core.update_links(as_uri)
 
 
-class _Simulation(H5Object[_MT], ABC):
+class _Simulation(H5Object[MT], ABC):
     """
     Abstract base class for simulation objects.
 
@@ -309,7 +309,7 @@ class _Simulation(H5Object[_MT], ABC):
         return cls.from_core(sim_core, comm=comm)
 
     @property
-    def file(self) -> HDF5File[_MT]:
+    def file(self) -> HDF5File[MT]:
         if hasattr(self, "_file"):
             return self._file
         raise AttributeError(
@@ -385,7 +385,7 @@ class _Simulation(H5Object[_MT], ABC):
         )
 
     @cached_property
-    def root(self) -> Group[_MT]:
+    def root(self) -> Group[MT]:
         return Group("/", self.file)
 
     @property
@@ -491,7 +491,7 @@ class _Simulation(H5Object[_MT], ABC):
         return utilities.FilePicker(self.path)
 
     @cached_property
-    def git(self) -> GroupGit[_MT]:
+    def git(self) -> GroupGit[MT]:
         """
         Returns the Git group associated with this simulation.
 
@@ -501,7 +501,7 @@ class _Simulation(H5Object[_MT], ABC):
         return GroupGit(self)
 
     @property
-    def data(self) -> Series[_MT]:
+    def data(self) -> Series[MT]:
         """
         Returns the default data series for this simulation.
 
@@ -511,7 +511,7 @@ class _Simulation(H5Object[_MT], ABC):
         return Series(self, path=constants.PATH_DATA)
 
     @cached_property
-    def meshes(self) -> GroupMeshes[_MT]:
+    def meshes(self) -> GroupMeshes[MT]:
         return GroupMeshes(self)
 
     @cached_property
@@ -547,7 +547,7 @@ class _Simulation(H5Object[_MT], ABC):
         finally:
             os.chdir(current_dir)
 
-    def require_series(self, path: str) -> Series[_MT]:
+    def require_series(self, path: str) -> Series[MT]:
         """
         Return a Series object for the given path.
 
@@ -569,7 +569,7 @@ class _Simulation(H5Object[_MT], ABC):
         field_names: Optional[Iterable[str]] = None,
         timesteps: Optional[Iterable[float]] = None,
         *,
-        series: Optional[Series[_MT]] = None,
+        series: Optional[Series[MT]] = None,
         filename: Optional[StrPath] = None,
         mesh_name: str = constants.DEFAULT_MESH_NAME,
     ):

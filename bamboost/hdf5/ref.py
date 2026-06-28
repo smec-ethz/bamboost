@@ -47,7 +47,7 @@ from typing_extensions import Self, deprecated
 
 import bamboost
 from bamboost._logger import BAMBOOST_LOGGER
-from bamboost._typing import _MT, ArrayLike, Mutable
+from bamboost._typing import MT, ArrayLike, Mutable
 from bamboost.hdf5.attrsdict import AttrsDict
 from bamboost.hdf5.file import (
     FileMode,
@@ -79,10 +79,10 @@ class RefStatus(IntEnum):
     NOT_CHECKED = 2
 
 
-class H5Reference(H5Object[_MT]):
+class H5Reference(H5Object[MT]):
     _status: RefStatus = RefStatus.NOT_CHECKED
 
-    def __init__(self, path: str, file: HDF5File[_MT]):
+    def __init__(self, path: str, file: HDF5File[MT]):
         super().__init__(file)
         self._path = HDF5Path(path)
 
@@ -135,9 +135,9 @@ class H5Reference(H5Object[_MT]):
     @overload
     def __getitem__(self, key: Union[slice, Tuple[()]]) -> Any: ...
     @overload
-    def __getitem__(self, key: tuple[str, Type[Group]]) -> Group[_MT]: ...
+    def __getitem__(self, key: tuple[str, Type[Group]]) -> Group[MT]: ...
     @overload
-    def __getitem__(self, key: tuple[str, Type[Dataset]]) -> Dataset[_MT]: ...
+    def __getitem__(self, key: tuple[str, Type[Dataset]]) -> Dataset[MT]: ...
     def __getitem__(self, key):
         if isinstance(key, str):
             if _type := self._file.file_map.get(self._path / key):
@@ -168,7 +168,7 @@ class H5Reference(H5Object[_MT]):
     def new(
         cls,
         path: str,
-        file: HDF5File[_MT],
+        file: HDF5File[MT],
         _type: Optional[Type[_RT_group]] = None,
     ) -> _RT_group:
         """Returns a new pointer object."""
@@ -185,17 +185,17 @@ class H5Reference(H5Object[_MT]):
                 raise ValueError(f"Object {path} is not a group or dataset")
 
     @cached_property
-    def attrs(self) -> AttrsDict[_MT]:
+    def attrs(self) -> AttrsDict[MT]:
         return AttrsDict(self._file, self._path)
 
     @property
     @with_file_open(FileMode.READ)
-    def parent(self) -> Group[_MT]:
+    def parent(self) -> Group[MT]:
         return Group(self._obj.parent.name or "", self._file)
 
 
-class Group(H5Reference[_MT]):
-    def __init__(self, path: str, file: HDF5File[_MT]):
+class Group(H5Reference[MT]):
+    def __init__(self, path: str, file: HDF5File[MT]):
         super().__init__(path, file)
 
         # Create a subset view of the file map with all objects
@@ -267,7 +267,7 @@ class Group(H5Reference[_MT]):
         self,
         *,
         filter: Optional[Literal["groups", "datasets"]] = None,
-    ) -> Generator[Tuple[str, Union[Group[_MT], Dataset[_MT]]], None, None]:
+    ) -> Generator[Tuple[str, Union[Group[MT], Dataset[MT]]], None, None]:
         if filter:
             keys = (
                 self._group_map.children_groups()
@@ -594,7 +594,7 @@ class Group(H5Reference[_MT]):
         self._group_map[name] = h5py.Dataset
 
 
-class Dataset(H5Reference[_MT]):
+class Dataset(H5Reference[MT]):
     @property
     def _obj(self) -> h5py.Dataset:
         obj = super()._obj
