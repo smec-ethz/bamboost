@@ -5,8 +5,8 @@ import h5py
 import pytest
 
 from bamboost._typing import Mutable
-from bamboost.core.hdf5 import HDF5File, HDF5Path
-from bamboost.core.hdf5.filemap import FileMap, FilteredFileMap
+from bamboost.hdf5 import HDF5File, HDF5Path
+from bamboost.hdf5.filemap import FileMap, FilteredFileMap
 
 
 @pytest.fixture
@@ -300,7 +300,7 @@ def test_hdf5_file_lock_timeout(hdf5_file: HDF5File):
     from bamboost._config import config
 
     with patch("h5py.File.__init__", side_effect=BlockingIOError):
-        with patch.object(config.options, "file_lock_timeout", 0.05):
+        with patch.object(config, "file_lock_timeout", 0.05):
             with pytest.raises(TimeoutError) as exc_info:
                 hdf5_file.open("w")
             assert "Timeout" in str(exc_info.value)

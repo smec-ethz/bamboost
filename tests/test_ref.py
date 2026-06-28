@@ -5,8 +5,8 @@ import numpy as np
 import pytest
 
 from bamboost._typing import Mutable
-from bamboost.core.hdf5.file import HDF5File
-from bamboost.core.hdf5.ref import Dataset, Group, H5Reference, RefStatus
+from bamboost.hdf5.file import HDF5File
+from bamboost.hdf5.ref import Dataset, Group, H5Reference, RefStatus
 
 DATASET1_DATA = np.array([1, 2, 3])
 DATASET2_DATA = np.array([4.2, 5.1, 6.0])

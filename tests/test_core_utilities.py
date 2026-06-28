@@ -1,6 +1,6 @@
-"""Tests for bamboost.core.utilities module."""
+"""Tests for bamboost.utilities module."""
 
-from bamboost.core.utilities import (
+from bamboost.utilities import (
     FilePicker,
     dedupe_str_iter,
     flatten_dict,

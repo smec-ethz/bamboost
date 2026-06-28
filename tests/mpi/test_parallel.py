@@ -1,11 +1,10 @@
-import sys
 from pathlib import Path
 
 import numpy as np
 import pytest
 
-from bamboost import Collection, Simulation, config
-from bamboost.core.hdf5.file import HDF_MPI_ACTIVE
+from bamboost import Collection
+from bamboost.hdf5.file import HDF_MPI_ACTIVE
 from bamboost.mpi import MPI
 from bamboost.mpi.utilities import comm_self
 
@@ -30,10 +29,7 @@ def mpi_collection(tmp_path_factory: pytest.TempPathFactory):
     comm.barrier()
 
     # Instantiate the collection, explicitly passing the parallel communicator
-    coll = Collection(
-        path=shared_path,
-        comm=comm,
-    )
+    coll = Collection(shared_path, comm=comm)
     yield coll
 
 
@@ -99,7 +95,7 @@ def test_parallel_dataset_write(mpi_collection: Collection):
     # Add a dedicated simulation for parallel dataset writes
     sim = mpi_collection.add(
         "test_parallel_dataset",
-        override=True,
+        duplicate_action="replace",
     )
 
     # Define process-local data chunk
@@ -151,10 +147,7 @@ def test_explicit_comm_when_globally_disabled(tmp_path_factory, monkeypatch):
     comm.barrier()
 
     # Instantiate the collection, explicitly passing the parallel communicator
-    coll = Collection(
-        path=shared_path,
-        comm=comm,
-    )
+    coll = Collection(shared_path, comm=comm)
 
     # 1. Verify UID and path are synchronized
     all_uids = comm.allgather(coll.uid)

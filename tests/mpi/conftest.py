@@ -21,8 +21,16 @@ def pytest_collection_modifyitems(config, items):
 
 
 @pytest.fixture(autouse=True)
-def verify_mpi_available():
+def verify_mpi_available(request):
     """Verify that MPI is truly active for tests in this directory."""
+    try:
+        with_mpi = request.config.getoption("--with-mpi")
+    except ValueError:
+        with_mpi = False
+
+    if not with_mpi:
+        pytest.skip("MPI tests are skipped without --with-mpi")
+
     import importlib.util
 
     mpi_available = importlib.util.find_spec("mpi4py") is not None

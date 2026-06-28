@@ -30,8 +30,7 @@ def tmp_path_module(tmp_path_factory):
 @pytest.fixture(scope="module")
 def tmp_collection(tmp_path_module: Path):
     yield Collection(
-        path=tmp_path_module.joinpath("tmp_collection"),
-        index_instance=Index.default,
+        tmp_path_module.joinpath("tmp_collection"),
     )
 
 
@@ -39,8 +38,7 @@ def tmp_collection(tmp_path_module: Path):
 def tmp_collection_burn(tmp_path: Path):
     tmp_path = Communicator.get_default_comm().bcast(tmp_path, root=0)
     yield Collection(
-        path=tmp_path,
-        index_instance=Index.default,
+        tmp_path / "coll",
     )
 
 
