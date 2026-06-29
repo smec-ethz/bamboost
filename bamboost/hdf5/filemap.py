@@ -105,7 +105,7 @@ class FileMap(MutableMapping[HDF5Path, _VT_filemap], _FileMapMixin):
                 if path not in self._children:
                     self._children[path] = set()
 
-                for name in obj.keys():
+                for name in obj.keys():  # noqa: SIM118
                     child_path = path.joinpath(name)
                     # Use get(name, getclass=True) to get the type without opening the object
                     child_type = obj.get(name, getclass=True)

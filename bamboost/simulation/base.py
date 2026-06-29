@@ -714,10 +714,12 @@ class SimulationWriter(_Simulation[Mutable]):
         """
         # TODO: this should not be done here
         # maybe require a user to explicitly call require_series for the default series
-        with self.file.open(FileMode.APPEND, driver="mpio"):
-            if constants.PATH_DATA not in self.root.keys():  # noqa: SIM118
+        try:
+            return Series(self, path=constants.PATH_DATA)
+        except KeyError:
+            with self.file.open(FileMode.APPEND, driver="mpio"):
                 self._initialize_series(constants.PATH_DATA)
-        return Series(self, path=constants.PATH_DATA)
+            return Series(self, path=constants.PATH_DATA)
 
     def _initialize_series(self, path: str) -> None:
         """Create the groups for a series. Does not manage file state.

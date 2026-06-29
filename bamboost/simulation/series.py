@@ -202,19 +202,26 @@ class Series(H5Reference[MT]):
             step = self.last_step + 1 if self.last_step is not None else 0
 
         # store the timestep if given
-        with self.suspend_immediate_write():
-            self._store_value(step, value)
-            self.last_step = step
+        self.post_write_instruction(
+            (
+                Series._store_value_instruction(self, step, value),
+                lambda: setattr(self, "last_step", step),
+            )
+        )
 
         return StepWriter(self, step)
 
-    @mutable_only
-    def _store_value(self: Series[Mutable], step: int, time: float) -> None:
-        def _write_instruction():
+    @dataclass
+    class _store_value_instruction:
+        series: Series[Mutable]
+        step: int
+        time: float
+
+        def __call__(self):
             # require the dataset for the timesteps
-            dataset = self._obj.require_dataset(
+            dataset = self.series._obj.require_dataset(
                 constants.DS_NAME_TIMESTEPS,
-                shape=(step + 1,),
+                shape=(self.step + 1,),
                 dtype=np.float64,
                 chunks=True,
                 maxshape=(None,),
@@ -222,14 +229,12 @@ class Series(H5Reference[MT]):
             )
 
             # resize the dataset and store the time
-            new_size = max(step + 1, dataset.shape[0])
+            new_size = max(self.step + 1, dataset.shape[0])
             log.debug(f"Resizing dataset {dataset.name} to {new_size}")
             dataset.resize(new_size, axis=0)
 
-            log.debug(f"Storing timestep {time} for step {step}")
-            dataset[step] = time
-
-        self.post_write_instruction(_write_instruction)
+            log.debug(f"Storing timestep {self.time} for step {self.step}")
+            dataset[self.step] = self.time
 
 
 class StepWriter(H5Object[Mutable]):
@@ -298,7 +303,7 @@ class StepWriter(H5Object[Mutable]):
             for name, data in fields.items():
                 self.add_field(name, data, mesh_name=mesh_name, field_type=field_type)
 
-    def add_scalar(self, name: str, data: Union[int, float, Iterable]) -> None:
+    def add_scalar(self, name: str, data: float | Iterable) -> None:
         """Add a scalar to the step. Scalar data is typically a single value or a small
         array. The shape must be consistent across all steps.
 
@@ -310,32 +315,34 @@ class StepWriter(H5Object[Mutable]):
             ValueError: If the shape of the data is not consistent with the existing data.
         """
 
-        @dataclass
-        class AddScalarInstruction(WriteInstruction):
-            series: Series
-            name: str
-            data_arr: np.ndarray
-            step: int
-
-            def __call__(self):
-                log.info(f"Adding scalar {self.name} for step {self.step}")
-                dataset = self.series.globals.require_dataset(
-                    self.name,
-                    shape=(1, *self.data_arr.shape),
-                    dtype=float,
-                    maxshape=(None, *self.data_arr.shape),
-                    chunks=True,
-                    fillvalue=np.nan,
-                )
-                new_size = max(self.step + 1, dataset.shape[0])
-                if new_size > dataset.shape[0]:
-                    log.info(f"Resizing dataset {dataset.name} to {new_size}")
-                dataset.resize(new_size, axis=0)
-                dataset[self.step] = self.data_arr
-
         self.post_write_instruction(
-            AddScalarInstruction(self._series, name, np.array(data), self._step)
+            StepWriter._add_scalar_instruction(
+                self._series, name, np.array(data), self._step
+            )
         )
+
+    @dataclass
+    class _add_scalar_instruction(WriteInstruction):
+        series: Series
+        name: str
+        data_arr: np.ndarray
+        step: int
+
+        def __call__(self):
+            log.info(f"Adding scalar {self.name} for step {self.step}")
+            dataset = self.series.globals.require_dataset(
+                self.name,
+                shape=(1, *self.data_arr.shape),
+                dtype=float,
+                maxshape=(None, *self.data_arr.shape),
+                chunks=True,
+                fillvalue=np.nan,
+            )
+            new_size = max(self.step + 1, dataset.shape[0])
+            if new_size > dataset.shape[0]:
+                log.info(f"Resizing dataset {dataset.name} to {new_size}")
+            dataset.resize(new_size, axis=0)
+            dataset[self.step] = self.data_arr
 
     def add_scalars(self, scalars: dict[str, Union[int, float, Iterable]]) -> None:
         """Add multiple scalars to the step. See `add_scalar` for more information.
@@ -343,11 +350,14 @@ class StepWriter(H5Object[Mutable]):
         Args:
             scalars: A dictionary of scalar names and their data.
         """
-        with self.suspend_immediate_write():
-            for name, data in scalars.items():
-                self.add_scalar(name, data)
-
-        self._file.single_process_queue.apply()
+        self.post_write_instruction(
+            [
+                StepWriter._add_scalar_instruction(
+                    self._series, name, np.array(data), self._step
+                )
+                for name, data in scalars.items()
+            ]
+        )
 
 
 class FieldData(Group[MT]):

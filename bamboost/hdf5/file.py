@@ -59,7 +59,6 @@ import logging
 import time
 from abc import ABC
 from collections import deque
-from contextlib import contextmanager
 from enum import Enum
 from functools import total_ordering, wraps
 from pathlib import Path
@@ -68,12 +67,12 @@ from typing import (
     Any,
     Callable,
     ClassVar,
-    Generator,
     Generic,
     Literal,
     Optional,
     ParamSpec,
     Protocol,
+    Sequence,
     TypeVar,
     Union,
     overload,
@@ -88,7 +87,7 @@ from bamboost._typing import MT, Immutable, Mutable
 from bamboost.hdf5.filemap import FileMap
 from bamboost.hdf5.hdf5path import HDF5Path
 from bamboost.mpi import MPI, Communicator, ReuseComm
-from bamboost.mpi.utilities import comm_self
+from bamboost.mpi.utilities import HasComm, comm_self
 from bamboost.utilities import StrPath
 
 if TYPE_CHECKING:
@@ -103,6 +102,7 @@ if TYPE_CHECKING:
 
 T = TypeVar("T")
 P = ParamSpec("P")
+C = TypeVar("C", bound=HasComm)
 
 log = BAMBOOST_LOGGER.getChild("hdf5")
 """Logger instance for this module."""
@@ -219,34 +219,26 @@ class H5Object(Generic[MT]):
         return self._file.open(mode, driver=driver)
 
     @mutable_only
-    def post_write_instruction(self, instruction: Callable[[], None]) -> None:
+    def post_write_instruction(
+        self, instruction: Callable[[], None] | list[Callable[[], None]]
+    ) -> None:
         if self._file.available_for_single_process_write():
             # call instruction immediately
             return self._file.single_process_queue.apply_instruction(instruction)
 
         self._file.single_process_queue.add_instruction(instruction)
 
-    @contextmanager
-    def suspend_immediate_write(self) -> Generator[None, None, None]:
-        """Context manager to suspend immediate write operations. Patches
-        self._file.available_for_single_process_write to return False."""
-        original_method = self._file.available_for_single_process_write
-        self._file.available_for_single_process_write = lambda: False  # ty:ignore[invalid-assignment]
-        try:
-            yield
-        finally:
-            self._file.available_for_single_process_write = original_method  # ty:ignore[invalid-assignment]
-            self._file.single_process_queue.apply()
-
 
 _T_H5Object = TypeVar("_T_H5Object", bound=H5Object)
 
 
-def _root_only(method: Callable):
+def _root_only(
+    method: Callable[Concatenate[C, P], None],
+) -> Callable[Concatenate[C, P], None]:
     """Decorator to ensure that a method is only executed on the root process."""
 
     @wraps(method)
-    def inner(self: H5Object, *args, **kwargs):
+    def inner(self: C, *args: P.args, **kwargs: P.kwargs) -> None:
         if self._comm.rank == 0:
             with comm_self(self):
                 method(self, *args, **kwargs)
@@ -275,15 +267,34 @@ class SingleProcessQueue(deque[Callable[[], None]]):
         super().__init__()
 
     @_root_only
-    def add_instruction(self, instruction: Callable[[], None]) -> None:
-        self.append(instruction)
+    def add_instruction(
+        self, instruction: Callable[[], None] | Sequence[Callable[[], None]]
+    ) -> None:
+        instructions: list[Callable[[], None]]
+
+        if callable(instruction):
+            instructions = [instruction]  # ty:ignore[invalid-assignment]
+        else:
+            instructions = list(instruction)
+
+        self.extend(instructions)
         log.debug(f"Added {type(instruction).__name__} to process queue")
 
     @_root_only
-    def apply_instruction(self, instruction: Callable[[], None]) -> None:
-        log.debug(f"Applying {type(instruction).__name__}")
+    def apply_instruction(
+        self, instruction: Callable[[], None] | Sequence[Callable[[], None]]
+    ) -> None:
+        instructions: list[Callable[[], None]]
+
+        if callable(instruction):
+            instructions = [instruction]  # ty:ignore[invalid-assignment]
+        else:
+            instructions = list(instruction)
+
         with self._file.open(FileMode.APPEND):
-            instruction()
+            for ins in instructions:
+                log.debug(f"Applying {type(ins).__name__}")
+                ins()
 
     @_root_only
     def apply(self) -> None:
