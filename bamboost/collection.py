@@ -179,8 +179,14 @@ class Collection:
 
     def __iter__(self) -> Generator[Simulation, None, None]:
         """Iterate over all simulations in the collection."""
-        for sim in self._core.get_simulations():
-            yield Simulation.from_core(sim)
+        # TODO: returning the full space from the backend is not efficient for large
+        # collections. Implement a more efficient iterator in the backend.
+        sim_names: list[str] = self._core.parameter_space(
+            self._filter.to_string() if self._filter else None
+        ).get("name", [])
+
+        for name in sim_names:
+            yield Simulation(name, self.path, ReuseComm(self))
 
     def _repr_html_(self) -> str:
         """HTML repr for ipython/notebooks, using jinja2 for templating."""
