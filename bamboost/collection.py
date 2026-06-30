@@ -151,7 +151,7 @@ class Collection:
         return new
 
     def __len__(self) -> int:
-        return len(self._core.parameter_space())
+        return len(self._core.get_simulation_names())
 
     def __getitem__(self, name_or_index: str | int) -> Simulation:
         """Retrieve a Simulation from the collection by name or index.
@@ -176,6 +176,10 @@ class Collection:
         else:
             name = name_or_index
         return Simulation(name, self.path, ReuseComm(self))
+
+    def _ipython_key_completions_(self) -> list[str]:
+        """Provide key completions for IPython, returning a list of simulation names."""
+        return self._core.get_simulation_names()
 
     def __iter__(self) -> Generator[Simulation, None, None]:
         """Iterate over all simulations in the collection."""
