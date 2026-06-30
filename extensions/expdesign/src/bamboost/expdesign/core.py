@@ -131,9 +131,12 @@ class ParamGraph[RT: ParamGraph](metaclass=_ForwardAttributes):
     def asdict(self) -> dict[str, Any]:
         """Recursively converts the parameters into a dictionary."""
         data_dict = {}
-        for name, value in self.__dict__.items():
-            if name == "_parent":
+        for name in type(self).__annotations__:
+            if name == "_parent" or not hasattr(self, name):
                 continue
+                
+            value = getattr(self, name)
+            
             if isinstance(value, ParamGraph):
                 data_dict[name] = value.asdict()
             else:
