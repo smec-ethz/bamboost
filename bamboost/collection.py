@@ -186,7 +186,7 @@ class Collection:
         # TODO: returning the full space from the backend is not efficient for large
         # collections. Implement a more efficient iterator in the backend.
         sim_names: list[str] = self._core.parameter_space(
-            self._filter.to_string() if self._filter else None
+            self._filter.to_dict() if self._filter else None
         ).get("name", [])
 
         for name in sim_names:
@@ -231,8 +231,8 @@ class Collection:
             {'param1': [1, 2, 3], 'param2': ['a', 'b', 'c']}
         """
         return self._core.parameter_space(
-            self._filter.to_string() if self._filter else None,
-            self._sorter.to_string() if self._sorter else None,
+            self._filter.to_dict() if self._filter else None,
+            self._sorter.to_list() if self._sorter else None,
             resolve_links=include_links
             if include_links is not None
             else self._include_links,
@@ -351,8 +351,8 @@ class Collection:
             list[str]: A list containing the names of all simulations in the collection.
         """
         return self._core.parameter_space(
-            self._filter.to_string() if self._filter else None,
-            self._sorter.to_string() if self._sorter else None,
+            self._filter.to_dict() if self._filter else None,
+            self._sorter.to_list() if self._sorter else None,
         ).get("name", [])
 
     def _sync_cache(self) -> None:
