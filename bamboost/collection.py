@@ -33,12 +33,13 @@ from typing import (
 )
 
 from simmr import Collection as _Collection_simmr
+from simmr import filter as simmr_filter
 from simmr import get_collection
+from simmr import sort as simmr_sort
 from typing_extensions import Self
 
 from bamboost._logger import BAMBOOST_LOGGER
 from bamboost._typing import StrPath
-from bamboost.filtering import Filter, Key, Operator, Sorter, SortInstruction
 from bamboost.mpi import Communicator, ReuseComm
 from bamboost.mpi.utilities import parallel_proxy
 from bamboost.simulation.base import Simulation, SimulationWriter
@@ -60,8 +61,8 @@ class _FilterKeys:
     def __init__(self, collection: Collection):
         self.collection = collection
 
-    def __getitem__(self, key: str) -> Key:
-        return Key(key)
+    def __getitem__(self, key: str) -> simmr_filter.Key:
+        return simmr_filter.col(key)
 
     def _ipython_key_completions_(self):
         return self.collection._core.get_column_keys()
@@ -103,11 +104,11 @@ class Collection:
 
     _comm = Communicator()
 
-    _filter: Filter | None = None
+    _filter: simmr_filter.Filter | None = None
     """Internal variable to keep track of the filter applied to the collection. If None,
     no filter is applied."""
 
-    _sorter: Sorter | None = None
+    _sorter: simmr_sort.Sorter | None = None
     """Internal variable to keep track of the sort instructions applied to the collection.
     If None, no sorting is applied."""
 
@@ -186,7 +187,7 @@ class Collection:
         # TODO: returning the full space from the backend is not efficient for large
         # collections. Implement a more efficient iterator in the backend.
         sim_names: list[str] = self._core.parameter_space(
-            self._filter.to_dict() if self._filter else None
+            self._filter.serialize() if self._filter else None
         ).get("name", [])
 
         for name in sim_names:
@@ -231,8 +232,8 @@ class Collection:
             {'param1': [1, 2, 3], 'param2': ['a', 'b', 'c']}
         """
         return self._core.parameter_space(
-            self._filter.to_dict() if self._filter else None,
-            self._sorter.to_list() if self._sorter else None,
+            self._filter.serialize() if self._filter else None,
+            self._sorter.serialize() if self._sorter else None,
             resolve_links=include_links
             if include_links is not None
             else self._include_links,
@@ -278,7 +279,9 @@ class Collection:
         return self.to_pandas()
 
     def filter(
-        self, *operators: Operator, tags: str | Iterable[str] | None = None
+        self,
+        *operators: simmr_filter.FilterAst,
+        tags: str | Iterable[str] | None = None,
     ) -> Self:
         """Returns a new Collection filtered by the given operators.
 
@@ -299,9 +302,17 @@ class Collection:
             >>> filtered = collection.filter(collection.k["param"] == 42)
         """
         tags = (tags,) if isinstance(tags, str) else tags  # handle single string case
-        return self._replace(_filter=Filter(*operators, tags=tags) & self._filter)
 
-    def sort(self, key: Key | str, ascending: bool = True) -> Self:
+        if tags:
+            tag_op = simmr_filter.col("tags").contains_any(list(tags))
+            operators = (tag_op, *operators)
+
+        if self._filter is not None:
+            return self._replace(_filter=self._filter.also(*operators))
+
+        return self._replace(_filter=simmr_filter.Filter(*operators))
+
+    def sort(self, key: simmr_filter.Key | str, ascending: bool = True) -> Self:
         """Returns a new Collection sorted by the given instructions.
 
         This method applies the specified sort instructions to the collection and returns
@@ -321,15 +332,17 @@ class Collection:
         Examples:
             >>> sorted_collection = collection.sort(SortInstruction("param", ascending=False))
         """
-        if isinstance(key, Key):
-            key = key._value
+        if isinstance(key, simmr_filter.Key):
+            key = key.name
 
-        if self._sorter is None:
-            new_sorter = Sorter(SortInstruction(key, ascending))
+        if self._sorter is not None:
+            return self._replace(
+                _sorter=self._sorter.also(simmr_sort.SortInstruction(key, ascending))
+            )
         else:
-            new_sorter = self._sorter & Sorter(SortInstruction(key, ascending))
-
-        return self._replace(_sorter=new_sorter)
+            return self._replace(
+                _sorter=simmr_sort.Sorter(simmr_sort.SortInstruction(key, ascending))
+            )
 
     def include_links(self) -> Self:
         """Returns a new Collection that includes parameters of simulations linked with
@@ -351,8 +364,8 @@ class Collection:
             list[str]: A list containing the names of all simulations in the collection.
         """
         return self._core.parameter_space(
-            self._filter.to_dict() if self._filter else None,
-            self._sorter.to_list() if self._sorter else None,
+            self._filter.serialize() if self._filter else None,
+            self._sorter.serialize() if self._sorter else None,
         ).get("name", [])
 
     def _sync_cache(self) -> None:
