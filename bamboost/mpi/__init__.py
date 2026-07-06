@@ -56,7 +56,7 @@ def _detect_if_mpi_needed() -> bool:
             return True
 
     # 2. config opt-in for mpi
-    if config.options.mpi:
+    if config.mpi:
         # Check if any of the common MPI environment variables are set
         # fmt: off
         mpi_env_vars = {
@@ -86,7 +86,7 @@ def _assert_h5py_has_mpi_support() -> None:
     if not h5py.get_config().mpi:
         raise RuntimeError(
             "h5py was not built with MPI support, but MPI is required/enabled in bamboost."
-            "Set `config.options.mpi = False` to disable MPI support in bamboost."
+            "Set `config.mpi = False` to disable MPI support in bamboost."
         )
 
 
@@ -109,7 +109,7 @@ class _MPIProxy:
             except ImportError:
                 log.error(
                     "MPI is required/enabled but `mpi4py` is not installed. "
-                    "To bypass this error, either install `mpi4py` or set `config.options.mpi = False` to disable MPI support."
+                    "To bypass this error, either install `mpi4py` or set `config.mpi = False` to disable MPI support."
                 )
                 raise
         else:

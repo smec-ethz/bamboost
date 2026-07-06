@@ -3,7 +3,7 @@ Mock module for `mpi4py.MPI` to be used when MPI is not available or usage not d
 Not importing MPI increases launch speed significantly, which is important for CLI
 applications.
 
-Used as the default communicator when config.options.mpi is False.
+Used as the default communicator when config.mpi is False.
 Used when MPI is not available or not needed (i.e. not running under an MPI launcher).
 
 Attributes:
@@ -73,7 +73,7 @@ COMM_SELF: SerialComm = SerialComm()
 """Per-process serial communicator (equivalent of MPI_COMM_SELF in serial mode).
 
 Deliberately a *separate* instance from COMM_WORLD so that code paths which
-distinguish between the two communicators (e.g. `RootProcessMeta.comm_self`)
+distinguish between the two communicators (e.g. `comm_self` context manager)
 can behave correctly in serial tests.
 """
 

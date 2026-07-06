@@ -29,7 +29,7 @@ def h5py_mpi_disabled(monkeypatch):
 
 
 def test_detect_mpi_disabled_by_config(monkeypatch: MonkeyPatch):
-    monkeypatch.setattr("bamboost.config.options.mpi", False)
+    monkeypatch.setattr("bamboost.config.mpi", False)
     assert _detect_if_mpi_needed() is False
 
 
@@ -39,14 +39,14 @@ def test_detect_mpi_disabled_via_env(monkeypatch: MonkeyPatch):
 
 
 def test_detect_mpi_env_vars(monkeypatch: MonkeyPatch):
-    monkeypatch.setattr("bamboost.config.options.mpi", True)
+    monkeypatch.setattr("bamboost.config.mpi", True)
     monkeypatch.delenv("BAMBOOST_MPI", raising=False)
     monkeypatch.setenv("PMI_SIZE", "16")  # one of the common MPI env vars
     assert _detect_if_mpi_needed() is True
 
 
 def test_detect_no_mpi(monkeypatch: MonkeyPatch):
-    monkeypatch.setattr("bamboost.config.options.mpi", True)
+    monkeypatch.setattr("bamboost.config.mpi", True)
     for key in list(os.environ):
         if key.startswith(("OMPI", "PMI", "MV2", "I_MPI", "SLURM", "MPI_")):
             monkeypatch.delenv(key, raising=False)
@@ -61,7 +61,7 @@ def test_h5py_mpi_check(monkeypatch, h5py_mpi_disabled):
 def test_h5py_mpi_check_on_import(monkeypatch: MonkeyPatch, h5py_mpi_disabled):
     with pytest.raises(RuntimeError):
         # make sure MPI_ON is triggered to be True
-        monkeypatch.setattr("bamboost.config.options.mpi", True)
+        monkeypatch.setattr("bamboost.config.mpi", True)
         monkeypatch.setenv("PMI_SIZE", "16")  # ensure MPI is detected as needed
 
         import bamboost.mpi as mpi
@@ -72,7 +72,7 @@ def test_h5py_mpi_check_on_import(monkeypatch: MonkeyPatch, h5py_mpi_disabled):
 
 
 def test_mpi_integration_on(monkeypatch, h5py_mpi_enabled):
-    monkeypatch.setattr("bamboost.config.options.mpi", True)
+    monkeypatch.setattr("bamboost.config.mpi", True)
     monkeypatch.setenv("PMI_SIZE", "16")  # force MPI detection
 
     import sys
@@ -95,7 +95,7 @@ def test_mpi_integration_on(monkeypatch, h5py_mpi_enabled):
 
 
 def test_mpi_integration_off(monkeypatch):
-    monkeypatch.setattr("bamboost.config.options.mpi", False)
+    monkeypatch.setattr("bamboost.config.mpi", False)
 
     from bamboost.mpi import _MPIProxy
 

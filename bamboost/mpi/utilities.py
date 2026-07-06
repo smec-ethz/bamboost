@@ -1,105 +1,26 @@
+from __future__ import annotations
+
 from contextlib import contextmanager
-from functools import wraps
 from typing import (
     TYPE_CHECKING,
+    Any,
     Callable,
     Generator,
     Protocol,
     TypeVar,
+    cast,
 )
 
-from bamboost.mpi import MPI
+from bamboost.mpi import MPI, Communicator, ReuseComm
 
 if TYPE_CHECKING:
     from bamboost.mpi import Comm
 
-_CT = TypeVar("_CT", bound=Callable)
+T = TypeVar("T")
 
 
 class HasComm(Protocol):
     _comm: "Comm"
-
-
-class RootProcessMeta(type):
-    """A metaclass that makes classes MPI-safe by ensuring methods are only executed on
-    the root process. The class implementing this metaclass must have a `_comm` attribute
-    that is an MPI communicator.
-
-    This metaclass modifies class methods to either use broadcast communication
-    (if decorated with @bcast) or to only execute on the root process (rank 0).
-    """
-
-    __exclude__ = {"__init__", "__new__"}
-
-    def __new__(mcs, name: str, bases: tuple, attrs: dict):
-        """Create a new class with MPI-safe methods.
-
-        Args:
-            name: The name of the class being created.
-            bases: The base classes of the class being created.
-            attrs: The attributes of the class being created.
-
-        Returns:
-            type: The new class with MPI-safe methods.
-        """
-        for attr_name, attr_value in attrs.items():
-            if attr_name in mcs.__exclude__:
-                continue
-
-            # unwrap staticmethod and classmethod
-            if isinstance(attr_value, (staticmethod, classmethod)):
-                continue
-
-            if callable(attr_value):
-                # check for @exclude decorator
-                if hasattr(attr_value, "_mpi_on_all_"):
-                    continue
-
-                # wrap the remaining methods only
-                attrs[attr_name] = mcs.bcast_result(attr_value)
-
-        return super().__new__(mcs, name, bases, attrs)
-
-    @staticmethod
-    def bcast_result(func: _CT) -> _CT:
-        """Decorator that ensures a method is only executed on the root process (rank 0).
-
-        Args:
-            func (callable): The method to be decorated.
-
-        Returns:
-            callable: The wrapped method that only executes on the root process.
-        """
-
-        @wraps(func)
-        def wrapper(self: HasComm, *args, **kwargs):
-            status = True
-            result = None
-            exc = None
-
-            if self._comm.rank == 0:
-                try:
-                    with comm_self(self):
-                        result = func(self, *args, **kwargs)
-                except Exception as e:
-                    status = False
-                    exc = e
-
-            # Synchronize status, result, and exceptions collectively
-            broadcast_data = self._comm.bcast((status, result, exc), root=0)
-
-            # If an exception occurred on Rank 0, raise it collectively on all ranks
-            if not broadcast_data[0]:
-                raise broadcast_data[2]
-
-            return broadcast_data[1]
-
-        return wrapper  # ty:ignore[invalid-return-type]
-
-    @staticmethod
-    def exclude(func):
-        func._mpi_on_all_ = True
-        return func
 
 
 @contextmanager
@@ -139,3 +60,92 @@ def comm_self(instance: HasComm) -> Generator[None, None, None]:
         yield
     finally:
         instance._comm = prev_comm
+
+
+class ParallelProxy:
+    """Handles the actual MPI communication routing at runtime."""
+
+    comm = Communicator()
+
+    def __init__(self, comm: Comm | ReuseComm, root: int = 0):
+        self.comm = comm
+        self.rank = self.comm.rank
+        self.root = root
+
+    def set_instance(self, serial_instance: Any) -> None:
+        self._core = serial_instance  # Valid object on root, None on others
+
+    def __getattr__(self, name: str) -> Any:
+        # Step 1: Check on the root process what type of attribute this actually is.
+        # Workers don't have the object, so they default to assuming it's a method
+        # unless told otherwise via a collective broadcast.
+        is_callable = False
+        if self.rank == self.root:
+            if self._core is None:
+                raise RuntimeError("Serial core instance missing on root process.")
+            attr = getattr(self._core, name)
+            is_callable = callable(attr)
+
+        # Share whether it's a method or a property/attribute with all ranks
+        is_callable = self.comm.bcast(is_callable, root=self.root)
+
+        if is_callable:
+
+            def wrapper(*args: Any, **kwargs: Any) -> Any:
+                status = True
+                result = None
+                exc = None
+
+                if self.rank == self.root:
+                    target_method = getattr(self._core, name)
+                    try:
+                        if hasattr(self._core, "_comm"):
+                            with comm_self(self._core):
+                                result = target_method(*args, **kwargs)
+                        else:
+                            result = target_method(*args, **kwargs)
+                    except Exception as e:
+                        status = False
+                        exc = e
+
+                # Synchronize status, result, and exceptions collectively
+                broadcast_data = self.comm.bcast((status, result, exc), root=self.root)
+
+                # If an exception occurred on Root, raise it collectively on all ranks
+                if not broadcast_data[0]:
+                    raise broadcast_data[2]
+
+                return broadcast_data[1]
+
+            return wrapper
+
+        # It's a property or attribute
+        # We must evaluate and sync its value immediately right here.
+        else:
+            if self.rank == self.root:
+                result = getattr(self._core, name)
+            else:
+                result = None
+
+            return self.comm.bcast(result, root=self.root)
+
+
+def parallel_proxy(
+    serial_class: type[T] | Callable[..., T], comm, root: int = 0, *args, **kwargs
+) -> T:
+    """
+    Instantiates the serial class on the root process and wraps it in a proxy.
+    Tells type checkers that the returned object is an instance of `T` (not Proxy).
+    """
+    proxy = ParallelProxy(root=root, comm=comm)
+    rank = proxy.comm.rank
+
+    # Instantiate the backend only on the designated root rank
+    if rank == root:
+        instance = serial_class(*args, **kwargs)
+    else:
+        instance = None
+
+    proxy.set_instance(instance)
+
+    return cast(T, proxy)

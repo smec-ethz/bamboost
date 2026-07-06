@@ -1,0 +1,146 @@
+from __future__ import annotations
+
+from subprocess import CalledProcessError
+from typing import TYPE_CHECKING, Any, Mapping, TypedDict, cast
+
+import numpy as np
+
+from bamboost._logger import BAMBOOST_LOGGER
+from bamboost._typing import MT, Mutable, StrPath
+from bamboost.constants import DEFAULT_MESH_NAME, PATH_MESH
+from bamboost.hdf5.file import FileMode
+from bamboost.hdf5.ref import Group
+from bamboost.simulation.types import CellType
+
+if TYPE_CHECKING:
+    from bamboost.simulation.base import _Simulation
+
+log = BAMBOOST_LOGGER.getChild(__name__)
+
+
+class GroupMeshes(Group[MT]):
+    def __init__(self, simulation: "_Simulation"):
+        super().__init__(PATH_MESH, simulation._file)
+        self._simulation = simulation
+
+    def __getitem__(self, key: str) -> GroupMesh[MT]:
+        return GroupMesh(self._simulation, key)
+
+    def add(
+        self: GroupMeshes[Mutable],
+        nodes: np.ndarray,
+        cells: np.ndarray,
+        name: str = DEFAULT_MESH_NAME,
+        cell_type: CellType = CellType.TRIANGLE,
+    ) -> None:
+        """Add a mesh with the given name to the simulation.
+
+        Args:
+            nodes: Node coordinates
+            cells: Cell connectivity
+            name: Name of the mesh
+            cell_type: Cell type (default: "triangle"). In general, we do not care about
+                the cell type and leave it up to the user to make sense of the data they
+                provide. However, the cell type specified is needed for writing an XDMF
+                file. For possible types, consult the XDMF/paraview manual.
+        """
+        with self._file.open(FileMode.APPEND, driver="mpio"):
+            # we must make sure that the parent mesh group exists before we can add a new mesh to it
+            self.require_self()
+            # now, require the new mesh group and write the data to it
+            new_grp = self.require_group(name)
+            new_grp.write_distributed_contiguous_array("coordinates", vector=nodes)
+            new_grp.write_distributed_contiguous_array(
+                "topology", vector=cells, attrs={"cell_type": cell_type.value}
+            )
+
+
+class GroupMesh(Group[MT]):
+    NODES = "coordinates"
+    CELLS = "topology"
+
+    def __init__(self, simulation: "_Simulation", name: str):
+        super().__init__(f"{PATH_MESH}/{name}", simulation._file)
+
+    @property
+    def coordinates(self) -> np.ndarray[tuple[int, ...], np.dtype[np.float64]]:
+        return self[self.NODES][:]
+
+    @property
+    def cells(self) -> np.ndarray[tuple[int, ...], np.dtype[np.int64]]:
+        return self[self.CELLS][:]
+
+    @property
+    def cell_type(self) -> str:
+        return self.attrs["cell_type"]
+
+
+class _GitStatus(TypedDict):
+    origin: str
+    commit: str
+    branch: str
+    patch: str
+
+
+def get_git_status(repo_path) -> _GitStatus:
+    import subprocess
+
+    def run_git_command(command: str) -> str:
+        try:
+            res = subprocess.run(
+                ["git", "-C", str(repo_path), *command.split()],
+                capture_output=True,
+                text=True,
+                check=True,
+            ).stdout.strip()
+        except CalledProcessError:
+            res = "Git command has failed"
+        return res
+
+    return {
+        "origin": run_git_command("remote get-url origin"),
+        "commit": run_git_command("rev-parse HEAD"),
+        "branch": run_git_command("rev-parse --abbrev-ref HEAD"),
+        "patch": run_git_command("diff HEAD"),
+    }
+
+
+class GroupGit(Group[MT]):
+    def __init__(self, simulation: "_Simulation[MT]"):
+        super().__init__(".git", simulation._file)
+
+    def add(self: GroupGit[Mutable], repo_name: str, repo_path: StrPath) -> None:
+        # Only the root process should access the git repository
+        if self._comm.rank == 0:
+            status = get_git_status(repo_path)
+
+        def _write():
+            # Make sure the .git group exists
+            self.require_self()
+            if repo_name in self.keys():  # delete if already exists
+                del self[repo_name]
+
+            new_grp = self.require_group(repo_name)
+            new_grp.attrs.update(
+                {k: v for k, v in status.items() if k in {"origin", "commit", "branch"}}
+            )
+            new_grp.add_dataset("patch", data=status["patch"])
+
+        self.post_write_instruction(_write)
+
+    def __getitem__(self, key: str) -> GitItem:
+        grp = super().__getitem__((key, Group[MT]))
+        return GitItem(key, grp.attrs._dict, grp["patch"][()])
+
+
+class GitItem:
+    def __init__(self, name: str, attrs: Mapping[str, Any], patch: bytes):
+        self.name = name
+        status: _GitStatus = cast(_GitStatus, attrs)
+        self.branch = status["branch"]
+        self.commit = status["commit"]
+        self.origin = status["origin"]
+        self.patch = patch.decode()
+
+    def __repr__(self) -> str:
+        return f"GitItem(name={self.name}, branch={self.branch}, commit={self.commit}, origin={self.origin}, patch={self.patch[:10]}...)"
