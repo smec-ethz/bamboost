@@ -1,3 +1,4 @@
 [submodule "simmr"]
 	path = simmr
-	url = https://gitlab.ethz.ch/smec/research/flavio-lorez/babo
+	url = git@gitlab.ethz.ch:smec/research/flavio-lorez/babo.git
+	ignore = untracked

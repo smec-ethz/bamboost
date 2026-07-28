@@ -31,6 +31,7 @@ pipeline = ["bamboost-pipeline; python_version >= '3.13'"]
 [tool.uv.sources]
 bamboost-expdesign = { workspace = true }
 bamboost-pipeline = { workspace = true }
+simmr = { workspace = true }
 
 [project.urls]
 Homepage = "https://bamboost.ch/"
@@ -78,12 +79,6 @@ source = ["bamboost"]
 [tool.uv.workspace]
 members = [
     "simmr",
-]
-
-[tool.uv.sources]
-simmr = { workspace = true }
-[tool.uv.workspace]
-members = [
     "extensions/expdesign",
     "extensions/pipeline",
 ]
