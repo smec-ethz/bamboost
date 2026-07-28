@@ -20,7 +20,7 @@ from typing import (
     cast,
 )
 
-from bamboost.core.utilities import flatten_dict, unflatten_dict
+from bamboost.utilities import flatten_dict, unflatten_dict
 from bamboost.parser import _parse_value
 
 

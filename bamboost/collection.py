@@ -392,9 +392,8 @@ class Collection:
         description: Optional[str] = None,
         tags: Optional[Iterable[str]] = None,
         files: Optional[Iterable[StrPath]] = None,
-        links: Optional[dict[str, str | SimulationUID]] = None,
-        override: bool = False,
-        exact: bool = True,
+        links: Optional[dict[str, str]] = None,
+        # override: bool = False,
     ) -> SimulationWriter:
         """Create and initialize a new simulation in the collection, returning a
         SimulationWriter object.
@@ -544,9 +543,7 @@ class Collection:
                 params[key] = val
 
         df = self.df
-        if df.empty:
-            return df
-        matches = self._list_duplicates(params, df=df)
+        matches = self._match_parameters(params, df=df)
         matches = df[df.name.isin(matches)]
         assert isinstance(matches, DataFrame)
         if len(matches) == 0:

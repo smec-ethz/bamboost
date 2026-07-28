@@ -22,6 +22,7 @@ from typing import (
     NamedTuple,
     Optional,
     Union,
+    Any,
 )
 
 import numpy as np
@@ -31,6 +32,8 @@ from bamboost._typing import StrPath
 
 if TYPE_CHECKING:
     from pandas import DataFrame
+    from bamboost._typing import Mutable, Immutable
+    from bamboost.hdf5.ref import Group, Dataset
 
 __all__ = [
     "flatten_dict",
@@ -292,10 +295,6 @@ def dedupe_str_iter(iter: str | Iterable[str | None] | None) -> set[str]:
         return set((iter,))
     return set(filter(None, iter))
 
-if TYPE_CHECKING:
-    from bamboost._typing import Mutable, Immutable
-    from bamboost.core.hdf5.ref import Group, Dataset
-
 
 class PathSet(set[Path]):
     def __init__(self, iterable: Optional[Iterable[StrPath]] = None) -> None:
@@ -322,3 +321,69 @@ def full_class_name(_cls):
     if module is None or module == str.__class__.__module__:
         return _cls.__qualname__
     return f"{module}.{_cls.__qualname__}"
+
+
+
+def dict_to_group(group: Group[Mutable], data: dict[str, Any]) -> None:
+    """
+    Recursively writes a nested dictionary into a bamboost group.
+
+    Args:
+        group: The target bamboost group to write into.
+        data: A dictionary holding the data to write.
+
+    Note:
+        - Nested dictionaries are converted to subgroups.
+        - Array-like objects are saved as datasets.
+        - Existing datasets with the same key are overwritten.
+        - All other types are attempted to be stored as attributes.
+    """
+
+    for key, value in data.items():
+        # For nested dicts, create sub groups.
+        if isinstance(value, dict):
+            sub_grp = group.require_group(key)
+            dict_to_group(sub_grp, value)
+        
+        # Write array-like values as datasets.
+        elif hasattr(value, "__array__"):
+            if key in group: 
+                del group[key]
+            group.add_dataset(key, data=value)
+            
+        # Everything else, attempt to write as attribute.
+        else:
+            group.attrs[key] = value
+
+
+def dict_from_group(group: Group[Immutable]) -> dict[str, Any]:
+    """
+    Recursively reconstructs a nested dictionary from a bamboost group.
+
+    Args:
+        group: The target bamboost group to read from.
+
+    Returns:
+        A dictionary containing the reconstructed data.
+
+    Note:
+        - Subgroups are recursively converted back into nested dictionaries.
+        - Datasets are loaded into memory as NumPy arrays.
+        - HDF5 attributes are merged into the resulting dictionary at the 
+          corresponding level.
+        - Raises a TypeError if an item in the group is neither a 
+          Group nor a Dataset.
+    """
+    from bamboost.hdf5.ref import Group, Dataset
+
+    data_dict = {}
+    for key, value in group.items():
+        if isinstance(value, Group) and not isinstance(value, Dataset):
+            data_dict[key] = dict_from_group(value)
+        elif isinstance(value, Dataset):
+            data_dict[key] = value[:]
+        else:
+            raise TypeError("The value is neither a Dataset nor a Group.")
+
+    attributes = {k: v for k, v in group.attrs.items()}
+    return data_dict | attributes

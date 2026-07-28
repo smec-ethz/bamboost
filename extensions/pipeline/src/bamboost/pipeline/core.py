@@ -5,7 +5,7 @@ from enum import Enum, auto
 from dataclasses import dataclass, field
 from typing import Callable, Any, Protocol
 
-from bamboost.core.simulation import Simulation
+from bamboost.simulation import Simulation
 from bamboost._logger import BAMBOOST_LOGGER
 
 
@@ -175,7 +175,7 @@ class SimulationRunner[CFG: FromDictParsable]:
         # Initialize the records, making sure the persistent jobs states are taken from disk
         records = {job: JobRecord.from_sim_metadata(job, sim) for job in self.jobs}
         context = Context(
-            sim=sim, config=self.config_cls.from_dict(sim.parameters.read())
+            sim=sim, config=self.config_cls.from_dict(sim.parameters)
         )
         run_state = RunState(self, context, records)
 

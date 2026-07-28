@@ -524,7 +524,7 @@ class _Simulation(H5Object[MT], ABC):
         Args:
             status: The new status to set for the simulation.
         """
-        self._core.update_status(status.state, status.msg)
+        self._core.update_status(status.state)
 
     def run(self, stage: str) -> None:
         return self._core.run(stage)
@@ -690,7 +690,7 @@ class SimulationWriter(_Simulation[Mutable]):
     # TODO: decide whether this is desirable
     def __exit__(self, exc_type, exc_val, exc_tb):
         if exc_type:
-            self._core.update_status(_Status_simmr.Failed, str(exc_val))
+            self._core.update_status(_Status_simmr.Failed)
             log.error(
                 f"Simulation failed with {exc_type.__name__}: {exc_val}\nTraceback: {exc_tb}"
             )
